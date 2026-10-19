@@ -441,8 +441,15 @@ function buildInvoiceEscPosBuffer(inv) {
     if (remainder) {
       pushStr('  ' + remainder + '\n');
     }
-    if (item.totalSqft && item.width && item.height) {
-      pushStr(`  (${item.width}' x ${item.height}' = ${item.totalSqft} sqft)\n`);
+    if (item.width && item.height) {
+      const singleSqft = Number(((item.width || 0) * (item.height || 0)).toFixed(2));
+      const qty = Number(item.qty) || 1;
+      const totSqft = item.totalSqft && item.totalSqft !== singleSqft
+        ? item.totalSqft
+        : Number((singleSqft * qty).toFixed(2));
+      pushStr(`  (${item.width}' x ${item.height}' = ${singleSqft} sqft${qty > 1 ? ` x ${qty} = ${totSqft} sqft` : ''})\n`);
+    } else if (item.totalSqft) {
+      pushStr(`  (${item.totalSqft} sqft)\n`);
     }
     if (item.notes) {
       pushStr('  * Note: ' + item.notes + '\n');
