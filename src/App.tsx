@@ -90,9 +90,9 @@ const MainLayout: React.FC = () => {
     const canAccessSales = isSuperAdmin || Boolean(checkPermission && checkPermission('sales.view'));
     const canAccessInventory = isSuperAdmin || Boolean(checkPermission && checkPermission('inventory.view'));
     const canAccessSupply = isSuperAdmin || Boolean(checkPermission && checkPermission('supply.view'));
-    const canAccessProjects = isSuperAdmin || Boolean(checkPermission && (checkPermission('sales.view') || checkPermission('pos.view')));
+    const canAccessProjects = isSuperAdmin || Boolean(checkPermission && (checkPermission('projects.view') || checkPermission('projects.manage')));
     const canAccessAccounting = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.view'));
-    const canAccessReports = isSuperAdmin || Boolean(checkPermission && (checkPermission('accounting.export_reports') || checkPermission('accounting.view') || checkPermission('sales.view')));
+    const canAccessReports = isSuperAdmin || Boolean(checkPermission && (checkPermission('reports.view') || checkPermission('accounting.export_reports')));
 
     // Determine first permitted tab for redirection if current tab is not allowed
     const isTabPermitted = (tab: string): boolean => {

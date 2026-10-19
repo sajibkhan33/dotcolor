@@ -23,7 +23,11 @@ export interface ProjectManagementModuleProps {
     onOpenInvoiceModal?: (id: string, mode?: 'invoice' | 'challan' | 'pos', options?: { autoPrint?: boolean; isPadMode?: boolean }) => void;
 }
 export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = ({ onOpenInvoiceModal }) => {
-    const { projects, addProject, updateProject, deleteProject, addProjectSales, collectProjectDue, addProjectExpense, addProjectExpenses, deleteProjectSales, deleteProjectExpense, syncProjectsWithAccounting, journalEntries = [], chartOfAccounts = [], expenseHeads = [], language, profile, paymentMethods = [], invoices = [], linkInvoiceToProject, unlinkInvoiceFromProject, createProjectFromInvoice, generateInvoiceForProject, syncProjectInvoice, customers = [], transactions = [], accountBalances, } = useApp();
+    const { projects, addProject, updateProject, deleteProject, addProjectSales, collectProjectDue, addProjectExpense, addProjectExpenses, deleteProjectSales, deleteProjectExpense, syncProjectsWithAccounting, journalEntries = [], chartOfAccounts = [], expenseHeads = [], language, profile, paymentMethods = [], invoices = [], linkInvoiceToProject, unlinkInvoiceFromProject, createProjectFromInvoice, generateInvoiceForProject, syncProjectInvoice, customers = [], transactions = [], accountBalances, checkPermission, activeStaff } = useApp();
+
+    const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.name || '').toLowerCase().includes('super admin');
+    const canManageProjects = isSuperAdmin || Boolean(checkPermission && checkPermission('projects.manage'));
     const isBn = language === 'bn';
     const [searchTerm, setSearchType] = useState(() => {
         try {
@@ -594,27 +598,29 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
             <span>{'Sync COA'}</span>
           </button>
 
-          <button type="button" onClick={() => {
-            setEditingProject(null);
-            setNewProject({
-                name: '',
-                nameBn: '',
-                clientName: '',
-                clientPhone: '',
-                budget: 0,
-                status: 'In Progress',
-                startDate: new Date().toISOString().split('T')[0],
-                endDate: '',
-                notes: '',
-                invoiceId: '',
-                chartOfAccountId: 'coa-4051',
-                includeSalesItem: true,
-            });
-            setShowCreateModal(true);
-        }} className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm transition-all cursor-pointer">
-            <Plus className="w-4 h-4"/>
-            <span>{'Create New Project'}</span>
-          </button>
+          {canManageProjects && (
+            <button type="button" onClick={() => {
+              setEditingProject(null);
+              setNewProject({
+                  name: '',
+                  nameBn: '',
+                  clientName: '',
+                  clientPhone: '',
+                  budget: 0,
+                  status: 'In Progress',
+                  startDate: new Date().toISOString().split('T')[0],
+                  endDate: '',
+                  notes: '',
+                  invoiceId: '',
+                  chartOfAccountId: 'coa-4051',
+                  includeSalesItem: true,
+              });
+              setShowCreateModal(true);
+            }} className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm transition-all cursor-pointer">
+              <Plus className="w-4 h-4"/>
+              <span>{'Create New Project'}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1001,49 +1007,57 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                         </div>
                       )}
 
-                      <button type="button" onClick={() => {
-                    setShowSalesModal(project.id);
-                    setSalesForm({
-                        invoiceNo: project.invoiceNo || '',
-                        description: '',
-                        date: new Date().toISOString().split('T')[0],
-                        clientName: project.clientName,
-                        generalNote: '',
-                        paymentRows: [
-                            { id: `pay-${Date.now()}-1`, method: 'Cash', amount: '', note: '' },
-                        ],
-                    });
-                }} className="px-2 py-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-colors cursor-pointer">
-                        + {'Add Sales'}
-                      </button>
+                      {canManageProjects && (
+                        <button type="button" onClick={() => {
+                          setShowSalesModal(project.id);
+                          setSalesForm({
+                              invoiceNo: project.invoiceNo || '',
+                              description: '',
+                              date: new Date().toISOString().split('T')[0],
+                              clientName: project.clientName,
+                              generalNote: '',
+                              paymentRows: [
+                                  { id: `pay-${Date.now()}-1`, method: 'Cash', amount: '', note: '' },
+                              ],
+                          });
+                        }} className="px-2 py-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-colors cursor-pointer">
+                          + {'Add Sales'}
+                        </button>
+                      )}
 
-                      <button type="button" onClick={() => {
-                    setShowExpenseModal(project.id);
-                    setExpenseDate(new Date().toISOString().split('T')[0]);
-                    setExpenseGeneralNote('');
-                    setExpenseRows([
-                        {
-                            id: `exp-${Date.now()}-1`,
-                            category: '',
-                            categorySearch: '',
-                            amount: '',
-                            note: '',
-                            isDropdownOpen: false,
-                            linkedAccountId: projectExpAcc.id,
-                            paymentMethod: 'Cash in Hand',
-                        },
-                    ]);
-                }} className="px-2 py-1 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg border border-rose-200 transition-colors cursor-pointer">
-                        + {'Add Expense'}
-                      </button>
+                      {canManageProjects && (
+                        <button type="button" onClick={() => {
+                          setShowExpenseModal(project.id);
+                          setExpenseDate(new Date().toISOString().split('T')[0]);
+                          setExpenseGeneralNote('');
+                          setExpenseRows([
+                              {
+                                  id: `exp-${Date.now()}-1`,
+                                  category: '',
+                                  categorySearch: '',
+                                  amount: '',
+                                  note: '',
+                                  isDropdownOpen: false,
+                                  linkedAccountId: projectExpAcc.id,
+                                  paymentMethod: 'Cash in Hand',
+                              },
+                          ]);
+                        }} className="px-2 py-1 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg border border-rose-200 transition-colors cursor-pointer">
+                          + {'Add Expense'}
+                        </button>
+                      )}
 
-                      <button type="button" onClick={() => handleOpenEdit(project)} className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer" title="Edit Project">
-                        <Edit2 className="w-3.5 h-3.5"/>
-                      </button>
+                      {canManageProjects && (
+                        <button type="button" onClick={() => handleOpenEdit(project)} className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer" title="Edit Project">
+                          <Edit2 className="w-3.5 h-3.5"/>
+                        </button>
+                      )}
 
-                      <button type="button" onClick={() => setProjectToDelete(project)} className="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer" title="Delete Project">
-                        <Trash2 className="w-3.5 h-3.5"/>
-                      </button>
+                      {canManageProjects && (
+                        <button type="button" onClick={() => setProjectToDelete(project)} className="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer" title="Delete Project">
+                          <Trash2 className="w-3.5 h-3.5"/>
+                        </button>
+                      )}
 
                       <button type="button" onClick={() => setExpandedProjectId(isExpanded ? null : project.id)} className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-lg border border-slate-200 transition-colors cursor-pointer" title={isExpanded ? 'Collapse' : 'Expand full details'}>
                         {isExpanded ? <ChevronUp className="w-3.5 h-3.5"/> : <ChevronDown className="w-3.5 h-3.5"/>}

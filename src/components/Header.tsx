@@ -25,9 +25,9 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
     const canAccessSales = isSuperAdmin || Boolean(checkPermission && checkPermission('sales.view'));
     const canAccessInventory = isSuperAdmin || Boolean(checkPermission && checkPermission('inventory.view'));
     const canAccessSupply = isSuperAdmin || Boolean(checkPermission && checkPermission('supply.view'));
-    const canAccessProjects = isSuperAdmin || Boolean(checkPermission && (checkPermission('sales.view') || checkPermission('pos.view')));
+    const canAccessProjects = isSuperAdmin || Boolean(checkPermission && (checkPermission('projects.view') || checkPermission('projects.manage')));
     const canAccessAccounting = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.view'));
-    const canAccessReports = isSuperAdmin || Boolean(checkPermission && (checkPermission('accounting.export_reports') || checkPermission('accounting.view') || checkPermission('sales.view')));
+    const canAccessReports = isSuperAdmin || Boolean(checkPermission && (checkPermission('reports.view') || checkPermission('accounting.export_reports')));
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [profileFormData, setProfileFormData] = useState({
         name: '',

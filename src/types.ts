@@ -466,7 +466,7 @@ export interface RolePermission {
   code: string;
   name: string;
   nameBn: string;
-  category: 'POS' | 'Sales' | 'Inventory' | 'Supply Chain' | 'Accounting' | 'Settings';
+  category: 'POS' | 'Sales' | 'Inventory' | 'Supply Chain' | 'Accounting' | 'Projects' | 'Reports' | 'Settings';
 }
 
 export interface UserRole {

@@ -14,7 +14,15 @@ interface SalesModuleProps {
     onOpenChallanModal: (invoiceId: string) => void;
 }
 export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, onOpenChallanModal, }) => {
-    const { invoices, quotations, customers, products, profile, language, paymentMethods = [], chartOfAccounts = [], transactions = [], accountBalances, updateProductionStatus, updateInvoice, deleteInvoice, collectInvoicePayment, convertQuotationToInvoice, addQuotation, updateQuotation, updateQuotationStatus, deleteQuotation, addCustomer, updateCustomer, deleteCustomer, projects = [], createProjectFromInvoice, } = useApp();
+    const { invoices, quotations, customers, products, profile, language, paymentMethods = [], chartOfAccounts = [], transactions = [], accountBalances, updateProductionStatus, updateInvoice, deleteInvoice, collectInvoicePayment, convertQuotationToInvoice, addQuotation, updateQuotation, updateQuotationStatus, deleteQuotation, addCustomer, updateCustomer, deleteCustomer, projects = [], createProjectFromInvoice, checkPermission, activeStaff, } = useApp();
+
+    const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.name || '').toLowerCase().includes('super admin');
+    const canCreateInvoice = isSuperAdmin || Boolean(checkPermission && checkPermission('sales.create_invoice'));
+    const canEditInvoice = isSuperAdmin || Boolean(checkPermission && checkPermission('sales.edit_invoice'));
+    const canDeleteInvoice = isSuperAdmin || Boolean(checkPermission && checkPermission('sales.delete_invoice'));
+    const canCollectPayment = isSuperAdmin || Boolean(checkPermission && checkPermission('sales.collect_payment'));
+    const canManageQuotations = isSuperAdmin || Boolean(checkPermission && checkPermission('sales.manage_quotations'));
     const activePaymentMethods = useMemo(() => {
         const list = (paymentMethods || []).filter((p) => p.isEnabled);
         return list.length > 0 ? list : [{ id: 'pm-cash', name: 'Cash', nameBn: "Nagad", type: 'cash' as const, isEnabled: true }];
@@ -645,14 +653,14 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
           </button>
         </div>
 
-        {activeSubTab === 'invoices' && (<div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+        {activeSubTab === 'invoices' && canCreateInvoice && (<div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
             <button type="button" onClick={() => setShowDirectInvoiceModal(true)} className="w-full md:w-auto px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-all">
               <Plus className="w-4 h-4"/>
               <span>{'+ Create Sales Invoice'}</span>
             </button>
           </div>)}
 
-        {activeSubTab === 'quotations' && (<button type="button" onClick={() => {
+        {activeSubTab === 'quotations' && canManageQuotations && (<button type="button" onClick={() => {
             setEditingQuotation(null);
             setQuoteCustomerName('');
             setQuoteCustomerPhone('');
@@ -937,36 +945,38 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         </button>
 
                         {/* Edit Invoice */}
-                        <button type="button" onClick={() => {
-                    setEditingInvoice(inv);
-                    setEditInvoiceItems(inv.items || []);
-                    setEditInvoiceRefNo(inv.referenceNo || '');
-                    setEditInvoiceWarehouse(inv.warehouseLocation || 'Factory');
-                    setInvoiceDiscountType(inv.discountType || 'amount');
-                    setInvoiceDiscount(inv.discountValue !== undefined ? inv.discountValue : (inv.discount || 0));
-                    setInvoiceVatType(inv.vatType || 'percent');
-                    setInvoiceVatAmountInput(inv.vatValue !== undefined ? inv.vatValue : (inv.vatRate || 0));
-                    setInvItemName('');
-                    setInvItemQty(1);
-                    setInvItemPrice(1000);
-                    setInvItemUnit('pcs');
-                    setInvItemWidth('');
-                    setInvItemHeight('');
-                    setInvItemCategory('BRANDED PROMOTIONAL GIFTS');
-                    setEditInvIsCustomItem(false);
-                    setInvSelectedProductId('');
-                    setEditInvShowTypeColumn(inv.showTypeColumn ?? inv.items?.some(i => Boolean(i.type || i.itemType)) ?? false);
-                    setEditInvShowRegionColumn(inv.showRegionColumn ?? inv.items?.some(i => Boolean(i.region)) ?? false);
-                    setInvItemRegion('');
-                    setInvItemType('');
-                    const existingCustomTypes = (inv.items || [])
-                        .map((i: any) => i.type || i.itemType)
-                        .filter((t: any) => t && !PRESET_INVOICE_ITEM_TYPES.includes(t)) as string[];
-                    setEditInvCustomTypes(Array.from(new Set(existingCustomTypes)));
-                    setEditInvIsCustomType(false);
-                }} className="w-6.5 h-6.5 p-1 flex items-center justify-center text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-md border border-slate-200 transition-colors cursor-pointer" title="Edit Invoice">
-                          <Edit2 className="w-3 h-3"/>
-                        </button>
+                        {canEditInvoice && (
+                          <button type="button" onClick={() => {
+                            setEditingInvoice(inv);
+                            setEditInvoiceItems(inv.items || []);
+                            setEditInvoiceRefNo(inv.referenceNo || '');
+                            setEditInvoiceWarehouse(inv.warehouseLocation || 'Factory');
+                            setInvoiceDiscountType(inv.discountType || 'amount');
+                            setInvoiceDiscount(inv.discountValue !== undefined ? inv.discountValue : (inv.discount || 0));
+                            setInvoiceVatType(inv.vatType || 'percent');
+                            setInvoiceVatAmountInput(inv.vatValue !== undefined ? inv.vatValue : (inv.vatRate || 0));
+                            setInvItemName('');
+                            setInvItemQty(1);
+                            setInvItemPrice(1000);
+                            setInvItemUnit('pcs');
+                            setInvItemWidth('');
+                            setInvItemHeight('');
+                            setInvItemCategory('BRANDED PROMOTIONAL GIFTS');
+                            setEditInvIsCustomItem(false);
+                            setInvSelectedProductId('');
+                            setEditInvShowTypeColumn(inv.showTypeColumn ?? inv.items?.some(i => Boolean(i.type || i.itemType)) ?? false);
+                            setEditInvShowRegionColumn(inv.showRegionColumn ?? inv.items?.some(i => Boolean(i.region)) ?? false);
+                            setInvItemRegion('');
+                            setInvItemType('');
+                            const existingCustomTypes = (inv.items || [])
+                                .map((i: any) => i.type || i.itemType)
+                                .filter((t: any) => t && !PRESET_INVOICE_ITEM_TYPES.includes(t)) as string[];
+                            setEditInvCustomTypes(Array.from(new Set(existingCustomTypes)));
+                            setEditInvIsCustomType(false);
+                          }} className="w-6.5 h-6.5 p-1 flex items-center justify-center text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-md border border-slate-200 transition-colors cursor-pointer" title="Edit Invoice">
+                            <Edit2 className="w-3 h-3"/>
+                          </button>
+                        )}
 
                         {/* Delivery Challan */}
                         <button type="button" onClick={() => onOpenChallanModal(inv.id)} className="w-6.5 h-6.5 p-1 flex items-center justify-center text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-md border border-slate-200 transition-colors cursor-pointer" title="Generate Delivery Challan">
@@ -1018,12 +1028,14 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         )}
 
                         {/* Delete Invoice */}
-                        <button type="button" onClick={() => setInvoiceToDelete(inv)} className="w-6.5 h-6.5 p-1 flex items-center justify-center text-slate-700 hover:text-rose-600 hover:bg-rose-50 rounded-md border border-slate-200 transition-colors cursor-pointer" title="Delete Invoice">
-                          <Trash2 className="w-3 h-3"/>
-                        </button>
+                        {canDeleteInvoice && (
+                          <button type="button" onClick={() => setInvoiceToDelete(inv)} className="w-6.5 h-6.5 p-1 flex items-center justify-center text-slate-700 hover:text-rose-600 hover:bg-rose-50 rounded-md border border-slate-200 transition-colors cursor-pointer" title="Delete Invoice">
+                            <Trash2 className="w-3 h-3"/>
+                          </button>
+                        )}
 
                         {/* Collect Payment */}
-                        {inv.dueAmount > 0 && (<button type="button" onClick={() => {
+                        {canCollectPayment && inv.dueAmount > 0 && (<button type="button" onClick={() => {
                         setPaymentModalInvoice(inv);
                         setCollectAmount(inv.dueAmount);
                         setAdjustAdvanceAmount(0);
@@ -1187,7 +1199,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         </button>
 
                         {/* Edit Button if not converted to invoice */}
-                        {!q.isConverted && (<button type="button" onClick={() => {
+                        {canManageQuotations && !q.isConverted && (<button type="button" onClick={() => {
                         setEditingQuotation(q);
                         setQuoteCustomerName(q.customerName);
                         setQuoteCustomerPhone(q.customerPhone);
@@ -1218,7 +1230,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                           </button>)}
 
                         {/* Convert to Invoice Button */}
-                        {q.status === 'Approved' && !q.isConverted && (<button type="button" onClick={() => {
+                        {canCreateInvoice && q.status === 'Approved' && !q.isConverted && (<button type="button" onClick={() => {
                         const inv = convertQuotationToInvoice(q.id);
                         if (inv) {
                             setActiveSubTab('invoices');
@@ -1230,9 +1242,11 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                           </button>)}
 
                         {/* Delete Quotation Button */}
-                        <button type="button" onClick={() => setQuotationToDelete(q)} className="w-6.5 h-6.5 p-1 flex items-center justify-center text-slate-700 hover:text-rose-600 hover:bg-rose-50 rounded-md border border-slate-200 transition-colors cursor-pointer" title="Delete Quotation">
-                          <Trash2 className="w-3 h-3"/>
-                        </button>
+                        {canManageQuotations && (
+                          <button type="button" onClick={() => setQuotationToDelete(q)} className="w-6.5 h-6.5 p-1 flex items-center justify-center text-slate-700 hover:text-rose-600 hover:bg-rose-50 rounded-md border border-slate-200 transition-colors cursor-pointer" title="Delete Quotation">
+                            <Trash2 className="w-3 h-3"/>
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>))}

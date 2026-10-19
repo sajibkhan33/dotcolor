@@ -1363,57 +1363,57 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
           ` : ''}
         }
       `}</style>
-      {/* Container */}
-      <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[96vh] flex flex-col shadow-2xl border border-slate-200 print:max-w-none print:w-full print:max-h-none print:h-auto print:border-none print:shadow-none print:rounded-none">
+      {/* Container - Sized to match A4 invoice document width */}
+      <div className="bg-white rounded-2xl max-w-[820px] w-full max-h-[96vh] flex flex-col shadow-2xl border border-slate-200 print:max-w-none print:w-full print:max-h-none print:h-auto print:border-none print:shadow-none print:rounded-none">
         
         {/* Top Control Bar (Hidden when printing via CSS @media print) */}
-        <div className="print:hidden p-3 sm:p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50 rounded-t-2xl">
+        <div className="print:hidden px-2 sm:px-3 py-1.5 border-b border-slate-200 flex items-center justify-between gap-1 overflow-x-auto scrollbar-none bg-slate-50 rounded-t-2xl">
           {isPublicView ? (<div className="flex items-center justify-between w-full gap-2">
               <div className="flex items-center gap-2">
-                <div className="p-2 bg-black rounded-xl text-white shadow-2xs">
-                  <FileText className="w-5 h-5"/>
+                <div className="p-1 bg-black rounded-lg text-white shadow-2xs">
+                  <FileText className="w-3.5 h-3.5"/>
                 </div>
                 <div>
-                  <div className="text-xs sm:text-sm font-black text-slate-900 tracking-wider uppercase">
+                  <div className="text-xs font-black text-slate-900 tracking-wider uppercase">
                     {'SALES INVOICE'}
                   </div>
-                  <div className="text-[11px] font-mono font-bold text-slate-600">
+                  <div className="text-[10px] font-mono font-bold text-slate-600">
                     #{invoice.invoiceNo}
                   </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
                 {/* Mobile Fit vs 100% Zoom Toggle */}
-                {isMobile && template !== 'POS' && (<button type="button" onClick={() => setIsMobileFit((prev) => !prev)} className="px-2.5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs" title={isMobileFit ? "%" : ""}>
+                {isMobile && template !== 'POS' && (<button type="button" onClick={() => setIsMobileFit((prev) => !prev)} className="px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-[10.5px] font-bold flex items-center gap-1 cursor-pointer transition-all shadow-2xs" title={isMobileFit ? "%" : ""}>
                     {isMobileFit ? (<>
-                        <ZoomIn className="w-4 h-4"/>
+                        <ZoomIn className="w-3.5 h-3.5"/>
                         <span className="hidden sm:inline">100%</span>
                       </>) : (<>
-                        <Maximize2 className="w-4 h-4"/>
+                        <Maximize2 className="w-3.5 h-3.5"/>
                         <span className="hidden sm:inline"></span>
                       </>)}
                   </button>)}
 
                 {/* Column Toggles Pill (COLS: Type, Region) */}
                 {template !== 'POS' && (
-                  <div className="bg-amber-50 border border-amber-200/90 text-amber-900 px-3 py-1.5 rounded-full flex items-center gap-2 text-xs font-semibold shadow-2xs">
-                    <span className="font-black text-amber-950">COLS:</span>
-                    <label className="flex items-center gap-1 cursor-pointer select-none text-slate-800 hover:text-black">
+                  <div className="bg-amber-50 border border-amber-200/90 text-amber-900 px-1.5 py-0.5 rounded-full flex items-center gap-1 text-[10.5px] font-semibold shadow-2xs whitespace-nowrap">
+                    <span className="font-bold text-amber-950">COLS:</span>
+                    <label className="flex items-center gap-0.5 cursor-pointer select-none text-slate-800 hover:text-black">
                       <input
                         type="checkbox"
                         checked={showType}
                         onChange={(e) => setShowType(e.target.checked)}
-                        className="w-3.5 h-3.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
+                        className="w-3 h-3 rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
                       />
                       <span>Type</span>
                     </label>
-                    <label className="flex items-center gap-1 cursor-pointer select-none text-slate-800 hover:text-black">
+                    <label className="flex items-center gap-0.5 cursor-pointer select-none text-slate-800 hover:text-black">
                       <input
                         type="checkbox"
                         checked={showRegion}
                         onChange={(e) => setShowRegion(e.target.checked)}
-                        className="w-3.5 h-3.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
+                        className="w-3 h-3 rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
                       />
                       <span>Region</span>
                     </label>
@@ -1421,128 +1421,119 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                 )}
 
                 {/* Print Document */}
-                <button type="button" onClick={() => handlePrint(false)} disabled={isPrinting} className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-all" title="Print   Save as PDF">
-                  <Printer className="w-4 h-4 text-amber-400"/>
+                <button type="button" onClick={() => handlePrint(false)} disabled={isPrinting} className="px-2 py-1 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white rounded-lg text-[10.5px] font-bold flex items-center gap-1 shadow-xs cursor-pointer transition-all whitespace-nowrap" title="Print / Save as PDF">
+                  <Printer className="w-3.5 h-3.5 text-amber-400"/>
                   <span>{isPrinting ? ('Printing...') : ('Print')}</span>
                 </button>
 
                 {/* Direct PDF Download */}
-                <button type="button" onClick={handleDownloadPDF} disabled={isDownloadingPdf} className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-all" title="PDF.pdf">
-                  {isDownloadingPdf ? (<div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"/>) : (<Download className="w-4 h-4"/>)}
+                <button type="button" onClick={handleDownloadPDF} disabled={isDownloadingPdf} className="px-2 py-1 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-slate-950 rounded-lg text-[10.5px] font-bold flex items-center gap-1 shadow-xs cursor-pointer transition-all whitespace-nowrap" title="PDF.pdf">
+                  {isDownloadingPdf ? (<div className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"/>) : (<Download className="w-3.5 h-3.5"/>)}
                   <span>{isDownloadingPdf ? ('Generating...') : ('Download PDF')}</span>
                 </button>
 
                 {/* Close Button */}
-                <button type="button" onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-200 cursor-pointer" title="Close">
-                  <X className="w-5 h-5"/>
+                <button type="button" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200 cursor-pointer" title="Close">
+                  <X className="w-4 h-4"/>
                 </button>
               </div>
             </div>) : (<>
-              {/* Template Switcher & Pad Mode Toggle */}
-              <div className="flex flex-wrap items-center gap-2">
-                {isQuote ? (<div className="text-slate-800 text-sm font-black flex items-center gap-2 px-1">
-                    <FileText className="w-5 h-5 text-amber-500"/>
+              {/* Template Switcher & Column Toggles (Left side) */}
+              <div className="flex items-center gap-1 shrink-0">
+                {isQuote ? (<div className="text-slate-800 text-xs font-black flex items-center gap-1.5 px-1 whitespace-nowrap">
+                    <FileText className="w-4 h-4 text-amber-500"/>
                     <span>{'Quotation Print & View'}</span>
-                  </div>) : (<div className="flex items-center gap-1.5 bg-slate-200/80 p-1 rounded-xl text-xs font-bold">
-                    <button type="button" onClick={() => setTemplate('A4')} className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${template === 'A4' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>A4</button>
-                    <button type="button" onClick={() => setTemplate('WORK_ORDER')} className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${template === 'WORK_ORDER' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>Factory Work Order</button>
-                    <button type="button" onClick={() => setTemplate('CHALLAN')} className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${template === 'CHALLAN' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>Challan</button>
-                    <button type="button" onClick={() => setTemplate('POS')} className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${template === 'POS' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>80mm POS</button>
+                  </div>) : (<div className="flex items-center gap-0.5 bg-slate-200/80 p-0.5 rounded-lg text-[10.5px] font-bold">
+                    <button type="button" onClick={() => setTemplate('A4')} className={`px-2 py-0.5 rounded-md transition-all cursor-pointer whitespace-nowrap ${template === 'A4' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>A4</button>
+                    <button type="button" onClick={() => setTemplate('WORK_ORDER')} className={`px-2 py-0.5 rounded-md transition-all cursor-pointer whitespace-nowrap ${template === 'WORK_ORDER' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>Work Order</button>
+                    <button type="button" onClick={() => setTemplate('CHALLAN')} className={`px-2 py-0.5 rounded-md transition-all cursor-pointer whitespace-nowrap ${template === 'CHALLAN' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>Challan</button>
+                    <button type="button" onClick={() => setTemplate('POS')} className={`px-2 py-0.5 rounded-md transition-all cursor-pointer whitespace-nowrap ${template === 'POS' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>POS</button>
                   </div>)}
 
-                {/* Quick Pad View Toggle */}
-                {template !== 'POS' && (<div className="flex items-center gap-1 bg-white border border-slate-300 rounded-xl p-0.5 shadow-2xs text-xs">
-                    <button type="button" onClick={() => setIsPadMode(false)} className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${!isPadMode ? 'bg-slate-900 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`} title="Normal Mode with Header">Normal</button>
-                    <button type="button" onClick={() => setIsPadMode(true)} className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1 ${isPadMode ? 'bg-indigo-600 text-white shadow-2xs' : 'text-slate-600 hover:text-indigo-600'}`} title="Pad Mode (No Header/Footer)">
-                      <FileSpreadsheet className="w-3.5 h-3.5"/>
-                      <span>Pad</span>
-                    </button>
-                  </div>)}
-              </div>
-
-              {/* Action buttons (Right side: user mark 1 area) */}
-              <div className="flex items-center gap-2">
-                {/* Mobile Fit vs 100% Zoom Toggle for Admin */}
-                {isMobile && template !== 'POS' && (<button type="button" onClick={() => setIsMobileFit((prev) => !prev)} className="px-2.5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs" title={isMobileFit ? "%" : ""}>
-                    {isMobileFit ? (<>
-                        <ZoomIn className="w-4 h-4"/>
-                        <span className="hidden sm:inline">100%</span>
-                      </>) : (<>
-                        <Maximize2 className="w-4 h-4"/>
-                        <span className="hidden sm:inline">Fit</span>
-                      </>)}
-                  </button>)}
-
-                {/* Direct Hardware Thermal Print Button for 80mm POS Slip */}
-                {template === 'POS' && (<button type="button" onClick={handleHardwarePrint} disabled={isHardwarePrinting} className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-all ${hardwareAgentStatus.isOnline
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-300'
-                    : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`} title={hardwareAgentStatus.isOnline
-                    ? `Direct Hardware Print on 80mm Printer (${hardwareAgentStatus.activePrinter || '80 Printer'})`
-                    : ""}>
-                    <Printer className="w-4 h-4 text-emerald-200"/>
-                    <span>
-                      {isHardwarePrinting
-                    ? ('Printing...')
-                    : ('Thermal Printer (Agent)')}
-                    </span>
-                    {hardwareAgentStatus.isOnline ? (<span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" title="Agent Online"/>) : (<span className="text-[10px] px-1 bg-white/20 rounded font-normal">Setup</span>)}
-                  </button>)}
-
-                {template === 'POS' && (<button type="button" onClick={() => setIsPrinterBridgeOpen(true)} className="p-2 text-slate-600 hover:text-slate-900 bg-slate-200/80 hover:bg-slate-300 rounded-xl transition-all cursor-pointer flex items-center gap-1 text-xs font-bold" title={'Printer Agent Status & Setup'}>
-                    <Settings className="w-4 h-4 text-slate-700"/>
-                  </button>)}
-
-                {/* Column Toggles Pill (COLS: Type, Region) as shown in user picture 2 */}
+                {/* Column Toggles Pill (COLS: Type, Region) */}
                 {template !== 'POS' && (
-                  <div className="bg-amber-50 border border-amber-200/90 text-amber-900 px-3 py-1.5 rounded-full flex items-center gap-2 text-xs font-semibold shadow-2xs">
-                    <span className="font-black text-amber-950">COLS:</span>
-                    <label className="flex items-center gap-1 cursor-pointer select-none text-slate-800 hover:text-black">
+                  <div className="bg-amber-50 border border-amber-200/90 text-amber-900 px-1.5 py-0.5 rounded-full flex items-center gap-1.5 text-[10.5px] font-semibold shadow-2xs whitespace-nowrap">
+                    <span className="font-bold text-amber-950">COLS:</span>
+                    <label className="flex items-center gap-0.5 cursor-pointer select-none text-slate-800 hover:text-black">
                       <input
                         type="checkbox"
                         checked={showType}
                         onChange={(e) => setShowType(e.target.checked)}
-                        className="w-3.5 h-3.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
+                        className="w-3 h-3 rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
                       />
                       <span>Type</span>
                     </label>
-                    <label className="flex items-center gap-1 cursor-pointer select-none text-slate-800 hover:text-black">
+                    <label className="flex items-center gap-0.5 cursor-pointer select-none text-slate-800 hover:text-black">
                       <input
                         type="checkbox"
                         checked={showRegion}
                         onChange={(e) => setShowRegion(e.target.checked)}
-                        className="w-3.5 h-3.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
+                        className="w-3 h-3 rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
                       />
                       <span>Region</span>
                     </label>
                   </div>
                 )}
+              </div>
+
+              {/* Action buttons (Right side) */}
+              <div className="flex items-center gap-1 shrink-0">
+                {/* Mobile Fit vs 100% Zoom Toggle for Admin */}
+                {isMobile && template !== 'POS' && (<button type="button" onClick={() => setIsMobileFit((prev) => !prev)} className="px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-[10.5px] font-bold flex items-center gap-1 cursor-pointer transition-all shadow-2xs whitespace-nowrap" title={isMobileFit ? "%" : ""}>
+                    {isMobileFit ? (<>
+                        <ZoomIn className="w-3.5 h-3.5"/>
+                        <span className="hidden sm:inline">100%</span>
+                      </>) : (<>
+                        <Maximize2 className="w-3.5 h-3.5"/>
+                        <span className="hidden sm:inline">Fit</span>
+                      </>)}
+                  </button>)}
+
+                {/* Direct Hardware Thermal Print Button for 80mm POS Slip */}
+                {template === 'POS' && (<button type="button" onClick={handleHardwarePrint} disabled={isHardwarePrinting} className={`px-2 py-0.5 rounded-lg text-[10.5px] font-bold flex items-center gap-1 shadow-xs cursor-pointer transition-all whitespace-nowrap ${hardwareAgentStatus.isOnline
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-1 ring-emerald-300'
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`} title={hardwareAgentStatus.isOnline
+                    ? `Direct Hardware Print on 80mm Printer (${hardwareAgentStatus.activePrinter || '80 Printer'})`
+                    : ""}>
+                    <Printer className="w-3.5 h-3.5 text-emerald-200"/>
+                    <span>
+                      {isHardwarePrinting
+                    ? ('Printing...')
+                    : ('Thermal Print')}
+                    </span>
+                    {hardwareAgentStatus.isOnline ? (<span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" title="Agent Online"/>) : (<span className="text-[9px] px-1 bg-white/20 rounded font-normal">Setup</span>)}
+                  </button>)}
+
+                {template === 'POS' && (<button type="button" onClick={() => setIsPrinterBridgeOpen(true)} className="p-1 text-slate-600 hover:text-slate-900 bg-slate-200/80 hover:bg-slate-300 rounded-lg transition-all cursor-pointer flex items-center gap-1 text-[10.5px] font-bold" title={'Printer Agent Status & Setup'}>
+                    <Settings className="w-3.5 h-3.5 text-slate-700"/>
+                  </button>)}
 
                 {/* Standard Full Print */}
-                <button type="button" onClick={() => handlePrint(false)} disabled={isPrinting} className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-all" title={'Print complete document with header and footer'}>
-                  <Printer className="w-4 h-4 text-amber-400"/>
+                <button type="button" onClick={() => { setIsPadMode(false); handlePrint(false); }} disabled={isPrinting} className="px-2 py-1 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white rounded-lg text-[10.5px] font-bold flex items-center gap-1 shadow-xs cursor-pointer transition-all whitespace-nowrap" title={'Print complete document with header and footer'}>
+                  <Printer className="w-3.5 h-3.5 text-amber-400"/>
                   <span>{isPrinting ? ('Printing...') : ('Print Document')}</span>
                 </button>
 
                 {/* Pad Print Button */}
-                {template !== 'POS' && (<button type="button" onClick={handlePadPrint} disabled={isPrinting} className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-all ring-2 ring-indigo-300" title={'Print for pre-printed letterhead pad without header & footer'}>
-                    <FileSpreadsheet className="w-4 h-4 text-indigo-200"/>
+                {template !== 'POS' && (<button type="button" onClick={handlePadPrint} disabled={isPrinting} className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 text-white rounded-lg text-[10.5px] font-bold flex items-center gap-1 shadow-xs cursor-pointer transition-all ring-1 ring-indigo-300 whitespace-nowrap" title={'Print for pre-printed letterhead pad without header & footer'}>
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-200"/>
                     <span>{'Pad Print'}</span>
                   </button>)}
 
                 {/* Open in New Tab */}
-                <button type="button" onClick={handleOpenInNewTab} className="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-all" title={'Open document in a new browser tab to print'}>
-                  <ExternalLink className="w-4 h-4 text-slate-950"/>
-                  <span>{'Open in New Tab'}</span>
+                <button type="button" onClick={handleOpenInNewTab} className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg text-[10.5px] font-bold flex items-center gap-1 shadow-2xs cursor-pointer transition-all whitespace-nowrap" title={'Open document in a new browser tab to print'}>
+                  <ExternalLink className="w-3.5 h-3.5 text-slate-950"/>
+                  <span>{'New Tab'}</span>
                 </button>
 
                 {/* Direct PDF Download Button */}
-                <button type="button" onClick={handleDownloadPDF} disabled={isDownloadingPdf} className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-all" title={'Download PDF file (.pdf)'}>
-                  {isDownloadingPdf ? (<div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"/>) : (<Download className="w-4 h-4"/>)}
+                <button type="button" onClick={handleDownloadPDF} disabled={isDownloadingPdf} className="px-2 py-1 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-slate-950 rounded-lg text-[10.5px] font-bold flex items-center gap-1 shadow-xs cursor-pointer transition-all whitespace-nowrap" title={'Download PDF file (.pdf)'}>
+                  {isDownloadingPdf ? (<div className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"/>) : (<Download className="w-3.5 h-3.5"/>)}
                   <span>{isDownloadingPdf ? "..." : "PDF Download"}</span>
                 </button>
 
-                <button type="button" onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-200 cursor-pointer">
-                  <X className="w-5 h-5"/>
+                <button type="button" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200 cursor-pointer" title="Close">
+                  <X className="w-4 h-4"/>
                 </button>
               </div>
             </>)}
@@ -1595,7 +1586,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
           </div>)}
 
         {/* Printable Document Body */}
-        <div id="printable-invoice-content" className={`flex-1 ${isMobile && isMobileFit ? 'overflow-x-hidden' : 'overflow-x-auto'} overflow-y-auto p-1 sm:p-6 bg-slate-200/50 print:bg-white print:p-0 print:overflow-visible print:max-h-none print:block print:w-full print:max-w-full flex justify-center`}>
+        <div id="printable-invoice-content" className={`flex-1 ${isMobile && isMobileFit ? 'overflow-x-hidden' : 'overflow-x-auto'} overflow-y-auto p-1 sm:px-2.5 sm:py-4 bg-slate-200/50 print:bg-white print:p-0 print:overflow-visible print:max-h-none print:block print:w-full print:max-w-full flex justify-center`}>
           
           {/* ============================================================== */}
           {/* 1. STANDARD A4 TAX / SALES INVOICE (Paginated) */}

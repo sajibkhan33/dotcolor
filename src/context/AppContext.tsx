@@ -3910,24 +3910,28 @@ export const AppProvider: React.FC<{
     const checkPermission = (permissionCode: string): boolean => {
         if (!activeStaff || !activeStaff.role)
             return false;
-        const roleLower = (activeStaff.role || '').toLowerCase();
-        const nameLower = (activeStaff.name || '').toLowerCase();
+        const roleLower = (activeStaff.role || '').toLowerCase().trim();
+        const nameLower = (activeStaff.name || '').toLowerCase().trim();
         if (roleLower === 'super admin' ||
             nameLower === 'super admin' ||
-            nameLower.includes('super admin')) {
+            nameLower.includes('super admin') ||
+            activeStaff.customRoleId === 'role-superadmin') {
             return true;
         }
+        const cleanCode = (permissionCode || '').toLowerCase().trim();
         const checkList = [
-            permissionCode,
-            permissionCode.toLowerCase(),
-            permissionCode.toUpperCase(),
-            permissionCode.toLowerCase().replace(/_/g, '.'),
-            permissionCode.toLowerCase().replace(/\./g, '_'),
-            permissionCode.toUpperCase().replace(/\./g, '_'),
+            cleanCode,
+            cleanCode.replace(/_/g, '.'),
+            cleanCode.replace(/\./g, '_'),
         ];
-        const role = (userRoles || []).find((r) => (activeStaff.customRoleId && r.id === activeStaff.customRoleId) || r.name === activeStaff.role);
-        if (role && role.permissions) {
-            if (role.permissions.some((p) => checkList.includes(p))) {
+        const role = (userRoles || []).find((r) =>
+            (activeStaff.customRoleId && r.id === activeStaff.customRoleId) ||
+            r.id === activeStaff.role ||
+            (r.name && r.name.toLowerCase().trim() === roleLower)
+        );
+        if (role && Array.isArray(role.permissions)) {
+            const normalizedRolePerms = role.permissions.map((p) => (p || '').toLowerCase().trim());
+            if (checkList.some((code) => normalizedRolePerms.includes(code))) {
                 return true;
             }
         }
