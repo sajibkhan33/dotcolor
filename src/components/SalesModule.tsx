@@ -315,6 +315,9 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
     const [quoteCustomerCompany, setQuoteCustomerCompany] = useState('');
     const [quoteCustomerAddress, setQuoteCustomerAddress] = useState('');
     const [quoteReferenceNo, setQuoteReferenceNo] = useState('');
+    const [quotePurchaseRequisition, setQuotePurchaseRequisition] = useState('');
+    const [quoteDate, setQuoteDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [quoteValidUntil, setQuoteValidUntil] = useState(() => new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10));
     const [quoteItemName, setQuoteItemName] = useState('');
     const [quoteItemRegion, setQuoteItemRegion] = useState('');
     const [quoteItemType, setQuoteItemType] = useState('');
@@ -427,11 +430,15 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
         const grand = taxable + effectiveQuoteVat;
         if (editingQuotation) {
             updateQuotation(editingQuotation.id, {
+                date: quoteDate,
+                validUntil: quoteValidUntil,
                 customerName: quoteCustomerName,
                 customerPhone: quoteCustomerPhone,
                 customerCompany: quoteCustomerCompany,
                 customerAddress: quoteCustomerAddress.trim() || undefined,
                 referenceNo: quoteReferenceNo.trim() || undefined,
+                purchaseRequisition: quotePurchaseRequisition.trim() || undefined,
+                prNo: quotePurchaseRequisition.trim() || undefined,
                 items: finalItems,
                 subtotal: sub,
                 discount: effectiveQuoteDiscount,
@@ -451,9 +458,11 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
         }
         else {
             addQuotation({
-                date: new Date().toISOString().slice(0, 10),
+                date: quoteDate,
+                validUntil: quoteValidUntil,
                 referenceNo: quoteReferenceNo.trim() || undefined,
-                validUntil: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
+                purchaseRequisition: quotePurchaseRequisition.trim() || undefined,
+                prNo: quotePurchaseRequisition.trim() || undefined,
                 customerName: quoteCustomerName,
                 customerPhone: quoteCustomerPhone,
                 customerCompany: quoteCustomerCompany,
@@ -484,6 +493,9 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
         setQuoteCustomerCompany('');
         setQuoteCustomerAddress('');
         setQuoteReferenceNo('');
+        setQuotePurchaseRequisition('');
+        setQuoteDate(new Date().toISOString().slice(0, 10));
+        setQuoteValidUntil(new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10));
         setQuoteItemName('');
         setQuoteItemRegion('');
         setQuoteItemType('');
@@ -570,7 +582,19 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
             </button>
           </div>)}
 
-        {activeSubTab === 'quotations' && (<button type="button" onClick={() => setShowNewQuoteModal(true)} className="w-full md:w-auto px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-all">
+        {activeSubTab === 'quotations' && (<button type="button" onClick={() => {
+            setEditingQuotation(null);
+            setQuoteCustomerName('');
+            setQuoteCustomerPhone('');
+            setQuoteCustomerCompany('');
+            setQuoteCustomerAddress('');
+            setQuoteReferenceNo('');
+            setQuotePurchaseRequisition('');
+            setQuoteDate(new Date().toISOString().slice(0, 10));
+            setQuoteValidUntil(new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10));
+            setAddedQuoteItems([]);
+            setShowNewQuoteModal(true);
+        }} className="w-full md:w-auto px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-all">
             <Plus className="w-4 h-4"/>
             <span>{'+ Create New Quote'}</span>
           </button>)}
@@ -678,41 +702,49 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredInvoices.map((inv) => (<tr key={inv.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="py-2.5 px-3 whitespace-nowrap">
-                      <div className="font-bold text-slate-900 text-xs sm:text-[13px]">
+                {filteredInvoices.map((inv) => {
+                  const linkedProject = projects.find(p => p.invoiceId === inv.id || p.invoiceNo === inv.invoiceNo || (inv.projectId && p.id === inv.projectId));
+                  const isLinkedToProject = Boolean(linkedProject || inv.projectId || inv.projectCode);
+                  const pCode = linkedProject?.code || inv.projectCode;
+
+                  return (
+                    <tr
+                      key={inv.id}
+                      className={`transition-colors ${
+                        isLinkedToProject
+                          ? 'bg-amber-50/50 hover:bg-amber-100/60 border-l-4 border-l-amber-500'
+                          : 'hover:bg-slate-50/70'
+                      }`}
+                    >
+                    <td className="py-2.5 px-3">
+                      <div className="font-bold text-slate-900 text-xs sm:text-[13px] whitespace-nowrap">
                         <span>{inv.invoiceNo}</span>
                       </div>
-                      <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-1 flex-wrap">
+                      <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5 whitespace-nowrap">
                         <Calendar className="w-3 h-3 text-slate-400 shrink-0"/>
                         <span>{inv.date}</span>
-                        {inv.warehouseLocation && (<span className="font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">
+                        {inv.warehouseLocation && (
+                          <span className="font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.2 rounded text-[10px]">
                             {inv.warehouseLocation}
-                          </span>)}
-                        {(() => {
-                          const linkedProject = projects.find(p => p.invoiceId === inv.id || p.invoiceNo === inv.invoiceNo || (inv.projectId && p.id === inv.projectId));
-                          if (linkedProject || inv.projectId || inv.projectCode) {
-                            return (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const codeToSearch = linkedProject?.code || inv.projectCode || '';
-                                  if (codeToSearch) {
-                                    try { sessionStorage.setItem('PROJECT_SEARCH_TERM', codeToSearch); } catch {}
-                                  }
-                                  window.dispatchEvent(new CustomEvent('switch-tab', { detail: 'projects' }));
-                                }}
-                                className="inline-flex items-center gap-1 font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 px-1.5 py-0.5 rounded text-[9.5px] border border-amber-200 cursor-pointer transition-colors"
-                                title="Linked Project (Unified COA) - Click to view in Projects tab"
-                              >
-                                <FolderKanban className="w-2.5 h-2.5 text-amber-600 shrink-0" />
-                                <span className="font-mono">{linkedProject?.code || inv.projectCode}</span>
-                              </button>
-                            );
-                          }
-                          return null;
-                        })()}
+                          </span>
+                        )}
                       </div>
+                      {pCode && (
+                        <div className="mt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              try { sessionStorage.setItem('PROJECT_SEARCH_TERM', pCode); } catch {}
+                              window.dispatchEvent(new CustomEvent('switch-tab', { detail: 'projects' }));
+                            }}
+                            className="inline-flex items-center gap-1 font-bold text-amber-900 bg-amber-100/90 hover:bg-amber-200 px-1.5 py-0.2 rounded text-[9.5px] border border-amber-300 cursor-pointer transition-colors shadow-2xs"
+                            title={`Linked Project [${pCode}] - Click to view in Projects tab`}
+                          >
+                            <FolderKanban className="w-2.5 h-2.5 text-amber-700 shrink-0" />
+                            <span className="font-mono">{pCode}</span>
+                          </button>
+                        </div>
+                      )}
                     </td>
 
                     <td className="py-2.5 px-3 max-w-[170px]">
@@ -793,31 +825,41 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
 
                     <td className="py-2.5 px-3 text-center whitespace-nowrap">
                       <div className="flex items-center justify-center gap-1 whitespace-nowrap">
-                        {/* Printer Select Dropdown */}
-                        <select defaultValue="" onChange={(e) => {
-                    const val = e.target.value;
-                    e.target.value = '';
-                    if (val === 'pos') {
-                        onOpenInvoiceModal(inv.id, 'pos', { autoPrint: true });
-                    }
-                    else if (val === 'a4') {
-                        onOpenInvoiceModal(inv.id, 'invoice', { autoPrint: true, isPadMode: false });
-                    }
-                    else if (val === 'pad') {
-                        onOpenInvoiceModal(inv.id, 'invoice', { autoPrint: true, isPadMode: true });
-                    }
-                    else if (val === 'preview') {
-                        onOpenInvoiceModal(inv.id, 'invoice', { autoPrint: false });
-                    }
-                }} className="px-1.5 py-0.5 h-6.5 bg-amber-50 hover:bg-amber-100/90 text-amber-950 border border-amber-300 rounded-md text-[10px] font-bold cursor-pointer transition-colors shadow-2xs focus:outline-hidden" title="Select print option">
-                          <option value="" disabled>
-                            Print ▾
-                          </option>
-                          <option value="pos">🧾 80mm POS Slip</option>
-                          <option value="a4">📄 A4 Invoice</option>
-                          <option value="pad">📑 Letterhead Pad</option>
-                          <option value="preview">👁️ Preview & Edit</option>
-                        </select>
+                        {/* Compact Printer Dropdown */}
+                        <div className="relative inline-flex items-center">
+                          <button
+                            type="button"
+                            className="h-6.5 px-1.5 flex items-center gap-0.5 text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-md border border-amber-300 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                            title="Print options (POS, A4, Pad, Preview)"
+                          >
+                            <Printer className="w-3 h-3 text-amber-700 shrink-0" />
+                            <span className="text-[8px] text-amber-700">▾</span>
+                          </button>
+                          <select
+                            defaultValue=""
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              e.target.value = '';
+                              if (val === 'pos') {
+                                onOpenInvoiceModal(inv.id, 'pos', { autoPrint: true });
+                              } else if (val === 'a4') {
+                                onOpenInvoiceModal(inv.id, 'invoice', { autoPrint: true, isPadMode: false });
+                              } else if (val === 'pad') {
+                                onOpenInvoiceModal(inv.id, 'invoice', { autoPrint: true, isPadMode: true });
+                              } else if (val === 'preview') {
+                                onOpenInvoiceModal(inv.id, 'invoice', { autoPrint: false });
+                              }
+                            }}
+                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                            title="Select print option"
+                          >
+                            <option value="" disabled>Print Options</option>
+                            <option value="pos">🧾 80mm POS Slip</option>
+                            <option value="a4">📄 A4 Invoice</option>
+                            <option value="pad">📑 Letterhead Pad</option>
+                            <option value="preview">👁️ Preview & Edit</option>
+                          </select>
+                        </div>
 
                         {/* View / Preview Invoice Modal */}
                         <button type="button" onClick={() => onOpenInvoiceModal(inv.id, 'invoice', { autoPrint: false })} className="w-6.5 h-6.5 p-1 flex items-center justify-center text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-md border border-slate-200 transition-colors cursor-pointer" title="View Invoice">
@@ -857,55 +899,48 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         </button>
 
                         {/* Create Project / View Linked Project (Unified COA) */}
-                        {(() => {
-                          const linkedProject = projects.find(p => p.invoiceId === inv.id || p.invoiceNo === inv.invoiceNo || (inv.projectId && p.id === inv.projectId));
-                          if (linkedProject || inv.projectId || inv.projectCode) {
-                            const pCode = linkedProject?.code || inv.projectCode || 'PRJ';
-                            return (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (pCode && pCode !== 'PRJ') {
-                                    try { sessionStorage.setItem('PROJECT_SEARCH_TERM', pCode); } catch {}
-                                  }
-                                  window.dispatchEvent(new CustomEvent('switch-tab', { detail: 'projects' }));
-                                }}
-                                className="h-6.5 px-1.5 py-0.5 text-amber-900 bg-amber-100 hover:bg-amber-200/90 rounded-md border border-amber-300 text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
-                                title={`Linked to Project ${pCode} (Unified COA) - Click to view in Projects tab`}
-                              >
-                                <FolderKanban className="w-3 h-3 text-amber-700" />
-                                <span className="font-mono text-[9px]">{pCode}</span>
-                              </button>
-                            );
-                          }
-                          return (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setProjectModalInvoice(inv);
-                                const itemsCount = (inv.items || []).length;
-                                const defaultProjectName = itemsCount > 1
-                                  ? `${inv.customerName} - Project (#${inv.invoiceNo})`
-                                  : (inv.items?.[0]?.name ? `${inv.customerName} - ${inv.items[0].name}` : `${inv.customerName} - Project`);
-                                setProjectFormData({
-                                  name: defaultProjectName,
-                                  nameBn: '',
-                                  budget: Math.round((Number(inv.grandTotal) || 0) * 100) / 100,
-                                  status: 'In Progress',
-                                  startDate: inv.date || new Date().toISOString().split('T')[0],
-                                  endDate: '',
-                                  chartOfAccountId: inv.chartOfAccountId || 'coa-4051',
-                                  includeSalesItem: true,
-                                  notes: `Created against Invoice #${inv.invoiceNo}`,
-                                });
-                              }}
-                              className="w-6.5 h-6.5 p-1 flex items-center justify-center text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-md border border-amber-300 transition-colors cursor-pointer shadow-2xs"
-                              title="Create Project Against Invoice (Unified COA)"
-                            >
-                              <FolderKanban className="w-3 h-3" />
-                            </button>
-                          );
-                        })()}
+                        {isLinkedToProject ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (pCode && pCode !== 'PRJ') {
+                                try { sessionStorage.setItem('PROJECT_SEARCH_TERM', pCode); } catch {}
+                              }
+                              window.dispatchEvent(new CustomEvent('switch-tab', { detail: 'projects' }));
+                            }}
+                            className="w-6.5 h-6.5 p-1 relative flex items-center justify-center text-amber-900 bg-amber-100 hover:bg-amber-200/90 rounded-md border border-amber-400 cursor-pointer transition-colors shadow-2xs"
+                            title={`Linked to Project ${pCode} (Unified COA) - Click to view in Projects tab`}
+                          >
+                            <FolderKanban className="w-3 h-3 text-amber-700" />
+                            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-amber-600 rounded-full" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProjectModalInvoice(inv);
+                              const itemsCount = (inv.items || []).length;
+                              const defaultProjectName = itemsCount > 1
+                                ? `${inv.customerName} - Project (#${inv.invoiceNo})`
+                                : (inv.items?.[0]?.name ? `${inv.customerName} - ${inv.items[0].name}` : `${inv.customerName} - Project`);
+                              setProjectFormData({
+                                name: defaultProjectName,
+                                nameBn: '',
+                                budget: Math.round((Number(inv.grandTotal) || 0) * 100) / 100,
+                                status: 'In Progress',
+                                startDate: inv.date || new Date().toISOString().split('T')[0],
+                                endDate: '',
+                                chartOfAccountId: inv.chartOfAccountId || 'coa-4051',
+                                includeSalesItem: true,
+                                notes: `Created against Invoice #${inv.invoiceNo}`,
+                              });
+                            }}
+                            className="w-6.5 h-6.5 p-1 flex items-center justify-center text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-md border border-amber-300 transition-colors cursor-pointer shadow-2xs"
+                            title="Create Project Against Invoice (Unified COA)"
+                          >
+                            <FolderKanban className="w-3 h-3" />
+                          </button>
+                        )}
 
                         {/* Delete Invoice */}
                         <button type="button" onClick={() => setInvoiceToDelete(inv)} className="w-6.5 h-6.5 p-1 flex items-center justify-center text-slate-700 hover:text-rose-600 hover:bg-rose-50 rounded-md border border-slate-200 transition-colors cursor-pointer" title="Delete Invoice">
@@ -919,10 +954,13 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         setAdjustAdvanceAmount(0);
                     }} className="h-6.5 px-1.5 py-0.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md border border-emerald-300 text-[10px] font-bold whitespace-nowrap cursor-pointer transition-colors" title="Collect Due Payment">
                             +Pay
-                          </button>)}
+                          </button>
+                        )}
                       </div>
                     </td>
-                  </tr>))}
+                  </tr>
+                );
+              })}
 
                 {filteredInvoices.length === 0 && (<tr>
                     <td colSpan={7} className="py-10 text-center text-slate-400">
@@ -1032,31 +1070,41 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
 
                     <td className="py-2.5 px-3 text-center whitespace-nowrap">
                       <div className="flex items-center justify-center gap-1 whitespace-nowrap">
-                        {/* Printer Select Dropdown */}
-                        <select defaultValue="" onChange={(e) => {
-                    const val = e.target.value;
-                    e.target.value = '';
-                    if (val === 'pos') {
-                        onOpenInvoiceModal(q.id, 'pos', { autoPrint: true });
-                    }
-                    else if (val === 'a4') {
-                        onOpenInvoiceModal(q.id, 'invoice', { autoPrint: true, isPadMode: false });
-                    }
-                    else if (val === 'pad') {
-                        onOpenInvoiceModal(q.id, 'invoice', { autoPrint: true, isPadMode: true });
-                    }
-                    else if (val === 'preview') {
-                        onOpenInvoiceModal(q.id, 'invoice', { autoPrint: false });
-                    }
-                }} className="px-1.5 py-0.5 h-6.5 bg-amber-50 hover:bg-amber-100/90 text-amber-950 border border-amber-300 rounded-md text-[10px] font-bold cursor-pointer transition-colors shadow-2xs focus:outline-hidden" title="Select quote print option">
-                          <option value="" disabled>
-                            Print ▾
-                          </option>
-                          <option value="pos">🧾 80mm POS Slip</option>
-                          <option value="a4">📄 A4 Quote</option>
-                          <option value="pad">📑 Letterhead Pad</option>
-                          <option value="preview">👁️ Quote Preview</option>
-                        </select>
+                        {/* Compact Printer Dropdown */}
+                        <div className="relative inline-flex items-center">
+                          <button
+                            type="button"
+                            className="h-6.5 px-1.5 flex items-center gap-0.5 text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-md border border-amber-300 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                            title="Quote print options (POS, A4, Pad, Preview)"
+                          >
+                            <Printer className="w-3 h-3 text-amber-700 shrink-0" />
+                            <span className="text-[8px] text-amber-700">▾</span>
+                          </button>
+                          <select
+                            defaultValue=""
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              e.target.value = '';
+                              if (val === 'pos') {
+                                onOpenInvoiceModal(q.id, 'pos', { autoPrint: true });
+                              } else if (val === 'a4') {
+                                onOpenInvoiceModal(q.id, 'invoice', { autoPrint: true, isPadMode: false });
+                              } else if (val === 'pad') {
+                                onOpenInvoiceModal(q.id, 'invoice', { autoPrint: true, isPadMode: true });
+                              } else if (val === 'preview') {
+                                onOpenInvoiceModal(q.id, 'invoice', { autoPrint: false });
+                              }
+                            }}
+                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                            title="Select quote print option"
+                          >
+                            <option value="" disabled>Print Options</option>
+                            <option value="pos">🧾 80mm POS Slip</option>
+                            <option value="a4">📄 A4 Quote</option>
+                            <option value="pad">📑 Letterhead Pad</option>
+                            <option value="preview">👁️ Quote Preview</option>
+                          </select>
+                        </div>
 
                         {/* View Preview */}
                         <button type="button" onClick={() => onOpenInvoiceModal(q.id, 'invoice', { autoPrint: false })} className="w-6.5 h-6.5 p-1 flex items-center justify-center text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-md border border-slate-200 transition-colors cursor-pointer" title="View Quote Preview">
@@ -1071,6 +1119,9 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         setQuoteCustomerCompany(q.customerCompany || '');
                         setQuoteCustomerAddress(q.customerAddress || '');
                         setQuoteReferenceNo(q.referenceNo || '');
+                        setQuotePurchaseRequisition(q.purchaseRequisition || q.prNo || '');
+                        setQuoteDate(q.date || new Date().toISOString().slice(0, 10));
+                        setQuoteValidUntil(q.validUntil || new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10));
                         setQuoteType(q.quoteType || 'Sales');
                         setQuoteItemName('');
                         setQuoteItemQty(1);
@@ -2057,6 +2108,11 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 setQuoteCustomerName('');
                 setQuoteCustomerPhone('');
                 setQuoteCustomerCompany('');
+                setQuoteCustomerAddress('');
+                setQuoteReferenceNo('');
+                setQuotePurchaseRequisition('');
+                setQuoteDate(new Date().toISOString().slice(0, 10));
+                setQuoteValidUntil(new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10));
                 setQuoteItemName('');
                 setQuoteItemRegion('');
                 setQuoteItemType('');
@@ -2149,20 +2205,70 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                   <input type="text" value={quoteCustomerCompany} onChange={(e) => setQuoteCustomerCompany(e.target.value)} placeholder="e.g. Apex Apparel / Karnaphuli Group" className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium"/>
                 </div>
                 <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    {'Delivery / Customer Address'}
+                  </label>
+                  <input type="text" value={quoteCustomerAddress} onChange={(e) => setQuoteCustomerAddress(e.target.value)} placeholder="e.g. Baizid Bostami I/A, Chattogram, Bangladesh" className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium"/>
+                </div>
+              </div>
+
+              {/* Reference Number, PR, Dates Row (Matching Direct Sales Invoice layout) */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-200/60">
+                {/* 1. Purchase Requisition (PR) */}
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1 flex items-center justify-between">
+                    <span>{'Reference / PR No.'}</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={quotePurchaseRequisition}
+                    onChange={(e) => setQuotePurchaseRequisition(e.target.value)}
+                    placeholder={'e.g. PR-8901, REQ-102'}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:ring-1 focus:ring-indigo-500/30"
+                  />
+                </div>
+
+                {/* 2. Reference / PO No. */}
+                <div>
                   <label className="font-bold text-slate-700 block mb-1 flex items-center justify-between">
                     <span>{'Reference / PO No.'}</span>
                     <span className="text-[10px] text-amber-700 font-extrabold bg-amber-100/70 px-1.5 rounded">Ref</span>
                   </label>
-                  <input type="text" value={quoteReferenceNo} onChange={(e) => setQuoteReferenceNo(e.target.value)} placeholder={'e.g. QT-REF-2024, PO-77'} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold"/>
+                  <input
+                    type="text"
+                    value={quoteReferenceNo}
+                    onChange={(e) => setQuoteReferenceNo(e.target.value)}
+                    placeholder={'e.g. PO-8901, REF-102'}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs focus:ring-1 focus:ring-amber-500/30"
+                  />
                 </div>
-              </div>
 
-              {/* Customer Address Field */}
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">
-                  {'Delivery / Customer Address'}
-                </label>
-                <input type="text" value={quoteCustomerAddress} onChange={(e) => setQuoteCustomerAddress(e.target.value)} placeholder="e.g. Baizid Bostami I/A, Chattogram, Bangladesh" className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium"/>
+                {/* 3. Quotation Date */}
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    {'Quotation Date'}
+                  </label>
+                  <input
+                    type="date"
+                    value={quoteDate}
+                    onChange={(e) => setQuoteDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-semibold text-xs"
+                  />
+                </div>
+
+                {/* 4. Valid Until */}
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1 flex items-center justify-between">
+                    <span>{'Valid Until'}</span>
+                    <span className="text-[10px] text-indigo-700 font-bold bg-indigo-50 px-1.5 rounded">Expiry</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={quoteValidUntil}
+                    onChange={(e) => setQuoteValidUntil(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-semibold text-xs"
+                  />
+                </div>
               </div>
 
               {/* Quotation Type Selection */}
@@ -2546,7 +2652,11 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 setQuoteCustomerName('');
                 setQuoteCustomerPhone('');
                 setQuoteCustomerCompany('');
+                setQuoteCustomerAddress('');
                 setQuoteReferenceNo('');
+                setQuotePurchaseRequisition('');
+                setQuoteDate(new Date().toISOString().slice(0, 10));
+                setQuoteValidUntil(new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10));
                 setQuoteItemName('');
                 setQuoteItemRegion('');
                 setQuoteItemType('');

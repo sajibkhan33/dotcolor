@@ -233,6 +233,8 @@ export interface SalesInvoice {
   id: string;
   invoiceNo: string;
   referenceNo?: string;
+  purchaseRequisition?: string;
+  prNo?: string;
   date: string;
   deliveryDate?: string;
   customerId: string;
@@ -289,6 +291,8 @@ export interface Quotation {
   id: string;
   quoteNo: string;
   referenceNo?: string;
+  purchaseRequisition?: string;
+  prNo?: string;
   date: string;
   validUntil: string;
   customerName: string;
