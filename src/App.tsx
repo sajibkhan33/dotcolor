@@ -74,6 +74,8 @@ const MainLayout: React.FC = () => {
     });
     const { profile, activeStaff, language, checkPermission } = useApp();
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+        activeStaff?.customRoleId === 'role-superadmin' ||
         (activeStaff?.name || '').toLowerCase().includes('super admin');
 
     const canAccessSettings = isSuperAdmin || Boolean(

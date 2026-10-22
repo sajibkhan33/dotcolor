@@ -253,6 +253,8 @@ export const ReportModule: React.FC = () => {
     const { invoices, customers, products, purchaseOrders, suppliers, stockMovements, transactions, chartOfAccounts, staffMembers, profile, language, activeLocation, checkPermission, activeStaff } = useApp();
     const isBn = language === 'bn';
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+        activeStaff?.customRoleId === 'role-superadmin' ||
         (activeStaff?.name || '').toLowerCase().includes('super admin');
     const canExportReports = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.export_reports'));
     // Active Selected Report

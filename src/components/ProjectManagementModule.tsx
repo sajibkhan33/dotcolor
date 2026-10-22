@@ -26,6 +26,8 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
     const { projects, addProject, updateProject, deleteProject, addProjectSales, collectProjectDue, addProjectExpense, addProjectExpenses, deleteProjectSales, deleteProjectExpense, syncProjectsWithAccounting, journalEntries = [], chartOfAccounts = [], expenseHeads = [], language, profile, paymentMethods = [], invoices = [], linkInvoiceToProject, unlinkInvoiceFromProject, createProjectFromInvoice, generateInvoiceForProject, syncProjectInvoice, customers = [], transactions = [], accountBalances, checkPermission, activeStaff } = useApp();
 
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+        activeStaff?.customRoleId === 'role-superadmin' ||
         (activeStaff?.name || '').toLowerCase().includes('super admin');
     const canManageProjects = isSuperAdmin || Boolean(checkPermission && checkPermission('projects.manage'));
     const isBn = language === 'bn';

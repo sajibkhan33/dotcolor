@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { JournalEntry } from '../types';
 import { DocumentHeader } from './DocumentHeader';
-import { FileText, Plus, Search, Printer, Calendar, ArrowRight, ShieldCheck, CheckCircle2, AlertCircle, Eye, Edit2, X, RefreshCw, } from 'lucide-react';
+import { FileText, Plus, Search, Printer, Calendar, ArrowRight, ShieldCheck, CheckCircle2, AlertCircle, Eye, Edit2, Trash2, X, RefreshCw, } from 'lucide-react';
 export const JournalEntriesManager: React.FC = () => {
-    const { journalEntries = [], chartOfAccounts = [], transactions = [], language, profile, activeStaff, addJournalEntry, updateJournalEntry, generateJournalsFromTransactions, checkPermission, } = useApp();
+    const { journalEntries = [], chartOfAccounts = [], transactions = [], language, profile, activeStaff, addJournalEntry, updateJournalEntry, deleteJournalEntry, generateJournalsFromTransactions, checkPermission, } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
     const [selectedVoucher, setSelectedVoucher] = useState<any | null>(null);
     const [editingVoucher, setEditingVoucher] = useState<any | null>(null);
+    const [voucherToDelete, setVoucherToDelete] = useState<any | null>(null);
     const [syncMsg, setSyncMsg] = useState<string | null>(null);
     const handleSyncVouchers = () => {
         if (generateJournalsFromTransactions) {
@@ -25,7 +26,13 @@ export const JournalEntriesManager: React.FC = () => {
         amount: 0,
         narration: '',
     });
-    const canCreateJournal = checkPermission('accounting.add_income');
+    const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+        activeStaff?.customRoleId === 'role-superadmin' ||
+        (activeStaff?.name || '').toLowerCase().includes('super admin');
+    const canCreateJournal = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.add_income'));
+    const canEditJournal = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.edit_transaction'));
+    const canDeleteJournal = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.delete_transaction'));
     // Normalizer for varying JournalEntry structures (Standard vs Extended formats)
     const normalizeEntry = (entry: any) => {
         if (!entry)
@@ -275,15 +282,24 @@ export const JournalEntriesManager: React.FC = () => {
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right flex items-center justify-end gap-1.5">
-                        <button type="button" onClick={() => setSelectedVoucher(entry)} className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-all">
+                        <button type="button" onClick={() => setSelectedVoucher(entry)} className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-all" title="View & Print Voucher">
                           <Eye className="w-3.5 h-3.5"/>
                           <span>{'View & Print'}</span>
                         </button>
 
-                        <button type="button" onClick={() => handleOpenEditVoucher(entry)} className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold transition-all">
-                          <Edit2 className="w-3.5 h-3.5"/>
-                          <span>{'Edit'}</span>
-                        </button>
+                        {canEditJournal && (
+                          <button type="button" onClick={() => handleOpenEditVoucher(entry)} className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold transition-all" title="Edit Journal Voucher">
+                            <Edit2 className="w-3.5 h-3.5"/>
+                            <span>{'Edit'}</span>
+                          </button>
+                        )}
+
+                        {canDeleteJournal && (
+                          <button type="button" onClick={() => setVoucherToDelete(entry)} className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-xs font-semibold transition-all cursor-pointer" title="Delete Journal Voucher">
+                            <Trash2 className="w-3.5 h-3.5"/>
+                            <span>{'Delete'}</span>
+                          </button>
+                        )}
                       </td>
                     </tr>);
         }))}
@@ -569,5 +585,69 @@ export const JournalEntriesManager: React.FC = () => {
             </div>
           </form>
         </div>)}
+
+      {/* Delete Journal Entry Confirmation Modal */}
+      {voucherToDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">Delete Journal Voucher</h3>
+                <p className="text-xs text-slate-500">Are you sure you want to delete this voucher?</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-xl space-y-1.5 border border-slate-100 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Voucher No:</span>
+                <span className="font-mono font-bold text-slate-900">{voucherToDelete.voucherNo || voucherToDelete.entryNo || voucherToDelete.id}</span>
+              </div>
+              {voucherToDelete.reference && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500 font-medium">Reference:</span>
+                  <span className="font-mono text-slate-700">{voucherToDelete.reference}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Amount:</span>
+                <span className="font-mono font-bold text-slate-900">{profile.currencySymbol}{(voucherToDelete.totalDebit || voucherToDelete.amount || 0).toLocaleString()}</span>
+              </div>
+              {voucherToDelete.narration && (
+                <div className="flex justify-between pt-1 border-t border-slate-200/60">
+                  <span className="text-slate-500 font-medium">Narration:</span>
+                  <span className="text-slate-800 text-right truncate max-w-[200px]">{voucherToDelete.narration}</span>
+                </div>
+              )}
+            </div>
+
+            <p className="text-[11px] text-slate-500">
+              This action will remove the journal voucher from accounting records.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setVoucherToDelete(null)}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteJournalEntry(voucherToDelete.id);
+                  setVoucherToDelete(null);
+                }}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-2xs cursor-pointer"
+              >
+                Confirm & Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>);
 };

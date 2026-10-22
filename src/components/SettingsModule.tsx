@@ -104,6 +104,8 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
     const [cleanConfirmModule, setCleanConfirmModule] = useState<string | null>(null);
     const [cleanFeedback, setCleanFeedback] = useState<string | null>(null);
     const isSuperUser = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+        activeStaff?.customRoleId === 'role-superadmin' ||
         (activeStaff?.name || '').toLowerCase().includes('super admin');
     const canManageUsers = isSuperUser || checkPermission('settings.manage_users') ||
         checkPermission('SETTINGS_MANAGE_USERS');
@@ -342,9 +344,13 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
     const isSuperAdminStaff = (staff?: StaffMember | null): boolean => {
         if (!staff)
             return false;
-        return (staff.role === 'Super Admin' ||
-            (staff.name || '').toLowerCase() === 'super admin' ||
-            staff.id === 'staff-superadmin');
+        const r = (staff.role || '').toLowerCase().trim();
+        const n = (staff.name || '').toLowerCase().trim();
+        const cid = (staff.customRoleId || '').toLowerCase().trim();
+        return (r === 'super admin' || r === 'superadmin' ||
+            n === 'super admin' ||
+            staff.id === 'staff-superadmin' ||
+            cid === 'role-superadmin');
     };
     // User Handlers
     const handleOpenAddUser = () => {
@@ -461,9 +467,8 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
     const isSuperAdminRole = (role?: UserRole | null): boolean => {
         if (!role)
             return false;
-        return (role.name === 'Super Admin' ||
-            role.name.toLowerCase() === 'superadmin' ||
-            role.id === 'role-superadmin');
+        const rName = (role.name || '').toLowerCase().trim();
+        return (rName === 'super admin' || rName === 'superadmin' || role.id === 'role-superadmin');
     };
     const handleOpenEditRole = (role: UserRole) => {
         if (isSuperAdminRole(role)) {

@@ -12,9 +12,13 @@ export const AccountingModule: React.FC = () => {
     const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, invoices = [], paymentMethods = [], customers = [], updateCustomer, addTransaction, updateTransaction, deleteTransaction, projects = [], addProjectExpense, addProject, addProjectSales, collectProjectDue, generateInvoiceForProject, checkPermission, activeStaff } = useApp();
 
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+        activeStaff?.customRoleId === 'role-superadmin' ||
         (activeStaff?.name || '').toLowerCase().includes('super admin');
     const canAddIncome = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.add_income'));
     const canAddExpense = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.add_expense'));
+    const canEditTransaction = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.edit_transaction'));
+    const canDeleteTransaction = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.delete_transaction'));
     const canManageCOA = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.chart_of_accounts'));
     const canManageExpenseHeads = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.manage_expense_heads'));
     const canExportReports = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.export_reports'));
@@ -1146,13 +1150,13 @@ export const AccountingModule: React.FC = () => {
                       <Eye className="w-3.5 h-3.5"/>
                     </button>
 
-                    {(canAddIncome || canAddExpense) && (
+                    {canEditTransaction && (
                       <button type="button" onClick={() => handleOpenEditTx(tx)} className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors animate-fade-in" title={'Edit Transaction'}>
                         <Edit2 className="w-3.5 h-3.5"/>
                       </button>
                     )}
 
-                    {isSuperAdmin && (
+                    {canDeleteTransaction && (
                       <button type="button" onClick={() => setTxToDelete(tx)} className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors" title="Delete">
                         <Trash2 className="w-3.5 h-3.5"/>
                       </button>
@@ -1883,12 +1887,14 @@ export const AccountingModule: React.FC = () => {
             </div>
 
             <div className="flex justify-end gap-2 pt-1">
-              <button type="button" onClick={() => {
-                handleOpenEditTx(viewingTransaction);
-                setViewingTransaction(null);
-            }} className="px-4 py-2 border border-blue-200 bg-blue-50 text-blue-700 rounded-xl font-bold hover:bg-blue-100">
-                {'Edit'}
-              </button>
+              {canEditTransaction && (
+                <button type="button" onClick={() => {
+                  handleOpenEditTx(viewingTransaction);
+                  setViewingTransaction(null);
+                }} className="px-4 py-2 border border-blue-200 bg-blue-50 text-blue-700 rounded-xl font-bold hover:bg-blue-100">
+                  {'Edit'}
+                </button>
+              )}
               <button type="button" onClick={() => setViewingTransaction(null)} className="px-5 py-2 bg-slate-900 text-white rounded-xl font-bold">
                 {'Close'}
               </button>

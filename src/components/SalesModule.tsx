@@ -17,6 +17,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
     const { invoices, quotations, customers, products, profile, language, paymentMethods = [], chartOfAccounts = [], transactions = [], accountBalances, updateProductionStatus, updateInvoice, deleteInvoice, collectInvoicePayment, convertQuotationToInvoice, addQuotation, updateQuotation, updateQuotationStatus, deleteQuotation, addCustomer, updateCustomer, deleteCustomer, projects = [], createProjectFromInvoice, checkPermission, activeStaff, } = useApp();
 
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+        activeStaff?.customRoleId === 'role-superadmin' ||
         (activeStaff?.name || '').toLowerCase().includes('super admin');
     const canCreateInvoice = isSuperAdmin || Boolean(checkPermission && checkPermission('sales.create_invoice'));
     const canEditInvoice = isSuperAdmin || Boolean(checkPermission && checkPermission('sales.edit_invoice'));

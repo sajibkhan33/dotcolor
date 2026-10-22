@@ -7,6 +7,8 @@ export const SupplyChainModule: React.FC = () => {
     const { purchaseOrders = [], suppliers = [], products = [], profile, language, accountBalances, paymentMethods = [], chartOfAccounts = [], transactions = [], invoices = [], addPurchaseOrder, updatePurchaseOrder, deletePurchaseOrder, receivePurchaseOrder, payPurchaseOrder, paySupplier, paySupplierDue, addSupplier, updateSupplier, deleteSupplier, checkPermission, activeStaff } = useApp();
 
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+        activeStaff?.customRoleId === 'role-superadmin' ||
         (activeStaff?.name || '').toLowerCase().includes('super admin');
     const canCreatePO = isSuperAdmin || Boolean(checkPermission && checkPermission('supply.create_po'));
     const canReceiveStock = isSuperAdmin || Boolean(checkPermission && checkPermission('supply.receive_stock'));

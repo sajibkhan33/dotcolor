@@ -3,14 +3,18 @@ import { useApp } from '../context/AppContext';
 import { ExpenseHead } from '../types';
 import { Layers, Plus, Search, Edit2, Trash2, Eye, CheckCircle2, XCircle, TrendingDown, DollarSign, AlertCircle, Briefcase, Sliders, } from 'lucide-react';
 export const ExpenseHeadManager: React.FC = () => {
-    const { expenseHeads, chartOfAccounts, language, profile, addExpenseHead, updateExpenseHead, deleteExpenseHead, checkPermission, } = useApp();
+    const { expenseHeads, chartOfAccounts, language, profile, activeStaff, addExpenseHead, updateExpenseHead, deleteExpenseHead, checkPermission, } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
     const [filterCategory, setFilterCategory] = useState<string>('ALL');
     const [showAddModal, setShowAddModal] = useState(false);
     const [editingHead, setEditingHead] = useState<ExpenseHead | null>(null);
     const [viewingHead, setViewingHead] = useState<ExpenseHead | null>(null);
     const [deleteError, setDeleteError] = useState<string | null>(null);
-    const canManageExpenses = checkPermission('accounting.manage_expense_heads') || checkPermission('ACCOUNTING_EXPENSE_HEADS');
+    const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+        activeStaff?.customRoleId === 'role-superadmin' ||
+        (activeStaff?.name || '').toLowerCase().includes('super admin');
+    const canManageExpenses = isSuperAdmin || Boolean(checkPermission && (checkPermission('accounting.manage_expense_heads') || checkPermission('ACCOUNTING_EXPENSE_HEADS')));
     // Form state
     const [formData, setFormData] = useState({
         code: '',
@@ -403,12 +407,16 @@ export const ExpenseHeadManager: React.FC = () => {
                           <button type="button" onClick={() => setViewingHead(head)} className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors" title={'View'}>
                             <Eye className="w-3.5 h-3.5"/>
                           </button>
-                          <button type="button" onClick={() => handleOpenEdit(head)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg border border-slate-200 transition-colors" title={'Edit'}>
-                            <Edit2 className="w-3.5 h-3.5"/>
-                          </button>
-                          <button type="button" onClick={() => handleDelete(head.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 transition-colors" title={'Delete'}>
-                            <Trash2 className="w-3.5 h-3.5"/>
-                          </button>
+                          {canManageExpenses && (
+                            <button type="button" onClick={() => handleOpenEdit(head)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg border border-slate-200 transition-colors" title={'Edit'}>
+                              <Edit2 className="w-3.5 h-3.5"/>
+                            </button>
+                          )}
+                          {canManageExpenses && (
+                            <button type="button" onClick={() => handleDelete(head.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 transition-colors" title={'Delete'}>
+                              <Trash2 className="w-3.5 h-3.5"/>
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>);

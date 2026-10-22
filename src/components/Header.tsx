@@ -10,6 +10,8 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
     const { language, setLanguage, activeStaff, logout, updateStaffMember, checkPermission } = useApp();
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+        activeStaff?.customRoleId === 'role-superadmin' ||
         (activeStaff?.name || '').toLowerCase().includes('super admin');
 
     const canAccessSettings = isSuperAdmin || Boolean(

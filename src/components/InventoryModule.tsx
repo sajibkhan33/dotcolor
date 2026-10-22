@@ -8,6 +8,8 @@ export const InventoryModule: React.FC = () => {
     const { products, productCategories, profile, language, activeLocation, addProduct, updateProduct, deleteProduct, adjustStock, addProductCategory, updateProductCategory, checkPermission, activeStaff, } = useApp();
 
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+        activeStaff?.customRoleId === 'role-superadmin' ||
         (activeStaff?.name || '').toLowerCase().includes('super admin');
     const canAddProduct = isSuperAdmin || Boolean(checkPermission && checkPermission('inventory.add_product'));
     const canEditProduct = isSuperAdmin || Boolean(checkPermission && checkPermission('inventory.edit_product'));

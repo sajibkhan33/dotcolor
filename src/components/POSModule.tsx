@@ -13,6 +13,8 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
     const { products = [], customers = [], invoices = [], profile, language, activeLocation, paymentMethods = [], addInvoice, addCustomer, productCategories = [], checkPermission, activeStaff } = useApp();
 
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+        activeStaff?.customRoleId === 'role-superadmin' ||
         (activeStaff?.name || '').toLowerCase().includes('super admin');
     const canCreateSale = isSuperAdmin || Boolean(checkPermission && checkPermission('pos.create_sale'));
     const canApplyDiscount = isSuperAdmin || Boolean(checkPermission && checkPermission('pos.discount'));

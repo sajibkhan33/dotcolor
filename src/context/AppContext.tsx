@@ -133,6 +133,7 @@ interface AppContextType {
     journalEntries: JournalEntry[];
     addJournalEntry: (entry: Omit<JournalEntry, 'id' | 'entryNo'>) => JournalEntry;
     updateJournalEntry: (id: string, updates: Partial<JournalEntry>) => void;
+    deleteJournalEntry: (id: string) => void;
     generateJournalsFromTransactions: () => number;
     restoreDefaultExpenseHeads: () => void;
     addTransaction: (tx: Omit<AccountingTransaction, 'id'>) => void;
@@ -244,11 +245,12 @@ export const sanitizeUserRoles = (list: UserRole[]): UserRole[] => {
         if (isSuper(role)) continue;
         if (!seenIds.has(role.id)) {
             seenIds.add(role.id);
-            const normalizedPerms = Array.from(
+            let normalizedPerms = Array.from(
                 new Set(
                     (role.permissions || []).map((code) => legacyPermMap[code] || code)
                 )
             );
+
             nonSuperRoles.push({
                 ...role,
                 permissions: normalizedPerms,
@@ -4143,10 +4145,12 @@ export const AppProvider: React.FC<{
             return false;
         const roleLower = (activeStaff.role || '').toLowerCase().trim();
         const nameLower = (activeStaff.name || '').toLowerCase().trim();
+        const customRole = (activeStaff.customRoleId || '').toLowerCase().trim();
         if (roleLower === 'super admin' ||
+            roleLower === 'superadmin' ||
             nameLower === 'super admin' ||
             nameLower.includes('super admin') ||
-            activeStaff.customRoleId === 'role-superadmin') {
+            customRole === 'role-superadmin') {
             return true;
         }
         const cleanCode = (permissionCode || '').toLowerCase().trim();
@@ -4305,6 +4309,34 @@ export const AppProvider: React.FC<{
     };
     const updateJournalEntry = (id: string, updates: Partial<JournalEntry>) => {
         setJournalEntries((prev) => prev.map((je) => (je.id === id ? { ...je, ...updates } : je)));
+    };
+    const deleteJournalEntry = (id: string) => {
+        const currentList = latestStateRef.current.journalEntries || journalEntries;
+        const jeToDelete = currentList.find((je) => je.id === id);
+        const nextJournals = currentList.filter((je) => je.id !== id);
+        setJournalEntries(nextJournals);
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            journalEntries: nextJournals,
+        };
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(nextJournals));
+        } catch {}
+        triggerImmediatePush();
+        if (jeToDelete) {
+            addAuditLog({
+                staffId: activeStaff?.id || 'sys',
+                staffName: activeStaff?.name || 'Admin',
+                staffRole: activeStaff?.role || 'Admin',
+                location: 'Office',
+                actionType: 'PROFILE_UPDATED',
+                entityType: 'Accounting',
+                refNo: (jeToDelete as any).voucherNo || jeToDelete.refNo || jeToDelete.entryNo || `JV-${id.slice(-6)}`,
+                details: `Deleted journal voucher: ${(jeToDelete as any).voucherNo || jeToDelete.refNo || jeToDelete.entryNo || id} - ${jeToDelete.narration || ''} (Tk ${(jeToDelete.amount || 0).toLocaleString()})`,
+                amount: jeToDelete.amount || 0,
+                severity: 'warning',
+            });
+        }
     };
     const restoreDefaultExpenseHeads = () => {
         setExpenseHeads(INITIAL_EXPENSE_HEADS);
@@ -7278,6 +7310,7 @@ export const AppProvider: React.FC<{
             journalEntries,
             addJournalEntry,
             updateJournalEntry,
+            deleteJournalEntry,
             generateJournalsFromTransactions,
             restoreDefaultExpenseHeads,
             addTransaction,

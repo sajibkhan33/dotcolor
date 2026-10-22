@@ -40,6 +40,8 @@ const COLOR_MAP: Record<string, {
 export const CompanyProfileModule: React.FC = () => {
     const { profile, updateProfile, language, activeStaff, checkPermission } = useApp();
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+        activeStaff?.customRoleId === 'role-superadmin' ||
         (activeStaff?.name || '').toLowerCase().includes('super admin');
     const canEditCompany = isSuperAdmin || Boolean(checkPermission && checkPermission('settings.view'));
     const canManagePayments = isSuperAdmin ||

@@ -5,7 +5,7 @@ import { BookOpen, Plus, Search, Filter, Edit2, Trash2, Lock, CheckCircle2, Aler
 import * as XLSX from 'xlsx';
 import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction } from '../utils/accountUtils';
 export const ChartOfAccountsManager: React.FC = () => {
-    const { chartOfAccounts, invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], purchaseOrders = [], products = [], journalEntries = [], language, profile, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
+    const { chartOfAccounts, invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], purchaseOrders = [], products = [], journalEntries = [], language, profile, activeStaff, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
     const [filterClassification, setFilterClassification] = useState<string>('ALL');
     const [showAddModal, setShowAddModal] = useState(false);
@@ -31,7 +31,11 @@ export const ChartOfAccountsManager: React.FC = () => {
         openingBalance: 0,
         description: '',
     });
-    const canManageCOA = checkPermission('accounting.chart_of_accounts') || checkPermission('ACCOUNTING_MANAGE_COA');
+    const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+        activeStaff?.customRoleId === 'role-superadmin' ||
+        (activeStaff?.name || '').toLowerCase().includes('super admin');
+    const canManageCOA = isSuperAdmin || Boolean(checkPermission && (checkPermission('accounting.chart_of_accounts') || checkPermission('ACCOUNTING_MANAGE_COA')));
 
     // Real-time dynamic Chart of Accounts synced with Ledger Transactions, Projects & Balances
     const liveAccounts = useMemo(() => {
@@ -865,18 +869,20 @@ export const ChartOfAccountsManager: React.FC = () => {
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
-                        <button type="button" onClick={() => handleOpenEdit(acc)} className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg" title="Edit">
-                          <Edit2 className="w-3.5 h-3.5"/>
-                        </button>
+                        {canManageCOA && (
+                          <button type="button" onClick={() => handleOpenEdit(acc)} className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg" title="Edit">
+                            <Edit2 className="w-3.5 h-3.5"/>
+                          </button>
+                        )}
                         {acc.isSystem ? (
                           <span className="p-1.5 text-slate-300 cursor-not-allowed" title="System account is core to the ERP and cannot be deleted">
                             <Lock className="w-3.5 h-3.5"/>
                           </span>
-                        ) : (
+                        ) : canManageCOA ? (
                           <button type="button" onClick={() => { setDeleteError(null); setAccountToDelete(acc); }} className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg cursor-pointer" title="Delete">
                             <Trash2 className="w-3.5 h-3.5"/>
                           </button>
-                        )}
+                        ) : null}
                       </div>
                     </td>
                   </tr>)))}
