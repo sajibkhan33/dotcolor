@@ -18,12 +18,26 @@ var app = express();
 var PORT = parseInt(process.env.PORT || "5000", 10);
 var HOST = "0.0.0.0";
 var MONGODB_URI = process.env.MONGODB_URI;
+var ERP_API_KEY = process.env.ERP_API_KEY || "dotcolor_sec_key_9f82d1c6e4";
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
+var requireAuth = (req, res, next) => {
+  const headerKey = req.headers["x-api-key"];
+  const queryKey = req.query.apiKey;
+  const providedKey = typeof headerKey === "string" ? headerKey.trim() : typeof queryKey === "string" ? queryKey.trim() : null;
+  if (!providedKey || providedKey !== ERP_API_KEY) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized: Invalid or missing API key."
+    });
+  }
+  next();
+};
 var erpStateSchema = new mongoose.Schema(
   {
     id: { type: String, required: true, unique: true, default: "singleton" },
     data: { type: mongoose.Schema.Types.Mixed, required: true },
+    revision: { type: Number, default: 1 },
     updatedAt: { type: Date, default: Date.now }
   },
   { collection: "erpstates" }
@@ -54,7 +68,7 @@ app.get("/api/health", (_req, res) => {
     databaseName: isConnected ? mongoose.connection.name : null
   });
 });
-app.get("/api/state/meta", async (_req, res) => {
+app.get("/api/state/meta", requireAuth, async (_req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   if (!isConnected) {
     return res.status(503).json({
@@ -63,17 +77,18 @@ app.get("/api/state/meta", async (_req, res) => {
     });
   }
   try {
-    const doc = await ErpState.findOne({ id: "singleton" }).select("updatedAt");
+    const doc = await ErpState.findOne({ id: "singleton" }).select("updatedAt revision");
     if (!doc) {
-      return res.json({ success: true, exists: false, updatedAt: null });
+      return res.json({ success: true, exists: false, revision: 0, updatedAt: null });
     }
-    res.json({ success: true, exists: true, updatedAt: doc.updatedAt });
+    const revision = doc.revision || doc.data?._rev || 1;
+    res.json({ success: true, exists: true, revision, updatedAt: doc.updatedAt });
   } catch (error) {
     console.error("Error fetching state meta:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
-app.get("/api/state", async (_req, res) => {
+app.get("/api/state", requireAuth, async (_req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   if (!isConnected) {
     return res.status(503).json({
@@ -84,9 +99,10 @@ app.get("/api/state", async (_req, res) => {
   try {
     const doc = await ErpState.findOne({ id: "singleton" });
     if (!doc) {
-      return res.json({ success: true, data: null });
+      return res.json({ success: true, data: null, revision: 0 });
     }
-    res.json({ success: true, data: doc.data, updatedAt: doc.updatedAt });
+    const revision = doc.revision || doc.data?._rev || 1;
+    res.json({ success: true, data: doc.data, revision, updatedAt: doc.updatedAt });
   } catch (error) {
     console.error("Error fetching state:", error);
     res.status(500).json({ success: false, message: error.message });
@@ -125,8 +141,8 @@ app.get("/api/public/invoice/:id", async (req, res) => {
   }
 });
 var sseClients = /* @__PURE__ */ new Set();
-var broadcastStateUpdate = (updatedAt, senderTabId) => {
-  const payload = `data: ${JSON.stringify({ type: "STATE_UPDATED", updatedAt, senderTabId })}
+var broadcastStateUpdate = (updatedAt, senderTabId, revision) => {
+  const payload = `data: ${JSON.stringify({ type: "STATE_UPDATED", updatedAt, senderTabId, revision })}
 
 `;
   for (const client of sseClients) {
@@ -137,7 +153,7 @@ var broadcastStateUpdate = (updatedAt, senderTabId) => {
     }
   }
 };
-app.get("/api/state/events", (req, res) => {
+app.get("/api/state/events", requireAuth, (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
@@ -160,7 +176,7 @@ app.get("/api/state/events", (req, res) => {
     sseClients.delete(res);
   });
 });
-app.post("/api/state", async (req, res) => {
+app.post("/api/state", requireAuth, async (req, res) => {
   if (!isConnected) {
     return res.status(503).json({
       success: false,
@@ -168,29 +184,48 @@ app.post("/api/state", async (req, res) => {
     });
   }
   try {
-    const { data, senderTabId } = req.body;
+    const { data, clientRev, senderTabId } = req.body;
     if (!data) {
       return res.status(400).json({ success: false, message: "Data payload is required." });
     }
+    if (Array.isArray(data.auditLogs) && data.auditLogs.length > 500) {
+      data.auditLogs = data.auditLogs.slice(-500);
+    }
+    const existing = await ErpState.findOne({ id: "singleton" });
+    let currentRev = 0;
+    if (existing) {
+      currentRev = existing.revision || existing.data?._rev || 1;
+      if (typeof clientRev === "number" && clientRev < currentRev) {
+        return res.status(409).json({
+          success: false,
+          conflict: true,
+          currentRev,
+          updatedAt: existing.updatedAt,
+          message: "Conflict detected: Remote state was modified by another session. Please pull before pushing."
+        });
+      }
+    }
+    const nextRev = currentRev + 1;
+    data._rev = nextRev;
     const updated = await ErpState.findOneAndUpdate(
       { id: "singleton" },
-      { data, updatedAt: /* @__PURE__ */ new Date() },
+      { data, revision: nextRev, updatedAt: /* @__PURE__ */ new Date() },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
-    broadcastStateUpdate(updated.updatedAt, senderTabId);
-    res.json({ success: true, updatedAt: updated.updatedAt });
+    broadcastStateUpdate(updated.updatedAt, senderTabId, nextRev);
+    res.json({ success: true, revision: nextRev, updatedAt: updated.updatedAt });
   } catch (error) {
     console.error("Error saving state:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
-app.post("/api/state/reset", async (_req, res) => {
+app.post("/api/state/reset", requireAuth, async (_req, res) => {
   if (!isConnected) {
     return res.status(503).json({ success: false, message: "MongoDB not connected." });
   }
   try {
     await ErpState.deleteOne({ id: "singleton" });
-    broadcastStateUpdate(/* @__PURE__ */ new Date());
+    broadcastStateUpdate(/* @__PURE__ */ new Date(), void 0, 0);
     res.json({ success: true, message: "Cloud database state cleared." });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

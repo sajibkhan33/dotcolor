@@ -3,7 +3,10 @@ import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, InvoiceI
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
 import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
 import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation } from '../utils/accountUtils';
+import { hashPin, verifyPin, isPinHashed } from '../utils/securityUtils';
+
 const STORAGE_KEY = 'DOT_COLOR_ERP_V1_STATE';
+const ERP_API_KEY = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_ERP_API_KEY) || 'dotcolor_sec_key_9f82d1c6e4';
 interface AppContextType {
     profile: CompanyProfile;
     products: ProductItem[];
@@ -356,6 +359,45 @@ export const AppProvider: React.FC<{
             return fallback;
         }
     };
+
+    // PERF-05: Safe LocalStorage persistence helper with QuotaExceededError recovery
+    const safeSetLocalStorage = (key: string, value: string): boolean => {
+        try {
+            localStorage.setItem(key, value);
+            return true;
+        } catch (error: any) {
+            const isQuotaExceeded =
+                error &&
+                (error.name === 'QuotaExceededError' ||
+                 error.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+                 error.code === 22 ||
+                 error.code === 1014);
+
+            if (isQuotaExceeded) {
+                console.warn(`LocalStorage quota exceeded while saving "${key}". Attempting cache eviction.`);
+                try {
+                    const auditKey = `${STORAGE_KEY}_AUDIT_LOGS`;
+                    const storedLogs = localStorage.getItem(auditKey);
+                    if (storedLogs) {
+                        try {
+                            const parsed = JSON.parse(storedLogs);
+                            if (Array.isArray(parsed) && parsed.length > 50) {
+                                localStorage.setItem(auditKey, JSON.stringify(parsed.slice(0, 50)));
+                            }
+                        } catch {}
+                    }
+                    localStorage.setItem(key, value);
+                    return true;
+                } catch (retryError) {
+                    console.error(`LocalStorage quota recovery failed for "${key}". Data safely retained in memory/cloud.`, retryError);
+                    return false;
+                }
+            }
+            console.error(`Failed to write to localStorage for key "${key}":`, error);
+            return false;
+        }
+    };
+
     const [profile, setProfile] = useState<CompanyProfile>(() => {
         try {
             const saved = localStorage.getItem(`${STORAGE_KEY}_PROFILE`);
@@ -576,6 +618,7 @@ export const AppProvider: React.FC<{
     const isImportingRef = useRef(false);
     const isSyncingRef = useRef(false);
     const lastServerUpdatedAtRef = useRef(0);
+    const serverRevisionRef = useRef<number>(1);
     const syncTimeoutRef = useRef<any>(null);
     const pushToCloudRef = useRef<() => Promise<void>>(() => Promise.resolve());
     const tabIdRef = useRef<string>(`tab_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`);
@@ -701,66 +744,67 @@ export const AppProvider: React.FC<{
         };
     }, []);
 
-    // Sync to LocalStorage
+    // Sync to LocalStorage (Guarded by safeSetLocalStorage to prevent QuotaExceededError crashes - PERF-05)
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_PROFILE`, JSON.stringify(profile));
+        safeSetLocalStorage(`${STORAGE_KEY}_PROFILE`, JSON.stringify(profile));
     }, [profile]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(products));
+        safeSetLocalStorage(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(products));
     }, [products]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(customers));
+        safeSetLocalStorage(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(customers));
     }, [customers]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(suppliers));
+        safeSetLocalStorage(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(suppliers));
     }, [suppliers]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(invoices));
+        safeSetLocalStorage(`${STORAGE_KEY}_INVOICES`, JSON.stringify(invoices));
     }, [invoices]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_QUOTATIONS`, JSON.stringify(quotations));
+        safeSetLocalStorage(`${STORAGE_KEY}_QUOTATIONS`, JSON.stringify(quotations));
     }, [quotations]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(purchaseOrders));
+        safeSetLocalStorage(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(purchaseOrders));
     }, [purchaseOrders]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(transactions));
+        safeSetLocalStorage(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(transactions));
     }, [transactions]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(stockMovements));
+        safeSetLocalStorage(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(stockMovements));
     }, [stockMovements]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_LANG`, language);
+        safeSetLocalStorage(`${STORAGE_KEY}_LANG`, language);
     }, [language]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_AUDIT_LOGS`, JSON.stringify(auditLogs));
+        // ARC-02: Ensure audit logs are capped at 500 when persisting
+        safeSetLocalStorage(`${STORAGE_KEY}_AUDIT_LOGS`, JSON.stringify(auditLogs.slice(0, 500)));
     }, [auditLogs]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_STAFF`, JSON.stringify(staffMembers));
+        safeSetLocalStorage(`${STORAGE_KEY}_STAFF`, JSON.stringify(staffMembers));
     }, [staffMembers]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_ROLES`, JSON.stringify(userRoles));
+        safeSetLocalStorage(`${STORAGE_KEY}_ROLES`, JSON.stringify(userRoles));
     }, [userRoles]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(chartOfAccounts));
+        safeSetLocalStorage(`${STORAGE_KEY}_COA`, JSON.stringify(chartOfAccounts));
     }, [chartOfAccounts]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_EXPENSE_HEADS`, JSON.stringify(expenseHeads));
+        safeSetLocalStorage(`${STORAGE_KEY}_EXPENSE_HEADS`, JSON.stringify(expenseHeads));
     }, [expenseHeads]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_CATEGORIES`, JSON.stringify(productCategories));
+        safeSetLocalStorage(`${STORAGE_KEY}_CATEGORIES`, JSON.stringify(productCategories));
     }, [productCategories]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(journalEntries));
+        safeSetLocalStorage(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(journalEntries));
     }, [journalEntries]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(projects));
+        safeSetLocalStorage(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(projects));
     }, [projects]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_PAYMENT_METHODS`, JSON.stringify(paymentMethods));
+        safeSetLocalStorage(`${STORAGE_KEY}_PAYMENT_METHODS`, JSON.stringify(paymentMethods));
     }, [paymentMethods]);
     useEffect(() => {
-        localStorage.setItem(`${STORAGE_KEY}_ACTIVE_STAFF`, JSON.stringify(activeStaff));
+        safeSetLocalStorage(`${STORAGE_KEY}_ACTIVE_STAFF`, JSON.stringify(activeStaff));
     }, [activeStaff]);
     // Keep activeStaff synchronized whenever staffMembers list changes (e.g. from Cloud sync or edit)
     useEffect(() => {
@@ -1703,20 +1747,53 @@ export const AppProvider: React.FC<{
         const requestedId = (passcode !== undefined && passcode.trim() !== '') ? (staffIdOrPasscode || '').trim() : '';
 
         let staff: StaffMember | undefined;
+        let matchedWithUpgrade = false;
+        let upgradedHash = '';
 
         // If specific staff ID was provided along with passcode
         if (requestedId) {
-            staff = staffList.find((s) => s.id === requestedId && (s.password || '1234') === enteredPin);
+            staff = staffList.find((s) => {
+                if (s.id !== requestedId) return false;
+                const v = verifyPin(enteredPin, s.password);
+                if (v.valid) {
+                    if (v.needsUpgrade) {
+                        matchedWithUpgrade = true;
+                        upgradedHash = v.upgradedHash;
+                    }
+                    return true;
+                }
+                return false;
+            });
         }
 
         // Match directly by entered PIN across all staff members
         if (!staff) {
-            staff = staffList.find((s) => (s.password || '1234') === enteredPin);
+            staff = staffList.find((s) => {
+                const v = verifyPin(enteredPin, s.password);
+                if (v.valid) {
+                    if (v.needsUpgrade) {
+                        matchedWithUpgrade = true;
+                        upgradedHash = v.upgradedHash;
+                    }
+                    return true;
+                }
+                return false;
+            });
         }
 
         // Fallback match in INITIAL_STAFF_MEMBERS
         if (!staff) {
-            staff = INITIAL_STAFF_MEMBERS.find((s) => (s.password || '1234') === enteredPin);
+            staff = INITIAL_STAFF_MEMBERS.find((s) => {
+                const v = verifyPin(enteredPin, s.password);
+                if (v.valid) {
+                    if (v.needsUpgrade) {
+                        matchedWithUpgrade = true;
+                        upgradedHash = v.upgradedHash;
+                    }
+                    return true;
+                }
+                return false;
+            });
         }
 
         if (!staff) {
@@ -1733,9 +1810,22 @@ export const AppProvider: React.FC<{
             };
         }
 
-        if (!staffMembers.some((s) => s.id === staff!.id)) {
+        // Auto-upgrade legacy plain-text password to salted SHA-256 hash (SEC-04)
+        if (matchedWithUpgrade && upgradedHash) {
+            const upgradedStaff = { ...staff, password: upgradedHash };
+            staff = upgradedStaff;
+            setStaffMembers((prev) => {
+                const updated = prev.map((s) => (s.id === upgradedStaff.id ? upgradedStaff : s));
+                if (!updated.some((s) => s.id === upgradedStaff.id)) {
+                    updated.push(upgradedStaff);
+                }
+                safeSetLocalStorage(`${STORAGE_KEY}_STAFF`, JSON.stringify(updated));
+                return updated;
+            });
+        } else if (!staffMembers.some((s) => s.id === staff!.id)) {
             setStaffMembers((prev) => [...prev, staff!]);
         }
+
         setActiveStaff(staff);
         setIsAuthenticated(true);
         addAuditLog({
@@ -1786,7 +1876,8 @@ export const AppProvider: React.FC<{
             id: `audit-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
             timestamp: formattedTime,
         };
-        setAuditLogs((prev) => [newEntry, ...prev]);
+        // ARC-02: Cap audit log array at 500 most recent records to prevent payload bloat
+        setAuditLogs((prev) => [newEntry, ...prev].slice(0, 500));
     };
     const updateProfile = (updates: Partial<CompanyProfile>) => {
         setProfile((prev) => ({ ...prev, ...updates }));
@@ -3794,17 +3885,17 @@ export const AppProvider: React.FC<{
     };
     // Staff & User Management
     const addStaffMember = (staff: Omit<StaffMember, 'id'>): StaffMember => {
+        const rawPassword = staff.password?.trim() || '1234';
+        const hashedPassword = isPinHashed(rawPassword) ? rawPassword : hashPin(rawPassword);
         const newStaff: StaffMember = {
             ...staff,
+            password: hashedPassword,
             id: `staff-${Date.now()}`,
             isActive: staff.isActive ?? true,
         };
         setStaffMembers((prev) => {
             const next = [...prev, newStaff];
-            try {
-                localStorage.setItem(`${STORAGE_KEY}_STAFF`, JSON.stringify(next));
-            }
-            catch { }
+            safeSetLocalStorage(`${STORAGE_KEY}_STAFF`, JSON.stringify(next));
             return next;
         });
         addAuditLog({
@@ -3827,10 +3918,14 @@ export const AppProvider: React.FC<{
     };
     const updateStaffMember = (id: string, updates: Partial<StaffMember>) => {
         let updatedActiveMember: StaffMember | null = null;
+        const cleanedUpdates = { ...updates };
+        if (cleanedUpdates.password && !isPinHashed(cleanedUpdates.password)) {
+            cleanedUpdates.password = hashPin(cleanedUpdates.password);
+        }
         setStaffMembers((prev) => {
             const next = prev.map((s) => {
                 if (s.id === id) {
-                    const updated = { ...s, ...updates };
+                    const updated = { ...s, ...cleanedUpdates };
                     if (activeStaff?.id === id) {
                         updatedActiveMember = updated;
                     }
@@ -3838,10 +3933,7 @@ export const AppProvider: React.FC<{
                 }
                 return s;
             });
-            try {
-                localStorage.setItem(`${STORAGE_KEY}_STAFF`, JSON.stringify(next));
-            }
-            catch { }
+            safeSetLocalStorage(`${STORAGE_KEY}_STAFF`, JSON.stringify(next));
             return next;
         });
         if (updatedActiveMember) {
@@ -6737,10 +6829,16 @@ export const AppProvider: React.FC<{
         if (isSyncingRef.current) return;
         try {
             isSyncingRef.current = true;
-            const res = await fetch(`/api/state?t=${Date.now()}`, { cache: 'no-store' });
+            const res = await fetch(`/api/state?t=${Date.now()}`, {
+                headers: { 'x-api-key': ERP_API_KEY },
+                cache: 'no-store'
+            });
             if (res.ok) {
                 const stateData = await res.json();
                 if (stateData.success && stateData.data) {
+                    if (stateData.revision) {
+                        serverRevisionRef.current = stateData.revision;
+                    }
                     isImportingRef.current = true;
                     importDatabase(JSON.stringify(stateData.data), true);
                     setCloudSyncStatus('synced');
@@ -6770,13 +6868,33 @@ export const AppProvider: React.FC<{
             isSyncingRef.current = true;
             setCloudSyncStatus('syncing');
             const payload = { ...latestStateRef.current };
+            // ARC-02: Trim and cap audit logs to 500 entries before sending to cloud
+            if (Array.isArray(payload.auditLogs) && payload.auditLogs.length > 500) {
+                payload.auditLogs = payload.auditLogs.slice(0, 500);
+            }
             const res = await fetch('/api/state', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data: payload, senderTabId: tabIdRef.current }),
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': ERP_API_KEY,
+                },
+                body: JSON.stringify({
+                    data: payload,
+                    clientRev: serverRevisionRef.current,
+                    senderTabId: tabIdRef.current,
+                }),
             });
+            if (res.status === 409) {
+                // CON-03: Optimistic concurrency conflict detected. Pull remote changes immediately to prevent data loss.
+                console.warn('Cloud sync conflict: Remote server has newer state. Pulling latest data...');
+                await pullFromCloud();
+                return;
+            }
             if (res.ok) {
                 const data = await res.json();
+                if (data.revision) {
+                    serverRevisionRef.current = data.revision;
+                }
                 setCloudSyncStatus('synced');
                 setIsCloudConnected(true);
                 if (data.updatedAt) {
@@ -6810,14 +6928,24 @@ export const AppProvider: React.FC<{
         // Smart manual sync: check remote metadata first
         try {
             setCloudSyncStatus('syncing');
-            const metaRes = await fetch(`/api/state/meta?t=${Date.now()}`, { cache: 'no-store' });
+            const metaRes = await fetch(`/api/state/meta?t=${Date.now()}`, {
+                headers: { 'x-api-key': ERP_API_KEY },
+                cache: 'no-store'
+            });
             if (metaRes.ok) {
                 const meta = await metaRes.json();
-                if (meta.success && meta.updatedAt) {
-                    const remoteTs = new Date(meta.updatedAt).getTime();
-                    if (remoteTs > lastServerUpdatedAtRef.current) {
+                if (meta.success) {
+                    if (meta.revision && meta.revision > serverRevisionRef.current) {
+                        serverRevisionRef.current = meta.revision;
                         await pullFromCloud();
                         return;
+                    }
+                    if (meta.updatedAt) {
+                        const remoteTs = new Date(meta.updatedAt).getTime();
+                        if (remoteTs > lastServerUpdatedAtRef.current) {
+                            await pullFromCloud();
+                            return;
+                        }
                     }
                 }
             }
@@ -6840,10 +6968,16 @@ export const AppProvider: React.FC<{
                         setCloudSyncStatus('synced');
 
                         try {
-                            const stateRes = await fetch(`/api/state?t=${Date.now()}`, { cache: 'no-store' });
+                            const stateRes = await fetch(`/api/state?t=${Date.now()}`, {
+                                headers: { 'x-api-key': ERP_API_KEY },
+                                cache: 'no-store'
+                            });
                             if (stateRes.ok && !isCancelled) {
                                 const cloudState = await stateRes.json();
                                 if (cloudState.success && cloudState.data) {
+                                    if (cloudState.revision) {
+                                        serverRevisionRef.current = cloudState.revision;
+                                    }
                                     const remoteTs = cloudState.updatedAt ? new Date(cloudState.updatedAt).getTime() : 0;
                                     isImportingRef.current = true;
                                     importDatabase(JSON.stringify(cloudState.data), true);
@@ -6886,12 +7020,17 @@ export const AppProvider: React.FC<{
 
         const connectSSE = () => {
             try {
-                eventSource = new EventSource('/api/state/events');
+                eventSource = new EventSource(`/api/state/events?apiKey=${encodeURIComponent(ERP_API_KEY)}`);
                 eventSource.onmessage = async (e) => {
                     try {
                         const parsed = JSON.parse(e.data);
                         if (parsed.type === 'STATE_UPDATED' && parsed.updatedAt) {
                             if (parsed.senderTabId && parsed.senderTabId === tabIdRef.current) {
+                                return;
+                            }
+                            if (parsed.revision && parsed.revision > serverRevisionRef.current) {
+                                serverRevisionRef.current = parsed.revision;
+                                await pullFromCloud();
                                 return;
                             }
                             const remoteTs = new Date(parsed.updatedAt).getTime();

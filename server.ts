@@ -23,16 +23,33 @@ const app = express();
 const PORT = parseInt(process.env.PORT || '5000', 10);
 const HOST = '0.0.0.0';
 const MONGODB_URI = process.env.MONGODB_URI;
+const ERP_API_KEY = process.env.ERP_API_KEY || 'dotcolor_sec_key_9f82d1c6e4';
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+// SEC-01: API Key Authentication Middleware for state synchronization and management
+const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const headerKey = req.headers['x-api-key'];
+  const queryKey = req.query.apiKey;
+  const providedKey = typeof headerKey === 'string' ? headerKey.trim() : typeof queryKey === 'string' ? queryKey.trim() : null;
+
+  if (!providedKey || providedKey !== ERP_API_KEY) {
+    return res.status(401).json({
+      success: false,
+      message: 'Unauthorized: Invalid or missing API key.',
+    });
+  }
+  next();
+};
+
 // Mongoose Schema for ERP State Persistence
-// Matches the singleton cloud sync pattern (like restaurantstates in cafeteria project)
+// Matches the singleton cloud sync pattern with optimistic concurrency tracking (CON-03)
 const erpStateSchema = new mongoose.Schema(
   {
     id: { type: String, required: true, unique: true, default: 'singleton' },
     data: { type: mongoose.Schema.Types.Mixed, required: true },
+    revision: { type: Number, default: 1 },
     updatedAt: { type: Date, default: Date.now },
   },
   { collection: 'erpstates' }
@@ -72,7 +89,7 @@ app.get('/api/health', (_req, res) => {
 });
 
 // Lightweight meta endpoint to check if remote state was updated by another device
-app.get('/api/state/meta', async (_req, res) => {
+app.get('/api/state/meta', requireAuth, async (_req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   if (!isConnected) {
     return res.status(503).json({
@@ -82,11 +99,12 @@ app.get('/api/state/meta', async (_req, res) => {
   }
 
   try {
-    const doc = await ErpState.findOne({ id: 'singleton' }).select('updatedAt');
+    const doc = await ErpState.findOne({ id: 'singleton' }).select('updatedAt revision');
     if (!doc) {
-      return res.json({ success: true, exists: false, updatedAt: null });
+      return res.json({ success: true, exists: false, revision: 0, updatedAt: null });
     }
-    res.json({ success: true, exists: true, updatedAt: doc.updatedAt });
+    const revision = (doc as any).revision || doc.data?._rev || 1;
+    res.json({ success: true, exists: true, revision, updatedAt: doc.updatedAt });
   } catch (error: any) {
     console.error('Error fetching state meta:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -94,7 +112,7 @@ app.get('/api/state/meta', async (_req, res) => {
 });
 
 // Get ERP state from MongoDB
-app.get('/api/state', async (_req, res) => {
+app.get('/api/state', requireAuth, async (_req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   if (!isConnected) {
     return res.status(503).json({
@@ -106,9 +124,10 @@ app.get('/api/state', async (_req, res) => {
   try {
     const doc = await ErpState.findOne({ id: 'singleton' });
     if (!doc) {
-      return res.json({ success: true, data: null });
+      return res.json({ success: true, data: null, revision: 0 });
     }
-    res.json({ success: true, data: doc.data, updatedAt: doc.updatedAt });
+    const revision = (doc as any).revision || doc.data?._rev || 1;
+    res.json({ success: true, data: doc.data, revision, updatedAt: doc.updatedAt });
   } catch (error: any) {
     console.error('Error fetching state:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -166,8 +185,8 @@ app.get('/api/public/invoice/:id', async (req, res) => {
 // --- Real-Time Multi-Device Broadcast Bus (Server-Sent Events) ---
 const sseClients = new Set<express.Response>();
 
-const broadcastStateUpdate = (updatedAt: any, senderTabId?: string) => {
-  const payload = `data: ${JSON.stringify({ type: 'STATE_UPDATED', updatedAt, senderTabId })}\n\n`;
+const broadcastStateUpdate = (updatedAt: any, senderTabId?: string, revision?: number) => {
+  const payload = `data: ${JSON.stringify({ type: 'STATE_UPDATED', updatedAt, senderTabId, revision })}\n\n`;
   for (const client of sseClients) {
     try {
       client.write(payload);
@@ -178,7 +197,7 @@ const broadcastStateUpdate = (updatedAt: any, senderTabId?: string) => {
 };
 
 // SSE Stream Endpoint for Instant Live Sync across Devices
-app.get('/api/state/events', (req, res) => {
+app.get('/api/state/events', requireAuth, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
@@ -207,7 +226,7 @@ app.get('/api/state/events', (req, res) => {
 });
 
 // Save or Update ERP state in MongoDB
-app.post('/api/state', async (req, res) => {
+app.post('/api/state', requireAuth, async (req, res) => {
   if (!isConnected) {
     return res.status(503).json({
       success: false,
@@ -216,21 +235,45 @@ app.post('/api/state', async (req, res) => {
   }
 
   try {
-    const { data, senderTabId } = req.body;
+    const { data, clientRev, senderTabId } = req.body;
     if (!data) {
       return res.status(400).json({ success: false, message: 'Data payload is required.' });
     }
 
+    // ARC-02: State payload trimming - cap auditLogs to latest 500 entries to guard against MongoDB 16MB document limit
+    if (Array.isArray(data.auditLogs) && data.auditLogs.length > 500) {
+      data.auditLogs = data.auditLogs.slice(-500);
+    }
+
+    // CON-03: Optimistic Concurrency Control
+    const existing = await ErpState.findOne({ id: 'singleton' });
+    let currentRev = 0;
+    if (existing) {
+      currentRev = (existing as any).revision || existing.data?._rev || 1;
+      if (typeof clientRev === 'number' && clientRev < currentRev) {
+        return res.status(409).json({
+          success: false,
+          conflict: true,
+          currentRev,
+          updatedAt: existing.updatedAt,
+          message: 'Conflict detected: Remote state was modified by another session. Please pull before pushing.',
+        });
+      }
+    }
+
+    const nextRev = currentRev + 1;
+    data._rev = nextRev;
+
     const updated = await ErpState.findOneAndUpdate(
       { id: 'singleton' },
-      { data, updatedAt: new Date() },
+      { data, revision: nextRev, updatedAt: new Date() },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
     // Instant real-time broadcast to all other open devices/tabs (echo-filtered)
-    broadcastStateUpdate(updated.updatedAt, senderTabId);
+    broadcastStateUpdate(updated.updatedAt, senderTabId, nextRev);
 
-    res.json({ success: true, updatedAt: updated.updatedAt });
+    res.json({ success: true, revision: nextRev, updatedAt: updated.updatedAt });
   } catch (error: any) {
     console.error('Error saving state:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -238,13 +281,13 @@ app.post('/api/state', async (req, res) => {
 });
 
 // Reset state
-app.post('/api/state/reset', async (_req, res) => {
+app.post('/api/state/reset', requireAuth, async (_req, res) => {
   if (!isConnected) {
     return res.status(503).json({ success: false, message: 'MongoDB not connected.' });
   }
   try {
     await ErpState.deleteOne({ id: 'singleton' });
-    broadcastStateUpdate(new Date());
+    broadcastStateUpdate(new Date(), undefined, 0);
     res.json({ success: true, message: 'Cloud database state cleared.' });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });

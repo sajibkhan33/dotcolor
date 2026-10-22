@@ -1,3 +1,4 @@
+import { isPinHashed, maskPin } from '../utils/securityUtils';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { StaffMember, UserRole, StaffRole, PaymentMethodConfig, PaymentMethodType } from '../types';
@@ -375,7 +376,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
             location: staff.location || 'Both',
             phone: staff.phone || '',
             email: staff.email || '',
-            password: staff.password || '1234',
+            password: isPinHashed(staff.password) ? '' : (staff.password || '1234'),
             customRoleId: matchedRole?.id || staff.customRoleId || userRoles[0]?.id || '',
             isActive: staff.isActive !== false,
         });
@@ -393,17 +394,20 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
         const finalRoleName = (selectedRole ? selectedRole.name : userFormData.role) as StaffRole;
         const finalRoleBn = selectedRole?.nameBn || userFormData.roleBn;
         if (editingStaff) {
-            updateStaffMember(editingStaff.id, {
+            const updates: any = {
                 name: userFormData.name.trim(),
                 role: isSuperAdminStaff(editingStaff) ? 'Super Admin' : finalRoleName,
                 roleBn: isSuperAdminStaff(editingStaff) ? "" : finalRoleBn,
                 location: 'Both',
                 phone: userFormData.phone.trim(),
                 email: userFormData.email.trim(),
-                password: userFormData.password.trim() || '1234',
                 customRoleId: userFormData.customRoleId || undefined,
                 isActive: userFormData.isActive,
-            });
+            };
+            if (userFormData.password.trim()) {
+                updates.password = userFormData.password.trim();
+            }
+            updateStaffMember(editingStaff.id, updates);
         }
         else {
             addStaffMember({
@@ -781,7 +785,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                                 </div>)}
                               <div className="flex items-center gap-1 font-mono text-[10px] text-amber-800">
                                 <Lock className="w-3 h-3 text-amber-500"/>
-                                <span>PIN: {staff.password || '1234'}</span>
+                                <span>PIN: {isPinHashed(staff.password) ? '•••••• (Protected)' : (staff.password || '1234')}</span>
                               </div>
                             </div>
                           </td>
