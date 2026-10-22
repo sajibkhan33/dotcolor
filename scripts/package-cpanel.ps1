@@ -11,9 +11,11 @@ New-Item -ItemType Directory -Path $stagingDir | Out-Null
 
 Write-Host "Copying fresh build artifacts to staging..."
 Copy-Item (Join-Path $rootDir "dist") (Join-Path $stagingDir "dist") -Recurse -Force
+Copy-Item (Join-Path $rootDir "src") (Join-Path $stagingDir "src") -Recurse -Force
 Copy-Item (Join-Path $rootDir "public") (Join-Path $stagingDir "public") -Recurse -Force
 Copy-Item (Join-Path $rootDir "scripts") (Join-Path $stagingDir "scripts") -Recurse -Force
 Copy-Item (Join-Path $rootDir "server.js") (Join-Path $stagingDir "server.js") -Force
+Copy-Item (Join-Path $rootDir "server.ts") (Join-Path $stagingDir "server.ts") -Force
 Copy-Item (Join-Path $rootDir "app.js") (Join-Path $stagingDir "app.js") -Force
 Copy-Item (Join-Path $rootDir ".env") (Join-Path $stagingDir ".env") -Force
 
