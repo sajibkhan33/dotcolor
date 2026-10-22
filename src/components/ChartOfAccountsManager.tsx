@@ -142,7 +142,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                     liveBal = calculateInventoryValuation(products, purchaseOrders, acc, journalEntries);
                 } else {
                     // Dynamic individual live balance calculation for Cash, City Bank PLC, Southeast Bank, Nagad, bKash, etc.
-                    liveBal = calculateSingleAccountBalance(acc, transactions, invoices, projects);
+                    liveBal = calculateSingleAccountBalance(acc, transactions, invoices, projects, journalEntries);
                 }
             } else if (acc.classification === 'Liability') {
                 const isPayable = acc.code === '2001' || acc.code === '2010' || nameLower.includes('payable') || nameLower.includes('supplier') || nameBn.includes('দেনা') || nameBn.includes('প্রদেয়');
@@ -396,6 +396,46 @@ export const ChartOfAccountsManager: React.FC = () => {
                         ? (acc.openingBalance || 0)
                         : acc.currentBalance;
                     liveBal = Math.max(baseBal, matching, (acc.openingBalance || 0) + journalExpDelta);
+                }
+            } else if (acc.classification === 'Equity') {
+                const isRetainedEarnings = (
+                    acc.id === 'coa-3020' ||
+                    acc.code === '3020' ||
+                    acc.code === '3050' ||
+                    nameLower.includes('retained earning') ||
+                    nameBn.includes('সংরক্ষিত আয়')
+                );
+
+                let journalEquityDelta = 0;
+                (journalEntries || []).forEach(j => {
+                    if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE') return;
+                    const isDebit = (
+                        j.debitAccountId === acc.id ||
+                        j.debitAccountId === acc.code ||
+                        (j.debitAccountName && j.debitAccountName.toLowerCase().trim() === nameLower)
+                    );
+                    const isCredit = (
+                        j.creditAccountId === acc.id ||
+                        j.creditAccountId === acc.code ||
+                        (j.creditAccountName && j.creditAccountName.toLowerCase().trim() === nameLower)
+                    );
+                    const amt = Number(j.amount) || 0;
+                    if (isCredit && !isDebit) journalEquityDelta += amt;
+                    else if (isDebit && !isCredit) journalEquityDelta -= amt;
+                });
+
+                if (isRetainedEarnings) {
+                    const directIncomes = (transactions || [])
+                        .filter(t => t.type === 'INCOME' && !isInvoiceTransaction(t) && !isProjectDueCollectionTransaction(t) && !isAdvanceDepositTransaction(t) && !isAdvanceAdjustmentTransaction(t))
+                        .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+                    const totalOperationalRevenue = totalNonProjectInvoiceSales + totalProjectSales + directIncomes;
+                    const totalOperationalExpenses = (transactions || [])
+                        .filter(t => t.type === 'EXPENSE')
+                        .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+                    const netOperatingProfit = totalOperationalRevenue - totalOperationalExpenses;
+                    liveBal = (acc.openingBalance || 0) + netOperatingProfit + journalEquityDelta;
+                } else {
+                    liveBal = (acc.openingBalance || 0) + (acc.currentBalance > (acc.openingBalance || 0) ? (acc.currentBalance - (acc.openingBalance || 0)) : 0) + journalEquityDelta;
                 }
             }
 
@@ -828,9 +868,15 @@ export const ChartOfAccountsManager: React.FC = () => {
                         <button type="button" onClick={() => handleOpenEdit(acc)} className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg" title="Edit">
                           <Edit2 className="w-3.5 h-3.5"/>
                         </button>
-                        <button type="button" onClick={() => { setDeleteError(null); setAccountToDelete(acc); }} className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg cursor-pointer" title="Delete">
-                          <Trash2 className="w-3.5 h-3.5"/>
-                        </button>
+                        {acc.isSystem ? (
+                          <span className="p-1.5 text-slate-300 cursor-not-allowed" title="System account is core to the ERP and cannot be deleted">
+                            <Lock className="w-3.5 h-3.5"/>
+                          </span>
+                        ) : (
+                          <button type="button" onClick={() => { setDeleteError(null); setAccountToDelete(acc); }} className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg cursor-pointer" title="Delete">
+                            <Trash2 className="w-3.5 h-3.5"/>
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>)))}

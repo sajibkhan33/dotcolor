@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { AccountingTransaction, ChartOfAccount, Language, CompanyProfile, } from '../../types';
 import { BookOpen, Calendar, Layers, Search, ArrowDownLeft, ArrowUpRight, Wallet, Building, FolderKanban, TrendingUp, TrendingDown, } from 'lucide-react';
-import { isAdvanceAdjustmentTransaction, isDueReceivableTransaction } from '../../utils/accountUtils';
+import { isAdvanceAdjustmentTransaction, isDueReceivableTransaction, getCashAccountsBreakdown, getBankAccountsBreakdown } from '../../utils/accountUtils';
 interface FinancialReportsProps {
     reportId: string;
     transactions: AccountingTransaction[];
@@ -126,10 +126,10 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({ reportId, tr
         const totalPeriodReceipts = receiptsList.reduce((s, r) => s + r.amount, 0);
         const totalPeriodPayments = paymentsList.reduce((s, p) => s + p.amount, 0);
         const netClosing = totalOpening + totalPeriodReceipts - totalPeriodPayments;
-        const pettyCashAcc = (chartOfAccounts || []).find((acc) => acc.id === 'coa-1010');
-        const isWiped = !pettyCashAcc || (pettyCashAcc.openingBalance || 0) === 0;
-        const closingCash = isWiped ? 0 : Math.max(25000, Math.round(netClosing * 0.35));
-        const closingBank = isWiped ? 0 : Math.max(50000, netClosing - closingCash);
+        const cashData = getCashAccountsBreakdown(chartOfAccounts, transactions, []);
+        const bankData = getBankAccountsBreakdown(chartOfAccounts, transactions, []);
+        const closingCash = cashData.total;
+        const closingBank = bankData.reduce((acc, b) => acc + b.balance, 0);
         return {
             openingCash,
             openingBank,

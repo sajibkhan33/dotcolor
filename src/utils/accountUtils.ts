@@ -204,7 +204,8 @@ export const calculateSingleAccountBalance = (
     acc: ChartOfAccount,
     transactions: AccountingTransaction[],
     invoices: SalesInvoice[] = [],
-    projects: any[] = []
+    projects: any[] = [],
+    journalEntries: JournalEntry[] = []
 ): number => {
     let balance = Number(acc.openingBalance) || 0;
 
@@ -306,6 +307,32 @@ export const calculateSingleAccountBalance = (
         }
     });
 
+    // 3. Reconcile manual journal entries (source === 'MANUAL' or non-synced journal vouchers)
+    (journalEntries || []).forEach((j) => {
+        // Exclude system auto-generated journals that mirror existing transactions to avoid double-counting
+        if (j.source === 'LEDGER_SYNC' || j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE') return;
+        const jRef = (j.refNo || '').toLowerCase().trim();
+        if (jRef && recordedInvoiceRefs.has(jRef)) return;
+
+        const isDebit = (
+            j.debitAccountId === acc.id ||
+            j.debitAccountId === acc.code ||
+            (j.debitAccountName && j.debitAccountName.toLowerCase().trim() === accNameLower)
+        );
+        const isCredit = (
+            j.creditAccountId === acc.id ||
+            j.creditAccountId === acc.code ||
+            (j.creditAccountName && j.creditAccountName.toLowerCase().trim() === accNameLower)
+        );
+
+        const amt = Number(j.amount) || 0;
+        if (isDebit && !isCredit) {
+            balance += amt;
+        } else if (isCredit && !isDebit) {
+            balance -= amt;
+        }
+    });
+
     return Math.max(0, balance);
 };
 
@@ -318,7 +345,8 @@ export const getPaymentMethodLiveBalance = (
     transactions: AccountingTransaction[] = [],
     invoices: SalesInvoice[] = [],
     accountBalances?: AccountBalances,
-    projects: any[] = []
+    projects: any[] = [],
+    journalEntries: JournalEntry[] = []
 ): number => {
     if (!pm) return 0;
     const pmName = (pm.name || '').toLowerCase().trim();
@@ -387,7 +415,7 @@ export const getPaymentMethodLiveBalance = (
     });
 
     if (matchingAcc) {
-        return calculateSingleAccountBalance(matchingAcc, transactions, invoices, projects);
+        return calculateSingleAccountBalance(matchingAcc, transactions, invoices, projects, journalEntries);
     }
 
     // 3. Compute directly from transactions specifically matching this payment method
@@ -484,7 +512,8 @@ export const getBankAccountsBreakdown = (
     chartOfAccounts: ChartOfAccount[] = [],
     transactions: AccountingTransaction[] = [],
     invoices: SalesInvoice[] = [],
-    projects: any[] = []
+    projects: any[] = [],
+    journalEntries: JournalEntry[] = []
 ): Array<{ id: string; code: string; name: string; balance: number }> => {
     const isMobile = (name: string) => {
         const n = name.toLowerCase();
@@ -503,7 +532,7 @@ export const getBankAccountsBreakdown = (
         id: acc.id,
         code: acc.code,
         name: acc.name,
-        balance: calculateSingleAccountBalance(acc, transactions, invoices, projects),
+        balance: calculateSingleAccountBalance(acc, transactions, invoices, projects, journalEntries),
     }));
 };
 
@@ -514,7 +543,8 @@ export const getMfsAccountsBreakdown = (
     chartOfAccounts: ChartOfAccount[] = [],
     transactions: AccountingTransaction[] = [],
     invoices: SalesInvoice[] = [],
-    projects: any[] = []
+    projects: any[] = [],
+    journalEntries: JournalEntry[] = []
 ): {
     bkash: number;
     nagad: number;
@@ -531,7 +561,7 @@ export const getMfsAccountsBreakdown = (
     let bkash = 0;
     let nagad = 0;
     const accounts = mfsAccs.map((acc) => {
-        const bal = calculateSingleAccountBalance(acc, transactions, invoices, projects);
+        const bal = calculateSingleAccountBalance(acc, transactions, invoices, projects, journalEntries);
         const n = acc.name.toLowerCase();
         if (n.includes('bkash') || (acc.nameBn && acc.nameBn.includes('বিকাশ'))) {
             bkash += bal;
@@ -561,7 +591,8 @@ export const getCashAccountsBreakdown = (
     chartOfAccounts: ChartOfAccount[] = [],
     transactions: AccountingTransaction[] = [],
     invoices: SalesInvoice[] = [],
-    projects: any[] = []
+    projects: any[] = [],
+    journalEntries: JournalEntry[] = []
 ): {
     total: number;
     officeCash: number;
@@ -588,7 +619,7 @@ export const getCashAccountsBreakdown = (
     let factoryCash = 0;
     let total = 0;
     const accounts = cashAccs.map((acc) => {
-        const bal = calculateSingleAccountBalance(acc, transactions, invoices, projects);
+        const bal = calculateSingleAccountBalance(acc, transactions, invoices, projects, journalEntries);
         total += bal;
         const n = acc.name.toLowerCase();
         if (n.includes('factory') || acc.code === '1020') {
@@ -1114,14 +1145,21 @@ export const calculateInventoryValuation = (
         return Math.max(0, finishedStockValuation + (account?.openingBalance || 0) + journalDelta);
     }
 
-    // For Raw Materials or unified Raw Materials & Inventory account (like 1002 / 1060):
-    const effectiveStockVal = rawStockValuation > 0 ? rawStockValuation : totalStockValuation;
-    const baseVal = Math.max(
-        effectiveStockVal,
-        totalReceivedPurchases,
-        totalStockValuation,
-        account?.openingBalance || 0
-    );
+    // For Raw Materials (1060 / raw material) or unified Inventory account:
+    const isRawOnly = (account?.code === '1060' || nameLower.includes('raw material') || nameBn.includes('কাঁচামাল'));
 
-    return Math.max(0, baseVal + journalDelta);
+    let closingVal = 0;
+    if (products && products.length > 0) {
+        // When product inventory is tracked in the system, use real stock quantity * cost price
+        if (isRawOnly) {
+            closingVal = rawStockValuation + (account?.openingBalance || 0);
+        } else {
+            closingVal = totalStockValuation + (account?.openingBalance || 0);
+        }
+    } else {
+        // If product catalog is not populated yet, fallback to opening balance + received purchases
+        closingVal = (account?.openingBalance || 0) + totalReceivedPurchases;
+    }
+
+    return Math.max(0, closingVal + journalDelta);
 };

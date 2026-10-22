@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
-import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus, ProjectSalesCollection, ProjectSalesPaymentBreakdown } from '../types';
+import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, InvoiceItem, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus, ProjectSalesCollection, ProjectSalesPaymentBreakdown } from '../types';
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
 import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
 import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation } from '../utils/accountUtils';
@@ -1972,6 +1972,108 @@ export const AppProvider: React.FC<{
                 };
                 setTransactions((prev) => ensureUniqueTransactions([newTx, ...prev]));
             }
+
+            // Automatic Double-Entry Journal Creation for Sales Invoice
+            const currentCoa = latestStateRef.current?.chartOfAccounts || chartOfAccounts || [];
+            const salesAcc = currentCoa.find(a => a.id === data.chartOfAccountId) ||
+                currentCoa.find(a => a.classification === 'Revenue' && (a.code === '4010' || a.id === 'coa-4010' || a.name.toLowerCase().includes('sales'))) ||
+                currentCoa.find(a => a.classification === 'Revenue') ||
+                currentCoa[0];
+            const arAcc = currentCoa.find(a => a.id === 'coa-1050' || a.code === '1050' || a.name.toLowerCase().includes('receivable')) || currentCoa[0];
+            const advAcc = currentCoa.find(a => a.id === 'coa-2020' || a.code === '2020' || a.name.toLowerCase().includes('advance')) || currentCoa[0];
+
+            const autoJournals: JournalEntry[] = [];
+            const timestampSuffix = Date.now().toString().slice(-4);
+
+            // 1. Due / Receivable booking
+            if (newInvoice.dueAmount > 0 && arAcc && salesAcc) {
+                autoJournals.push({
+                    id: generateUniqueId('jnl-inv-due'),
+                    entryNo: `JNL-${new Date().getFullYear()}-${timestampSuffix}1`,
+                    date: data.date,
+                    refNo: invoiceNo,
+                    debitAccountId: arAcc.id,
+                    debitAccountName: arAcc.name,
+                    creditAccountId: salesAcc.id,
+                    creditAccountName: salesAcc.name,
+                    amount: Number(newInvoice.dueAmount) || 0,
+                    narration: `Sales Invoice #${invoiceNo} (Due Booking) - ${data.customerName}`,
+                    source: 'SALES',
+                    createdBy: activeStaff?.name || 'System Auto-Invoice',
+                });
+            }
+
+            // 2. Customer advance adjustment
+            if (advanceApplied > 0 && advAcc && salesAcc) {
+                autoJournals.push({
+                    id: generateUniqueId('jnl-inv-adv'),
+                    entryNo: `JNL-${new Date().getFullYear()}-${timestampSuffix}2`,
+                    date: data.date,
+                    refNo: invoiceNo,
+                    debitAccountId: advAcc.id,
+                    debitAccountName: advAcc.name,
+                    creditAccountId: salesAcc.id,
+                    creditAccountName: salesAcc.name,
+                    amount: advanceApplied,
+                    narration: `Adjusted Customer Advance against Invoice #${invoiceNo} - ${data.customerName}`,
+                    source: 'SALES',
+                    createdBy: activeStaff?.name || 'System Auto-Invoice',
+                });
+            }
+
+            // 3. Paid cash/bank/mfs collections
+            if (data.splitPayments) {
+                Object.entries(data.splitPayments).forEach(([key, val], pIdx) => {
+                    const amt = Number(val) || 0;
+                    if (amt <= 0 || key.toLowerCase() === 'due' || key === 'Customer Advance' || key.toLowerCase().includes('advance')) return;
+                    const matchedCoa = matchChannelToAccount(key, currentCoa, paymentMethods) || currentCoa[0];
+                    if (matchedCoa && salesAcc) {
+                        autoJournals.push({
+                            id: generateUniqueId(`jnl-inv-split-${pIdx}`),
+                            entryNo: `JNL-${new Date().getFullYear()}-${timestampSuffix}${3 + pIdx}`,
+                            date: data.date,
+                            refNo: invoiceNo,
+                            debitAccountId: matchedCoa.id,
+                            debitAccountName: matchedCoa.name,
+                            creditAccountId: salesAcc.id,
+                            creditAccountName: salesAcc.name,
+                            amount: amt,
+                            narration: `POS Payment via ${matchedCoa.name} for Invoice #${invoiceNo} (${data.customerName})`,
+                            source: 'SALES',
+                            createdBy: activeStaff?.name || 'System Auto-Invoice',
+                        });
+                    }
+                });
+            } else if (newInvoice.paidAmount > 0 && salesAcc) {
+                const matchedCoa = matchChannelToAccount(data.paymentMethod || 'Cash', currentCoa, paymentMethods) || currentCoa[0];
+                if (matchedCoa) {
+                    autoJournals.push({
+                        id: generateUniqueId('jnl-inv-paid'),
+                        entryNo: `JNL-${new Date().getFullYear()}-${timestampSuffix}3`,
+                        date: data.date,
+                        refNo: invoiceNo,
+                        debitAccountId: matchedCoa.id,
+                        debitAccountName: matchedCoa.name,
+                        creditAccountId: salesAcc.id,
+                        creditAccountName: salesAcc.name,
+                        amount: Number(newInvoice.paidAmount) || 0,
+                        narration: `Sales Invoice #${invoiceNo} Collection (${matchedCoa.name}) - ${data.customerName}`,
+                        source: 'SALES',
+                        createdBy: activeStaff?.name || 'System Auto-Invoice',
+                    });
+                }
+            }
+
+            if (autoJournals.length > 0) {
+                setJournalEntries((prev) => [...autoJournals, ...prev]);
+                latestStateRef.current = {
+                    ...latestStateRef.current,
+                    journalEntries: [...autoJournals, ...(latestStateRef.current?.journalEntries || [])],
+                };
+                try {
+                    localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(latestStateRef.current.journalEntries));
+                } catch {}
+            }
         }
         // Decrement stock for physical items
         if (data.items && data.items.length > 0) {
@@ -3026,6 +3128,36 @@ export const AppProvider: React.FC<{
             description: `Payment to supplier ${sup?.name} for clearing dues`,
         };
         setTransactions((prev) => ensureUniqueTransactions([newTx, ...prev]));
+
+        // Automatic Double-Entry Journal for Supplier Due Payment: Debit Accounts Payable (2010), Credit Cash/Bank Asset
+        const currentCoa = latestStateRef.current?.chartOfAccounts || chartOfAccounts || [];
+        const apAcc = currentCoa.find(a => a.id === 'coa-2010' || a.code === '2010' || a.name.toLowerCase().includes('payable')) || currentCoa[0];
+        const payAssetAcc = matchChannelToAccount(account || 'Cash', currentCoa, paymentMethods) || currentCoa[0];
+
+        if (apAcc && payAssetAcc) {
+            const supplierJournal: JournalEntry = {
+                id: generateUniqueId('jnl-sup-pay'),
+                entryNo: `JNL-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`,
+                date: new Date().toISOString().slice(0, 10),
+                refNo: `SUP-PAY-${Date.now().toString().slice(-4)}`,
+                debitAccountId: apAcc.id,
+                debitAccountName: apAcc.name,
+                creditAccountId: payAssetAcc.id,
+                creditAccountName: payAssetAcc.name,
+                amount: safeAmount,
+                narration: `Supplier Due Payment to ${sup?.company || sup?.name || 'Vendor'} via ${payAssetAcc.name}`,
+                source: 'PURCHASE',
+                createdBy: activeStaff?.name || 'Authorized Staff',
+            };
+            setJournalEntries(prev => [supplierJournal, ...prev]);
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                journalEntries: [supplierJournal, ...(latestStateRef.current?.journalEntries || [])],
+            };
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(latestStateRef.current.journalEntries));
+            } catch {}
+        }
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
@@ -3532,6 +3664,13 @@ export const AppProvider: React.FC<{
         if (!target)
             return { success: false, message: 'Account not found' };
         
+        if (target.isSystem) {
+            return {
+                success: false,
+                message: `System account [${target.code}] ${target.name} cannot be deleted as it is core to system accounting.`,
+            };
+        }
+
         const hasJournals = (latestStateRef.current.journalEntries || []).some((j) => j.debitAccountId === id || j.creditAccountId === id);
         if (hasJournals && !force) {
             return {
@@ -4841,7 +4980,6 @@ export const AppProvider: React.FC<{
                 company: targetProj.clientName,
                 phone: targetProj.clientPhone || '',
                 address: '',
-                type: 'Corporate',
             });
             custId = newCust.id;
         }
@@ -4859,11 +4997,8 @@ export const AppProvider: React.FC<{
             customerPhone: targetProj.clientPhone || '',
             items: invoiceItems,
             subtotal: grandTotal,
-            subTotal: grandTotal,
             discount: 0,
-            discountType: 'flat',
-            taxRate: 0,
-            taxAmount: 0,
+            discountType: 'amount',
             vatRate: 0,
             vatAmount: 0,
             grandTotal,

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { ChartOfAccount, AccountingTransaction, SalesInvoice, PurchaseOrder, Product, Customer, Language, CompanyProfile, } from '../../types';
 import { Scale, TrendingUp, FileText, DollarSign, CheckCircle2, AlertCircle, Building, ArrowDownRight, ArrowUpRight, } from 'lucide-react';
+import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables } from '../../utils/accountUtils';
 interface IFRSStatementsProps {
     reportId: string;
     chartOfAccounts: ChartOfAccount[];
@@ -38,42 +39,49 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
         return purchaseOrders.reduce((sum, po) => sum + (po.totalAmount || 0), 0);
     }, [purchaseOrders]);
     // Opening stock (baseline estimation for period)
-    const openingStockValuation = isWiped ? 0 : Math.max(150000, Math.round(closingStockValuation * 0.85));
-    // COGS = Opening Stock + Purchases - Closing Stock + Direct Job/Factory Labor
-    const directProductionLabor = isWiped ? 0 : 45000;
-    const costOfGoodsSold = isWiped ? 0 : Math.max(50000, openingStockValuation + rawMaterialPurchases + directProductionLabor - closingStockValuation);
+    const openingStockValuation = useMemo(() => {
+        const invAcc = (chartOfAccounts || []).find(a => a.code === '1060' || a.id === 'coa-1060');
+        return (invAcc?.openingBalance || 0);
+    }, [chartOfAccounts]);
+    const directProductionLabor = useMemo(() => {
+        return (transactions || [])
+            .filter((t) => t.type === 'EXPENSE' && ((t.category || '').toLowerCase().includes('wage') || (t.category || '').toLowerCase().includes('labor') || (t.category || '').toLowerCase().includes('salary')))
+            .reduce((s, t) => s + t.amount, 0);
+    }, [transactions]);
+    // COGS = Opening Stock + Purchases + Direct Labor - Closing Stock
+    const costOfGoodsSold = useMemo(() => {
+        const cogsFromStock = Math.max(0, openingStockValuation + rawMaterialPurchases + directProductionLabor - closingStockValuation);
+        const poExp = (transactions || []).filter(t => t.type === 'EXPENSE' && (t.category?.toLowerCase().includes('raw') || t.category?.toLowerCase().includes('purchase'))).reduce((s, t) => s + t.amount, 0);
+        return Math.max(cogsFromStock, poExp);
+    }, [openingStockValuation, rawMaterialPurchases, directProductionLabor, closingStockValuation, transactions]);
     const grossProfit = netSalesRevenue - costOfGoodsSold;
     const grossMarginPct = netSalesRevenue > 0 ? (grossProfit / netSalesRevenue) * 100 : 0;
     // Itemized Operating Expenses from transactions & chart of accounts
     const operatingExpensesList = useMemo(() => {
-        if (isWiped)
-            return [];
-        const expenseCategories = [
-            { name: 'Factory Electricity & Power', nameBn: "Factory", amount: 32000 },
-            { name: 'Office & Showroom Rent', nameBn: "", amount: 65000 },
-            { name: 'Staff Salaries & Allowances', nameBn: "", amount: 85000 },
-            { name: 'Printing Machinery Maintenance & Spares', nameBn: "Print", amount: 18500 },
-            { name: 'Marketing & Corporate Relations', nameBn: "", amount: 12000 },
-            { name: 'Delivery, Freight & Transportation', nameBn: "Product", amount: 14200 },
-            { name: 'Office Stationery & Tea/Entertainment', nameBn: "", amount: 8400 },
-            { name: 'Depreciation on Plant & Machinery', nameBn: "", amount: 22500 },
-        ];
-        // Combine with any extra expense transactions
-        const extraExpenses = transactions
-            .filter((t) => t.type === 'EXPENSE')
-            .reduce((sum, t) => sum + t.amount, 0);
-        if (extraExpenses > 0) {
-            expenseCategories.push({
-                name: 'Other Administrative & Operational Expenses',
-                nameBn: "",
-                amount: Math.min(extraExpenses, 45000),
+        const map = new Map<string, { name: string; nameBn?: string; amount: number }>();
+        (transactions || []).filter((t) => t.type === 'EXPENSE').forEach((t) => {
+            const cat = t.category || t.accountHead || 'General Operational Expense';
+            const existing = map.get(cat);
+            if (existing) {
+                existing.amount += (Number(t.amount) || 0);
+            } else {
+                map.set(cat, { name: cat, nameBn: t.categoryBn, amount: Number(t.amount) || 0 });
+            }
+        });
+        if (map.size === 0) {
+            (chartOfAccounts || []).filter(a => a.classification === 'Expense' && (a.openingBalance || a.currentBalance)).forEach(a => {
+                map.set(a.name, { name: a.name, nameBn: a.nameBn, amount: Math.max(0, a.currentBalance || a.openingBalance || 0) });
             });
         }
-        return expenseCategories;
-    }, [transactions, isWiped]);
+        return Array.from(map.values());
+    }, [transactions, chartOfAccounts]);
     const totalOperatingExpenses = operatingExpensesList.reduce((s, e) => s + e.amount, 0);
     const operatingProfitEBIT = grossProfit - totalOperatingExpenses;
-    const financeCosts = isWiped ? 0 : 7500; // Bank interest/charges
+    const financeCosts = useMemo(() => {
+        return (transactions || [])
+            .filter((t) => t.type === 'EXPENSE' && ((t.category || '').toLowerCase().includes('bank') || (t.category || '').toLowerCase().includes('finance') || (t.description || '').toLowerCase().includes('charge')))
+            .reduce((s, t) => s + t.amount, 0);
+    }, [transactions]);
     const netProfitBeforeTax = operatingProfitEBIT - financeCosts;
     const taxProvision = Math.max(0, Math.round(netProfitBeforeTax * 0.15));
     const netProfitForThePeriod = netProfitBeforeTax - taxProvision;
@@ -82,89 +90,109 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
     // 16. TRIAL BALANCE
     // -------------------------------------------------------------
     const trialBalanceAccounts = useMemo(() => {
-        // Collect all balances from Chart of Accounts, Invoices, Stock, Receivables, Payables
-        const totalReceivables = invoices.reduce((sum, inv) => sum + (inv.dueAmount || 0), 0);
-        const totalPayables = purchaseOrders.reduce((sum, po) => sum + (po.dueAmount || 0), 0);
-        const totalAdvances = customers.reduce((sum, c) => sum + (c.advanceBalance || 0), 0);
-        const list = [
-            // Assets (Debit balances)
-            { code: '1010', name: 'Petty Cash & Counter Cash', nameBn: "Cash   Cash", type: 'Asset', debit: isWiped ? 0 : 185000, credit: 0 },
-            { code: '1020', name: 'BRAC Bank Ltd. (A/C: 150120)', nameBn: "Bank", type: 'Asset', debit: isWiped ? 0 : 450000, credit: 0 },
-            { code: '1050', name: 'Accounts Receivable (Customer Dues)', nameBn: "", type: 'Asset', debit: totalReceivables, credit: 0 },
-            { code: '1100', name: 'Inventories at Cost (Materials & Finished Goods)', nameBn: "", type: 'Asset', debit: closingStockValuation, credit: 0 },
-            { code: '1200', name: 'Security Deposits (Office & Factory Premises)', nameBn: "", type: 'Asset', debit: isWiped ? 0 : 350000, credit: 0 },
-            { code: '1500', name: 'Plant & Machinery (CNC, Laser, Offset, UV)', nameBn: ",   Print", type: 'Asset', debit: isWiped ? 0 : 2450000, credit: 0 },
-            { code: '1550', name: 'Office Equipment & Computers', nameBn: "", type: 'Asset', debit: isWiped ? 0 : 280000, credit: 0 },
-            // Liabilities (Credit balances)
-            { code: '2010', name: 'Accounts Payable (Suppliers & Vendors)', nameBn: "Supplier", type: 'Liability', debit: 0, credit: totalPayables },
-            { code: '2050', name: 'Customer Advance Deposits Held', nameBn: "", type: 'Liability', debit: 0, credit: isWiped ? totalAdvances : Math.max(20500, totalAdvances) },
-            { code: '2100', name: 'Accrued Operating Expenses & Utilities', nameBn: "", type: 'Liability', debit: 0, credit: isWiped ? 0 : 85000 },
-            { code: '2500', name: 'Long-term Bank Borrowings (Term Loan)', nameBn: "Bank", type: 'Liability', debit: 0, credit: isWiped ? 0 : 950000 },
-            // Equity (Credit balances)
-            { code: '3010', name: 'Owner’s Capital (Paid-up Capital)', nameBn: "", type: 'Equity', debit: 0, credit: isWiped ? 0 : 2250000 },
-            { code: '3050', name: 'Retained Earnings (Beginning)', nameBn: "", type: 'Equity', debit: 0, credit: isWiped ? 0 : 865000 },
-            // Revenue (Credit)
-            { code: '4010', name: 'Gross Printing & Packaging Sales', nameBn: "Print", type: 'Revenue', debit: 0, credit: grossSalesRevenue },
-            // Cost of Goods Sold & Expenses (Debit)
-            { code: '5010', name: 'Cost of Goods Sold (Raw Materials & Direct Labor)', nameBn: "COGS", type: 'Expense', debit: costOfGoodsSold, credit: 0 },
-            { code: '6010', name: 'Operating & Administrative Expenses', nameBn: "", type: 'Expense', debit: totalOperatingExpenses, credit: 0 },
-            { code: '6050', name: 'Financial Charges & Bank Interest', nameBn: "Bank", type: 'Expense', debit: financeCosts, credit: 0 },
-        ];
-        // Compute balancing
-        const sumDebit = list.reduce((s, i) => s + i.debit, 0);
-        const sumCredit = list.reduce((s, i) => s + i.credit, 0);
-        const difference = sumDebit - sumCredit;
-        if (difference !== 0) {
-            // Balance into owner equity / retained balancing line
-            const equityItem = list.find((i) => i.code === '3050');
-            if (equityItem) {
-                equityItem.credit += difference;
+        const totalReceivables = calculateTotalCustomerReceivables(invoices, customers, []);
+        const totalPayables = calculateTotalSupplierPayables([], purchaseOrders);
+        const totalAdvances = (customers || []).reduce((sum, c) => sum + (c.advanceBalance || 0), 0);
+
+        return (chartOfAccounts || []).map((acc) => {
+            const nameLower = (acc.name || '').toLowerCase();
+            let debit = 0;
+            let credit = 0;
+
+            if (acc.classification === 'Asset') {
+                if (acc.code === '1050' || nameLower.includes('receivable')) {
+                    debit = totalReceivables > 0 ? totalReceivables : (acc.openingBalance || 0);
+                } else if (acc.code === '1060' || acc.code === '1070' || nameLower.includes('inventory') || nameLower.includes('stock')) {
+                    debit = closingStockValuation > 0 ? closingStockValuation : (acc.openingBalance || 0);
+                } else {
+                    debit = calculateSingleAccountBalance(acc, transactions, invoices, []);
+                }
+            } else if (acc.classification === 'Liability') {
+                if (acc.code === '2010' || nameLower.includes('payable')) {
+                    credit = totalPayables > 0 ? totalPayables : (acc.openingBalance || 0);
+                } else if (acc.code === '2020' || nameLower.includes('advance')) {
+                    credit = totalAdvances > 0 ? totalAdvances : (acc.openingBalance || 0);
+                } else {
+                    credit = acc.currentBalance || acc.openingBalance || 0;
+                }
+            } else if (acc.classification === 'Equity') {
+                if (acc.code === '3020' || nameLower.includes('retained')) {
+                    credit = (acc.openingBalance || 0) + netProfitForThePeriod;
+                } else {
+                    credit = acc.openingBalance || acc.currentBalance || 0;
+                }
+            } else if (acc.classification === 'Revenue') {
+                credit = (acc.openingBalance || 0) + (acc.code === '4010' ? netSalesRevenue : (acc.currentBalance || 0));
+            } else if (acc.classification === 'Expense') {
+                debit = (acc.openingBalance || 0) + (acc.currentBalance || 0);
             }
-        }
-        return list;
-    }, [invoices, purchaseOrders, products, customers, closingStockValuation, grossSalesRevenue, costOfGoodsSold, totalOperatingExpenses, financeCosts]);
+
+            return {
+                code: acc.code,
+                name: acc.name,
+                nameBn: acc.nameBn,
+                type: acc.classification,
+                debit,
+                credit,
+            };
+        });
+    }, [chartOfAccounts, invoices, purchaseOrders, products, customers, transactions, closingStockValuation, netSalesRevenue, netProfitForThePeriod]);
     // -------------------------------------------------------------
     // 18. IFRS BALANCE SHEET (STATEMENT OF FINANCIAL POSITION)
     // -------------------------------------------------------------
     const balanceSheetData = useMemo(() => {
-        const totalReceivables = invoices.reduce((sum, inv) => sum + (inv.dueAmount || 0), 0);
-        const totalPayables = purchaseOrders.reduce((sum, po) => sum + (po.dueAmount || 0), 0);
-        const totalAdvances = customers.reduce((sum, c) => sum + (c.advanceBalance || 0), 0);
-        const liquidCashAndBank = isWiped ? 0 : 635000;
+        const totalReceivables = calculateTotalCustomerReceivables(invoices, customers, []);
+        const totalPayables = calculateTotalSupplierPayables([], purchaseOrders);
+        const totalAdvances = (customers || []).reduce((sum, c) => sum + (c.advanceBalance || 0), 0);
+
         // ASSETS
-        const nonCurrentAssets = isWiped ? [] : [
-            { name: 'Property, Plant & Equipment (Offset & Large-Format Printers, CNC Routers, Laser Cutters)', amount: 2450000 },
-            { name: 'Office IT Equipment & Graphic Workstations', amount: 280000 },
-            { name: 'Security Deposits on Factory & Office Premises', amount: 350000 },
-        ];
+        const nonCurrentAssets = (chartOfAccounts || [])
+            .filter((acc) => acc.classification === 'Asset' && (acc.accountGroup === 'Fixed Assets' || acc.code.startsWith('11') || acc.code.startsWith('12') || acc.code.startsWith('15')))
+            .map((acc) => ({ name: acc.name, amount: acc.openingBalance || acc.currentBalance || 0 }));
+
         const totalNonCurrentAssets = nonCurrentAssets.reduce((s, a) => s + a.amount, 0);
+
+        const liquidCashAndBank = (chartOfAccounts || [])
+            .filter((acc) => acc.classification === 'Asset' && !(acc.accountGroup === 'Fixed Assets' || acc.code.startsWith('11') || acc.code.startsWith('12') || acc.code.startsWith('15') || acc.code === '1050' || acc.code === '1060' || acc.code === '1070'))
+            .reduce((s, acc) => s + calculateSingleAccountBalance(acc, transactions, invoices, []), 0);
+
         const currentAssets = [
             { name: 'Inventories at Cost (Raw Materials & Stock)', amount: closingStockValuation },
             { name: 'Trade & Other Receivables (Customer Dues)', amount: totalReceivables },
-            { name: 'Cash and Cash Equivalents (Counter Cash & Bank)', amount: liquidCashAndBank },
+            { name: 'Cash and Cash Equivalents (Counter Cash, Bank & Wallets)', amount: liquidCashAndBank },
         ];
         const totalCurrentAssets = currentAssets.reduce((s, a) => s + a.amount, 0);
         const totalAssets = totalNonCurrentAssets + totalCurrentAssets;
+
         // LIABILITIES
-        const nonCurrentLiabilities = isWiped ? [] : [
-            { name: 'Long-term Bank Borrowings (Term Financing)', amount: 950000 },
-        ];
+        const nonCurrentLiabilities = (chartOfAccounts || [])
+            .filter((acc) => acc.classification === 'Liability' && (acc.accountGroup === 'Long-term Liabilities' || acc.code.startsWith('25')))
+            .map((acc) => ({ name: acc.name, amount: acc.openingBalance || acc.currentBalance || 0 }));
+
         const totalNonCurrentLiabilities = nonCurrentLiabilities.reduce((s, l) => s + l.amount, 0);
+
         const currentLiabilities = [
             { name: 'Trade Payables (Suppliers & Raw Material Vendors)', amount: totalPayables },
-            { name: 'Customer Advances & Prepayment Deposits Held', amount: isWiped ? totalAdvances : Math.max(20500, totalAdvances) },
+            { name: 'Customer Advances & Prepayment Deposits Held', amount: totalAdvances },
         ];
-        if (!isWiped) {
-            currentLiabilities.push({ name: 'Accrued Operating Expenses & Utilities', amount: 85000 });
-        }
+
+        (chartOfAccounts || [])
+            .filter((acc) => acc.classification === 'Liability' && !(acc.accountGroup === 'Long-term Liabilities' || acc.code.startsWith('25') || acc.code === '2010' || acc.code === '2020'))
+            .forEach((acc) => {
+                const bal = acc.openingBalance || acc.currentBalance || 0;
+                if (bal > 0) currentLiabilities.push({ name: acc.name, amount: bal });
+            });
+
         const totalCurrentLiabilities = currentLiabilities.reduce((s, l) => s + l.amount, 0);
         const totalLiabilities = totalNonCurrentLiabilities + totalCurrentLiabilities;
+
         // EQUITY
-        const ownerCapital = isWiped ? 0 : 2250000;
+        const capitalAcc = (chartOfAccounts || []).find((a) => a.code === '3010' || a.name.toLowerCase().includes('capital'));
+        const ownerCapital = capitalAcc ? (capitalAcc.openingBalance || capitalAcc.currentBalance || 0) : 0;
         const currentPeriodEarnings = netProfitForThePeriod;
-        // Retained earnings computed to achieve true accounting balance: Equity = Assets - Liabilities
-        const retainedEarnings = isWiped ? 0 : (totalAssets - totalLiabilities - ownerCapital - currentPeriodEarnings);
+        const retainedEarnings = (totalAssets - totalLiabilities - ownerCapital - currentPeriodEarnings);
         const totalEquity = ownerCapital + retainedEarnings + currentPeriodEarnings;
+
         return {
             nonCurrentAssets,
             totalNonCurrentAssets,
@@ -182,7 +210,7 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
             totalEquity,
             totalEquityAndLiabilities: totalEquity + totalLiabilities,
         };
-    }, [invoices, purchaseOrders, customers, closingStockValuation, netProfitForThePeriod, isWiped]);
+    }, [chartOfAccounts, invoices, purchaseOrders, customers, transactions, closingStockValuation, netProfitForThePeriod]);
     // -------------------------------------------------------------
     // 19. STATEMENT OF CASH FLOWS (IAS 7)
     // -------------------------------------------------------------

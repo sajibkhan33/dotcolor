@@ -571,6 +571,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
             invoiceId: p.invoiceId || '',
             chartOfAccountId: p.chartOfAccountId || 'coa-4051',
             includeSalesItem: false,
+            autoGenerateInvoice: false,
         });
         setShowCreateModal(true);
     };
@@ -605,6 +606,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                   invoiceId: '',
                   chartOfAccountId: 'coa-4051',
                   includeSalesItem: true,
+                  autoGenerateInvoice: true,
               });
               setShowCreateModal(true);
             }} className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm transition-all cursor-pointer">
