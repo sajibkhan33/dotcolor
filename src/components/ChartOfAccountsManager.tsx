@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { ChartOfAccount, SalesInvoice } from '../types';
-import { BookOpen, Plus, Search, Filter, Edit2, Trash2, Lock, CheckCircle2, AlertCircle, X, FileText, Printer, Layers, ArrowUpDown, Download, Upload, } from 'lucide-react';
+import { BookOpen, Plus, Search, Filter, Edit2, Trash2, Lock, CheckCircle2, AlertCircle, X, FileText, Printer, ArrowUpDown, Download, Upload, } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction } from '../utils/accountUtils';
 export const ChartOfAccountsManager: React.FC = () => {
@@ -12,7 +12,6 @@ export const ChartOfAccountsManager: React.FC = () => {
     const [editingAccount, setEditingAccount] = useState<ChartOfAccount | null>(null);
     const [accountToDelete, setAccountToDelete] = useState<ChartOfAccount | null>(null);
     const [deleteError, setDeleteError] = useState<string | null>(null);
-    const [syncSuccessMsg, setSyncSuccessMsg] = useState<string | null>(null);
 
     // Auto-align projects on COA mount
     useEffect(() => {
@@ -730,15 +729,6 @@ export const ChartOfAccountsManager: React.FC = () => {
         </div>
       </div>
 
-      {/* Floating Sync Toaster (Auto-dismisses in 1.5s) */}
-      {syncSuccessMsg && (
-        <div className="fixed top-20 right-6 z-50 bg-emerald-900/95 backdrop-blur-md text-white px-4 py-3 rounded-2xl shadow-2xl border border-emerald-500/40 flex items-center gap-2.5 text-xs font-bold animate-in fade-in slide-in-from-top-4 transition-all duration-300">
-          <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
-          <span>{syncSuccessMsg}</span>
-          <button type="button" onClick={() => setSyncSuccessMsg(null)} className="ml-2 text-emerald-300 hover:text-white font-bold text-sm cursor-pointer">✕</button>
-        </div>
-      )}
-
       {/* Action Header & Filters */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
@@ -759,22 +749,6 @@ export const ChartOfAccountsManager: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
-          <button
-            type="button"
-            onClick={() => {
-              if (syncProjectsWithAccounting) {
-                const res = syncProjectsWithAccounting();
-                setSyncSuccessMsg(`Projects Aligned: ${res.salesSynced} sales & ${res.expensesSynced} expenses synced (Tk ${res.totalAmount.toLocaleString()})`);
-                setTimeout(() => setSyncSuccessMsg(null), 1500);
-              }
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-emerald-300 bg-emerald-50 text-emerald-800 rounded-xl hover:bg-emerald-100 transition-all cursor-pointer shadow-2xs"
-            title="Click to dynamically synchronize all projects with Chart of Accounts"
-          >
-            <Layers className="w-3.5 h-3.5 text-emerald-600"/>
-            <span>{'Sync Projects'}</span>
-          </button>
-
           <input type="file" accept=".xlsx, .xls, .csv" id="coa-upload" className="hidden" onChange={handleImportExcel}/>
           <label htmlFor="coa-upload" className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 cursor-pointer">
             <Upload className="w-3.5 h-3.5"/>

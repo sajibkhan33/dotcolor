@@ -589,22 +589,6 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              if (syncProjectsWithAccounting) {
-                const res = syncProjectsWithAccounting();
-                setSyncNotice(`Projects Aligned: ${res.salesSynced} sales & ${res.expensesSynced} expenses synced (Tk ${res.totalAmount.toLocaleString()})`);
-                setTimeout(() => setSyncNotice(null), 1500);
-              }
-            }}
-            className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 rounded-xl font-bold text-xs transition-all cursor-pointer shadow-2xs"
-            title="Click to dynamically synchronize all project vouchers with Chart of Accounts"
-          >
-            <Layers className="w-3.5 h-3.5 text-emerald-600" />
-            <span>{'Sync COA'}</span>
-          </button>
-
           {canManageProjects && (
             <button type="button" onClick={() => {
               setEditingProject(null);
