@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { ChartOfAccount, SalesInvoice } from '../types';
 import { BookOpen, Plus, Search, Filter, Edit2, Trash2, Lock, CheckCircle2, AlertCircle, X, FileText, Printer, Layers, ArrowUpDown, Download, Upload, } from 'lucide-react';
@@ -13,6 +13,13 @@ export const ChartOfAccountsManager: React.FC = () => {
     const [accountToDelete, setAccountToDelete] = useState<ChartOfAccount | null>(null);
     const [deleteError, setDeleteError] = useState<string | null>(null);
     const [syncSuccessMsg, setSyncSuccessMsg] = useState<string | null>(null);
+
+    // Auto-align projects on COA mount
+    useEffect(() => {
+        if (syncProjectsWithAccounting) {
+            syncProjectsWithAccounting();
+        }
+    }, []);
 
     // Form state
     const [formData, setFormData] = useState({

@@ -51,6 +51,13 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
             }
         }
     }, [searchTerm, projects]);
+
+    // Background auto-alignment with Accounting COA on module mount
+    useEffect(() => {
+        if (syncProjectsWithAccounting) {
+            syncProjectsWithAccounting();
+        }
+    }, []);
     const [syncNotice, setSyncNotice] = useState<string | null>(null);
     // Modals state
     const [showCreateModal, setShowCreateModal] = useState(false);

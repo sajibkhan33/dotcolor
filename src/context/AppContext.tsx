@@ -146,7 +146,7 @@ interface AppContextType {
     addProjectExpenses: (projectId: string, expenses: Omit<ProjectExpenseItem, 'id'>[]) => void;
     deleteProjectSales: (projectId: string, salesId: string) => void;
     deleteProjectExpense: (projectId: string, expenseId: string) => void;
-    syncProjectsWithAccounting: () => { salesSynced: number; expensesSynced: number; totalAmount: number };
+    syncProjectsWithAccounting: (overrideProjects?: Project[]) => { salesSynced: number; expensesSynced: number; totalAmount: number };
     createProjectFromInvoice: (invoiceId: string, options?: {
         name?: string;
         nameBn?: string;
@@ -4418,6 +4418,7 @@ export const AppProvider: React.FC<{
             severity: 'info',
         });
         triggerImmediatePush();
+        syncProjectsWithAccounting([calculated, ...(latestStateRef.current.projects || [])]);
         return calculated;
     };
 
@@ -4434,11 +4435,13 @@ export const AppProvider: React.FC<{
             } catch {}
             return next;
         });
+        const updatedProjects = (latestStateRef.current.projects || []).map((p: Project) => p.id === id ? recalculateProject({ ...p, ...updates }) : p);
         latestStateRef.current = {
             ...latestStateRef.current,
-            projects: (latestStateRef.current.projects || []).map((p: Project) => p.id === id ? recalculateProject({ ...p, ...updates }) : p),
+            projects: updatedProjects,
         };
         triggerImmediatePush();
+        syncProjectsWithAccounting(updatedProjects);
     };
 
     const deleteProject = (id: string) => {
@@ -4496,11 +4499,13 @@ export const AppProvider: React.FC<{
             } catch {}
             return next;
         });
+        const remainingProjects = (latestStateRef.current.projects || []).filter((p: Project) => p.id !== id);
         latestStateRef.current = {
             ...latestStateRef.current,
-            projects: (latestStateRef.current.projects || []).filter((p: Project) => p.id !== id),
+            projects: remainingProjects,
         };
         triggerImmediatePush();
+        syncProjectsWithAccounting(remainingProjects);
     };
 
     const createProjectFromInvoice = (
@@ -5192,6 +5197,7 @@ export const AppProvider: React.FC<{
             severity: 'success',
         });
         triggerImmediatePush();
+        syncProjectsWithAccounting(latestStateRef.current.projects);
     };
 
     const addProjectExpense = (projectId: string, expense: Omit<ProjectExpenseItem, 'id'>) => {
@@ -5335,6 +5341,7 @@ export const AppProvider: React.FC<{
         });
 
         triggerImmediatePush();
+        syncProjectsWithAccounting(latestStateRef.current.projects);
     };
 
     const deleteProjectSales = (projectId: string, salesId: string) => {
@@ -5399,6 +5406,7 @@ export const AppProvider: React.FC<{
             syncProjectInvoice(projectId);
         }
         triggerImmediatePush();
+        syncProjectsWithAccounting(latestStateRef.current.projects);
     };
 
     const collectProjectDue = (
@@ -5720,6 +5728,7 @@ export const AppProvider: React.FC<{
         }
 
         triggerImmediatePush();
+        syncProjectsWithAccounting(latestStateRef.current.projects);
     };
 
     const deleteProjectExpense = (projectId: string, expenseId: string) => {
@@ -5781,20 +5790,28 @@ export const AppProvider: React.FC<{
             }),
         };
         triggerImmediatePush();
+        syncProjectsWithAccounting(latestStateRef.current.projects);
     };
 
-    const syncProjectsWithAccounting = (): { salesSynced: number; expensesSynced: number; totalAmount: number } => {
+    const syncProjectsWithAccounting = (overrideProjects?: Project[]): { salesSynced: number; expensesSynced: number; totalAmount: number } => {
         let salesSynced = 0;
         let expensesSynced = 0;
         let totalAmount = 0;
 
+        const currentProjects = overrideProjects || latestStateRef.current?.projects || projects;
+        const currentJournals = latestStateRef.current?.journalEntries || journalEntries;
+        const currentTransactions = latestStateRef.current?.transactions || transactions;
+        const currentCoa = latestStateRef.current?.chartOfAccounts || chartOfAccounts;
+        const currentInvoices = latestStateRef.current?.invoices || invoices;
+        const currentCustomers = latestStateRef.current?.customers || customers;
+
         const revAcc = resolveProjectRevenueAccount();
         const expAcc = resolveProjectExpenseAccount();
         const cashAcc = resolvePaymentAssetAccount('Cash');
-        const cogsAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5010' || a.name.toLowerCase().includes('raw') || a.name.toLowerCase().includes('cost')));
+        const cogsAcc = currentCoa.find(a => a.classification === 'Expense' && (a.code === '5010' || a.name.toLowerCase().includes('raw') || a.name.toLowerCase().includes('cost')));
 
-        const totalPrjSales = projects.reduce((s, p) => s + (p.totalSales || 0), 0);
-        const totalPrjExpenses = projects.reduce((s, p) => s + (p.totalExpenses || 0), 0);
+        const totalPrjSales = currentProjects.reduce((s, p) => s + (p.totalSales || 0), 0);
+        const totalPrjExpenses = currentProjects.reduce((s, p) => s + (p.totalExpenses || 0), 0);
 
         const newJournals: JournalEntry[] = [];
         const newTxs: AccountingTransaction[] = [];
@@ -5811,21 +5828,21 @@ export const AppProvider: React.FC<{
         }));
 
         setTransactions(prev => prev.map(t => {
-            if (t.type === 'EXPENSE' && t.refNo && projects.some(p => p.code === t.refNo) && expAcc && t.accountHead !== expAcc.name) {
+            if (t.type === 'EXPENSE' && t.refNo && currentProjects.some(p => p.code === t.refNo) && expAcc && t.accountHead !== expAcc.name) {
                 return { ...t, accountHead: expAcc.name };
             }
-            if (t.type === 'INCOME' && revAcc && (t.category?.toLowerCase().includes('project') || (t.refNo && projects.some(p => p.code === t.refNo))) && t.accountHead !== revAcc.name) {
+            if (t.type === 'INCOME' && revAcc && (t.category?.toLowerCase().includes('project') || (t.refNo && currentProjects.some(p => p.code === t.refNo))) && t.accountHead !== revAcc.name) {
                 return { ...t, accountHead: revAcc.name };
             }
             return t;
         }));
 
         // 2. Identify and record any missing project sales and expense items
-        projects.forEach(project => {
+        currentProjects.forEach(project => {
             (project.salesItems || []).forEach((sale) => {
                 const ref = sale.invoiceNo || project.code;
-                const alreadyHasJournal = journalEntries.some(j => (j.refNo === ref && j.narration.includes(sale.description)) || j.id.includes(sale.id));
-                const alreadyHasTx = transactions.some(t => t.refNo === ref && t.description.includes(sale.description));
+                const alreadyHasJournal = currentJournals.some(j => (j.refNo === ref && j.narration.includes(sale.description)) || j.id.includes(sale.id));
+                const alreadyHasTx = currentTransactions.some(t => t.refNo === ref && t.description.includes(sale.description));
 
                 if (!alreadyHasJournal || !alreadyHasTx) {
                     const validBreakdowns = (sale.paymentBreakdown && sale.paymentBreakdown.length > 0)
@@ -5856,17 +5873,17 @@ export const AppProvider: React.FC<{
 
                         const isDue = pb.method.toLowerCase().includes('due') || pb.method.toLowerCase().includes('receivable');
                         if (!alreadyHasTx && !isDue) {
-                            const isBank = pb.method.toLowerCase().includes('bank') || pb.method.toLowerCase().includes('brac');
-                            const isMobile = pb.method.toLowerCase().includes('bkash') || pb.method.toLowerCase().includes('nagad');
+                            const isBank = pb.method.toLowerCase().includes('bank') || pb.method.toLowerCase().includes('plc');
+                            const isMobile = pb.method.toLowerCase().includes('bkash') || pb.method.toLowerCase().includes('nagad') || pb.method.toLowerCase().includes('rocket');
                             newTxs.push({
                                 id: generateUniqueId('tx-prj-sync-sale'),
                                 date: sale.date || new Date().toISOString().slice(0, 10),
                                 type: 'INCOME',
                                 category: 'Project Revenue',
-                                account: isBank ? 'BRAC Bank' : isMobile ? 'bKash / Nagad' : 'Cash in Hand',
+                                account: isBank ? assetAcc.name : isMobile ? 'bKash / Nagad' : 'Cash in Hand',
                                 accountHead: revAcc.name,
                                 paymentMethod: pb.method,
-                                paymentAccount: pb.method,
+                                paymentAccount: assetAcc.name,
                                 refNo: ref,
                                 customerOrSupplier: project.clientName,
                                 description: `Project Income: [${project.code}] ${project.name} - ${sale.description} (${pb.method})`,
@@ -5883,9 +5900,10 @@ export const AppProvider: React.FC<{
                 const expAmt = Number(exp.amount) || 0;
                 if (expAmt <= 0) return;
                 const specificExpAcc = resolveExpenseAccount(exp.category, exp.note);
+                const payAcc = resolvePaymentAssetAccount(exp.paymentMethod || 'Cash');
 
-                const alreadyHasJournal = journalEntries.some(j => j.refNo === project.code && j.narration.includes(exp.category) && j.amount === expAmt);
-                const alreadyHasTx = transactions.some(t => t.refNo === project.code && t.category === exp.category && t.amount === expAmt);
+                const alreadyHasJournal = currentJournals.some(j => j.refNo === project.code && j.narration.includes(exp.category) && j.amount === expAmt);
+                const alreadyHasTx = currentTransactions.some(t => t.refNo === project.code && t.category === exp.category && t.amount === expAmt);
 
                 if (!alreadyHasJournal) {
                     newJournals.push({
@@ -5895,8 +5913,8 @@ export const AppProvider: React.FC<{
                         refNo: project.code,
                         debitAccountId: specificExpAcc.id,
                         debitAccountName: specificExpAcc.name,
-                        creditAccountId: cashAcc.id,
-                        creditAccountName: cashAcc.name,
+                        creditAccountId: payAcc.id,
+                        creditAccountName: payAcc.name,
                         amount: expAmt,
                         narration: `Project Expense: [${project.code}] ${project.name} - ${exp.category}${exp.note ? `: ${exp.note}` : ''}`,
                         source: 'PROJECT_EXPENSE',
@@ -5910,10 +5928,10 @@ export const AppProvider: React.FC<{
                         date: exp.date || new Date().toISOString().slice(0, 10),
                         type: 'EXPENSE',
                         category: exp.category,
-                        account: 'Cash in Hand',
+                        account: payAcc.name,
                         accountHead: specificExpAcc.name,
-                        paymentMethod: 'Cash',
-                        paymentAccount: 'Cash Counter / In-Hand',
+                        paymentMethod: exp.paymentMethod || 'Cash',
+                        paymentAccount: payAcc.name,
                         refNo: project.code,
                         customerOrSupplier: project.clientName || 'Vendor/Labor',
                         description: `Project Cost: [${project.code}] ${project.name} - ${exp.category}${exp.note ? ` (${exp.note})` : ''}`,
@@ -5929,15 +5947,31 @@ export const AppProvider: React.FC<{
         });
 
         if (newJournals.length > 0) {
-            setJournalEntries(prev => [...newJournals, ...prev]);
+            setJournalEntries(prev => {
+                const next = [...newJournals, ...prev];
+                try { localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(next)); } catch {}
+                return next;
+            });
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                journalEntries: [...newJournals, ...(latestStateRef.current?.journalEntries || [])],
+            };
         }
         if (newTxs.length > 0) {
-            setTransactions(prev => ensureUniqueTransactions([...newTxs, ...prev]));
+            setTransactions(prev => {
+                const next = ensureUniqueTransactions([...newTxs, ...prev]);
+                try { localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(next)); } catch {}
+                return next;
+            });
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                transactions: ensureUniqueTransactions([...newTxs, ...(latestStateRef.current?.transactions || [])]),
+            };
         }
 
         // 3. Align and ensure proper Chart of Accounts balances
-        const totalCustomerReceivables = calculateTotalCustomerReceivables(invoices, customers, projects);
-        const receivableAcc = chartOfAccounts.find(a => a.classification === 'Asset' && (
+        const totalCustomerReceivables = calculateTotalCustomerReceivables(currentInvoices, currentCustomers, currentProjects);
+        const receivableAcc = currentCoa.find(a => a.classification === 'Asset' && (
             a.id === 'coa-1050' ||
             a.code === '1003' ||
             a.code === '1050' ||
