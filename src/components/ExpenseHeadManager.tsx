@@ -15,6 +15,8 @@ export const ExpenseHeadManager: React.FC = () => {
         activeStaff?.customRoleId === 'role-superadmin' ||
         (activeStaff?.name || '').toLowerCase().includes('super admin');
     const canManageExpenses = isSuperAdmin || Boolean(checkPermission && (checkPermission('accounting.manage_expense_heads') || checkPermission('ACCOUNTING_EXPENSE_HEADS')));
+    const canEditExpenseHead = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.edit_transaction'));
+    const canDeleteExpenseHead = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.delete_transaction'));
     // Form state
     const [formData, setFormData] = useState({
         code: '',
@@ -407,12 +409,12 @@ export const ExpenseHeadManager: React.FC = () => {
                           <button type="button" onClick={() => setViewingHead(head)} className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors" title={'View'}>
                             <Eye className="w-3.5 h-3.5"/>
                           </button>
-                          {canManageExpenses && (
+                          {canEditExpenseHead && (
                             <button type="button" onClick={() => handleOpenEdit(head)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg border border-slate-200 transition-colors" title={'Edit'}>
                               <Edit2 className="w-3.5 h-3.5"/>
                             </button>
                           )}
-                          {canManageExpenses && (
+                          {canDeleteExpenseHead && (
                             <button type="button" onClick={() => handleDelete(head.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 transition-colors" title={'Delete'}>
                               <Trash2 className="w-3.5 h-3.5"/>
                             </button>

@@ -36,6 +36,8 @@ export const ChartOfAccountsManager: React.FC = () => {
         activeStaff?.customRoleId === 'role-superadmin' ||
         (activeStaff?.name || '').toLowerCase().includes('super admin');
     const canManageCOA = isSuperAdmin || Boolean(checkPermission && (checkPermission('accounting.chart_of_accounts') || checkPermission('ACCOUNTING_MANAGE_COA')));
+    const canEditAccount = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.edit_transaction'));
+    const canDeleteAccount = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.delete_transaction'));
 
     // Real-time dynamic Chart of Accounts synced with Ledger Transactions, Projects & Balances
     const liveAccounts = useMemo(() => {
@@ -869,7 +871,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
-                        {canManageCOA && (
+                        {canEditAccount && (
                           <button type="button" onClick={() => handleOpenEdit(acc)} className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg" title="Edit">
                             <Edit2 className="w-3.5 h-3.5"/>
                           </button>
@@ -878,7 +880,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                           <span className="p-1.5 text-slate-300 cursor-not-allowed" title="System account is core to the ERP and cannot be deleted">
                             <Lock className="w-3.5 h-3.5"/>
                           </span>
-                        ) : canManageCOA ? (
+                        ) : canDeleteAccount ? (
                           <button type="button" onClick={() => { setDeleteError(null); setAccountToDelete(acc); }} className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg cursor-pointer" title="Delete">
                             <Trash2 className="w-3.5 h-3.5"/>
                           </button>
