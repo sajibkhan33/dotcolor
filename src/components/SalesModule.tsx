@@ -456,7 +456,19 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
             (c.company && c.company.toLowerCase().includes(q)));
     }, [customers, quoteCustomerSearch]);
     // Financial stats (for filtered or overall)
+    const isInvoiceLinkedToProject = (inv: SalesInvoice) => {
+        const linkedProject = projects.find(p => p.invoiceId === inv.id || p.invoiceNo === inv.invoiceNo || (inv.projectId && p.id === inv.projectId));
+        return Boolean(linkedProject || inv.projectId || inv.projectCode);
+    };
+
     const totalSales = filteredInvoices.reduce((acc, i) => acc + (Number(i.grandTotal) || 0), 0);
+    const totalProjectSales = filteredInvoices
+        .filter(i => isInvoiceLinkedToProject(i))
+        .reduce((acc, i) => acc + (Number(i.grandTotal) || 0), 0);
+    const totalGeneralSales = filteredInvoices
+        .filter(i => !isInvoiceLinkedToProject(i))
+        .reduce((acc, i) => acc + (Number(i.grandTotal) || 0), 0);
+
     const totalCollected = filteredInvoices.reduce((acc, i) => acc + (Number(i.paidAmount) || 0), 0);
     const totalDue = filteredInvoices.reduce((acc, i) => acc + (Number(i.dueAmount) || 0), 0);
     const handleCollectSubmit = (e: React.FormEvent) => {
@@ -601,16 +613,26 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
       {/* Top Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-500 block mb-1">
-            {'Total Gross Sales'}
-          </span>
+          <div className="flex items-center justify-between gap-1 mb-1">
+            <span className="text-xs font-bold text-slate-500">
+              {'Total Gross Sales'}
+            </span>
+            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-md truncate" title={`General Sales: ${profile.currencySymbol}${totalGeneralSales.toLocaleString()} + Project Sales: ${profile.currencySymbol}${totalProjectSales.toLocaleString()}`}>
+              Sales: {profile.currencySymbol}{totalGeneralSales.toLocaleString()} + Prj: {profile.currencySymbol}{totalProjectSales.toLocaleString()}
+            </span>
+          </div>
           <div className="text-xl sm:text-2xl font-black text-slate-900">
             {profile.currencySymbol}
             {(Number(totalSales) || 0).toLocaleString()}
           </div>
-          <span className="text-[11px] text-slate-400 mt-1 block">
-            {invoices.length} {'invoices recorded'}
-          </span>
+          <div className="flex items-center justify-between mt-1 text-[11px]">
+            <span className="text-slate-400">
+              {filteredInvoices.length} {'invoices recorded'}
+            </span>
+            <span className="text-slate-500 font-semibold truncate">
+              Sales: {profile.currencySymbol}{totalGeneralSales.toLocaleString()} + Prj: {profile.currencySymbol}{totalProjectSales.toLocaleString()}
+            </span>
+          </div>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
