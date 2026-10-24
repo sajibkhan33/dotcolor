@@ -331,9 +331,11 @@ export const ChartOfAccountsManager: React.FC = () => {
                 );
 
                 // Calculate net impact from posted Journal Entries (Debit increases Expense, Credit decreases Expense)
+                // Exclude journal entries that originate from transactions already counted in ledger (EXPENSE, SALES, PURCHASE, LEDGER_SYNC, PROJECT_*)
                 let journalExpDelta = 0;
                 (journalEntries || []).forEach(j => {
-                    if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE') return;
+                    if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC') return;
+                    if (j.refNo && (transactions || []).some(t => t.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim())) return;
                     const dName = (j.debitAccountName || '').toLowerCase().trim();
                     const cName = (j.creditAccountName || '').toLowerCase().trim();
                     const amt = Number(j.amount) || 0;
@@ -418,7 +420,8 @@ export const ChartOfAccountsManager: React.FC = () => {
 
                 let journalEquityDelta = 0;
                 (journalEntries || []).forEach(j => {
-                    if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE') return;
+                    if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC') return;
+                    if (j.refNo && (transactions || []).some(t => t.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim())) return;
                     const isDebit = (
                         j.debitAccountId === acc.id ||
                         j.debitAccountId === acc.code ||

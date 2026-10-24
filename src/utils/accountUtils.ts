@@ -702,7 +702,8 @@ export const isProjectTransaction = (tx: Partial<AccountingTransaction>): boolea
     if (id.startsWith('tx-prj-')) return true;
     if (ref.startsWith('PRJ-') || ref.startsWith('COL-')) return true;
     if (cat.includes('project')) return true;
-    if (desc.includes('project income') || desc.includes('project sales') || desc.includes('project expense') || desc.includes('project due')) return true;
+    if (desc.includes('project income') || desc.includes('project sales') || desc.includes('project expense') || desc.includes('project due') || desc.includes('project cost')) return true;
+    if (Boolean(tx.projectId) || Boolean(tx.projectCode)) return true;
     return false;
 };
 
