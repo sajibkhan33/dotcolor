@@ -408,6 +408,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                     acc.id === 'coa-3020' ||
                     acc.code === '3020' ||
                     acc.code === '3050' ||
+                    acc.code === '3100' ||
                     nameLower.includes('retained earning') ||
                     nameBn.includes('সংরক্ষিত আয়')
                 );
@@ -432,7 +433,15 @@ export const ChartOfAccountsManager: React.FC = () => {
 
                 if (isRetainedEarnings) {
                     const directIncomes = (transactions || [])
-                        .filter(t => t.type === 'INCOME' && !isInvoiceTransaction(t) && !isProjectDueCollectionTransaction(t) && !isAdvanceDepositTransaction(t) && !isAdvanceAdjustmentTransaction(t))
+                        .filter(t => t.type === 'INCOME' && 
+                            !isInvoiceTransaction(t) && 
+                            !isProjectTransaction(t) && 
+                            !isProjectDueCollectionTransaction(t) && 
+                            !isAdvanceDepositTransaction(t) && 
+                            !isAdvanceAdjustmentTransaction(t) &&
+                            !(t.category || '').toLowerCase().includes('project') &&
+                            !(t.description || '').toLowerCase().includes('project')
+                        )
                         .reduce((s, t) => s + (Number(t.amount) || 0), 0);
                     const totalOperationalRevenue = totalNonProjectInvoiceSales + totalProjectSales + directIncomes;
                     const totalOperationalExpenses = (transactions || [])
