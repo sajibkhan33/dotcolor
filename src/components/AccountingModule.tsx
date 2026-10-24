@@ -1328,7 +1328,7 @@ export const AccountingModule: React.FC = () => {
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
                     <Briefcase className="w-4 h-4 text-amber-600" />
-                    <span>Link to Project / সংশ্লিষ্ট প্রজেক্ট নির্বাচন</span>
+                    <span>Link to Project (Optional)</span>
                     {isProjectExpense && (
                       <span className="text-amber-800 text-[10px] bg-amber-100 font-extrabold px-1.5 py-0.5 rounded border border-amber-300">
                         Project Expense
@@ -1353,8 +1353,8 @@ export const AccountingModule: React.FC = () => {
                 >
                   <option value="">
                     {isProjectExpense
-                      ? '-- Select a Project / প্রজেক্ট সিলেক্ট করুন --'
-                      : '-- No Project Linked (General Operating Expense) / সাধারণ খরচ --'}
+                      ? '-- Select a Project --'
+                      : '-- No Project Linked (General Operating Expense) --'}
                   </option>
                   {projects.map((proj) => {
                     const isCompleted = proj.status === 'Completed';
@@ -1375,7 +1375,7 @@ export const AccountingModule: React.FC = () => {
                         <p className="text-[10.5px] text-amber-800 mt-2 flex items-center gap-1.5 font-medium">
                           <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                           <span>
-                            টিপস: প্রজেক্ট সিলেক্ট করলে খরচটি স্বয়ংক্রিয়ভাবে উক্ত প্রজেক্টের খরচের তালিকায় যুক্ত হবে এবং নিট প্রফিট আপডেট হবে।
+                            Tip: Linking a project will automatically add this expense to the project cost sheet and update its net profit.
                           </span>
                         </p>
                       );
@@ -1425,7 +1425,7 @@ export const AccountingModule: React.FC = () => {
                       </div>
 
                       <p className="text-[10.5px] text-emerald-700 font-semibold pt-1 flex items-center gap-1 border-t border-slate-100">
-                        <span>✓ এই খরচটি সরাসরি [{p.code}] {p.name} প্রজেক্টের খরচে যুক্ত হয়ে প্রজেক্ট ম্যানেজমেন্টের সাথে সিঙ্ক থাকবে।</span>
+                        <span>✓ This expense is linked directly to [{p.code}] {p.name} and synced with Project Management.</span>
                       </p>
                     </div>
                   );
@@ -1577,7 +1577,7 @@ export const AccountingModule: React.FC = () => {
                   <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-emerald-200/70">
                     <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
                       <Briefcase className="w-4 h-4 text-emerald-600" />
-                      <span>Project Sales & Due Management / প্রজেক্ট নির্বাচন ও বকেয়া আদায়</span>
+                      <span>Project Sales & Due Management</span>
                     </div>
 
                     <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-emerald-200 shadow-2xs">
@@ -1625,7 +1625,7 @@ export const AccountingModule: React.FC = () => {
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <label className="font-bold text-slate-700 text-xs">
-                            Select Existing Project / প্রজেক্ট বাছাই করুন *
+                            Select Existing Project *
                           </label>
                           {selectedIncomeProjectId && (
                             <button
@@ -1642,7 +1642,7 @@ export const AccountingModule: React.FC = () => {
                           onChange={(e) => setSelectedIncomeProjectId(e.target.value)}
                           className="w-full px-3 py-2 border border-emerald-300 rounded-xl font-medium text-xs bg-white cursor-pointer focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
                         >
-                          <option value="">-- Choose a Project to Link / প্রজেক্ট সিলেক্ট করুন --</option>
+                          <option value="">-- Choose a Project to Link --</option>
                           {projects.map((proj) => {
                             const due = (proj.salesItems || []).reduce((s, si) => {
                               const d = si.dueAmount !== undefined
@@ -1714,7 +1714,7 @@ export const AccountingModule: React.FC = () => {
                                     onChange={() => setProjectIncomeAction('collect_due')}
                                     className="text-emerald-600 focus:ring-emerald-500"
                                   />
-                                  <span>Collect Due (বকেয়া আদায়)</span>
+                                  <span>Collect Due</span>
                                 </label>
                                 <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer text-slate-800">
                                   <input
@@ -1725,7 +1725,7 @@ export const AccountingModule: React.FC = () => {
                                     onChange={() => setProjectIncomeAction('new_sales')}
                                     className="text-emerald-600 focus:ring-emerald-500"
                                   />
-                                  <span>New Sales Billing (নতুন বিলিং)</span>
+                                  <span>New Sales Billing</span>
                                 </label>
                               </div>
                             </div>
@@ -1734,7 +1734,7 @@ export const AccountingModule: React.FC = () => {
                               <div className="bg-rose-50/70 p-3 rounded-xl border border-rose-200 text-xs space-y-2">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                   <span className="text-rose-900 font-semibold">
-                                    💡 বর্তমান বকেয়া: <strong className="text-rose-700 font-black">{profile.currencySymbol}{selectedProjectDue.toLocaleString()}</strong>
+                                    💡 Current Due: <strong className="text-rose-700 font-black">{profile.currencySymbol}{selectedProjectDue.toLocaleString()}</strong>
                                   </span>
                                   {selectedProjectDue > 0 && (
                                     <button
@@ -1750,7 +1750,7 @@ export const AccountingModule: React.FC = () => {
                                   )}
                                 </div>
                                 <div className="text-[11px] text-slate-600 flex items-center justify-between pt-1.5 border-t border-rose-200/60">
-                                  <span>আদায় পরবর্তী অবশিষ্ট বকেয়া:</span>
+                                  <span>Remaining Due After Collection:</span>
                                   <span className="font-bold text-slate-800 font-mono">
                                     {profile.currencySymbol}{Math.max(0, selectedProjectDue - (Number(incomeAmount) || 0)).toLocaleString()}
                                   </span>
@@ -1759,7 +1759,7 @@ export const AccountingModule: React.FC = () => {
                             ) : (
                               <div className="bg-emerald-50/70 p-2.5 rounded-lg border border-emerald-200 text-xs">
                                 <span className="text-emerald-900 font-medium">
-                                  ✓ এই টাকাটি [{selectedIncomeProject.code}] {selectedIncomeProject.name} প্রজেক্টের নতুন বিক্রয় আয় হিসেবে যুক্ত হবে।
+                                  ✓ This amount will be recorded as new sales revenue for [{selectedIncomeProject.code}] {selectedIncomeProject.name}.
                                 </span>
                               </div>
                             )}
@@ -1851,12 +1851,12 @@ export const AccountingModule: React.FC = () => {
                       {/* Calculation summary */}
                       <div className="p-2.5 bg-emerald-50/70 rounded-lg border border-emerald-200 text-xs flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-3">
-                          <span>মোট চুক্তি মূল্য: <strong className="font-mono text-slate-900">{profile.currencySymbol}{(Number(newProjBudget) || 0).toLocaleString()}</strong></span>
-                          <span>নগদ জমা: <strong className="font-mono text-emerald-700">{profile.currencySymbol}{(Number(incomeAmount) || 0).toLocaleString()}</strong></span>
+                          <span>Total Budget: <strong className="font-mono text-slate-900">{profile.currencySymbol}{(Number(newProjBudget) || 0).toLocaleString()}</strong></span>
+                          <span>Paid / Deposit: <strong className="font-mono text-emerald-700">{profile.currencySymbol}{(Number(incomeAmount) || 0).toLocaleString()}</strong></span>
                         </div>
                         <div>
                           <span className="text-rose-700 font-bold">
-                            প্রজেক্টের অবশিষ্ট বকেয়া: {profile.currencySymbol}{Math.max(0, (Number(newProjBudget) || 0) - (Number(incomeAmount) || 0)).toLocaleString()}
+                            Remaining Due: {profile.currencySymbol}{Math.max(0, (Number(newProjBudget) || 0) - (Number(incomeAmount) || 0)).toLocaleString()}
                           </span>
                         </div>
                       </div>
@@ -1864,7 +1864,7 @@ export const AccountingModule: React.FC = () => {
                       {/* Auto-generate Sales Invoice Notice */}
                       <div className="flex items-center gap-2 p-2 bg-indigo-50/80 rounded-lg border border-indigo-200 text-[11px] text-indigo-900 font-medium">
                         <Receipt className="w-4 h-4 text-indigo-600 shrink-0" />
-                        <span>সেভ করার সাথে সাথে <strong>Sales & Orders</strong> ট্যাবে এই প্রজেক্টের নামে স্বয়ংক্রিয়ভাবে অফিসিয়াল বিক্রয় চালান (Sales Invoice) তৈরি হবে।</span>
+                        <span>An official Sales Invoice (DCC-INV) will be automatically created and linked in <strong>Sales & Orders</strong> upon saving.</span>
                       </div>
                     </div>
                   )}
@@ -1872,7 +1872,7 @@ export const AccountingModule: React.FC = () => {
                   {/* MODE 3: DIRECT SALES */}
                   {projectIncomeMode === 'direct' && (
                     <p className="text-[11px] text-slate-500 italic p-2 bg-white rounded-lg border border-slate-200">
-                      ℹ️ সাধারণ প্রজেক্ট সেলস হিসেবে লেজারে ইনকাম ট্রানজেকশন যুক্ত হবে (কোনো নির্দিষ্ট প্রজেক্ট ফোল্ডারে লিঙ্ক করা হবে না)।
+                      ℹ️ Will be recorded as general project sales in the ledger without linking to a specific project.
                     </p>
                   )}
                 </div>
