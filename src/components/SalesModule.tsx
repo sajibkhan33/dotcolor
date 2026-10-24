@@ -461,13 +461,12 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
         return Boolean(linkedProject || inv.projectId || inv.projectCode);
     };
 
+    const generalInvoices = filteredInvoices.filter(i => !isInvoiceLinkedToProject(i));
+    const projectInvoices = filteredInvoices.filter(i => isInvoiceLinkedToProject(i));
+
     const totalSales = filteredInvoices.reduce((acc, i) => acc + (Number(i.grandTotal) || 0), 0);
-    const totalProjectSales = filteredInvoices
-        .filter(i => isInvoiceLinkedToProject(i))
-        .reduce((acc, i) => acc + (Number(i.grandTotal) || 0), 0);
-    const totalGeneralSales = filteredInvoices
-        .filter(i => !isInvoiceLinkedToProject(i))
-        .reduce((acc, i) => acc + (Number(i.grandTotal) || 0), 0);
+    const totalProjectSales = projectInvoices.reduce((acc, i) => acc + (Number(i.grandTotal) || 0), 0);
+    const totalGeneralSales = generalInvoices.reduce((acc, i) => acc + (Number(i.grandTotal) || 0), 0);
 
     const totalCollected = filteredInvoices.reduce((acc, i) => acc + (Number(i.paidAmount) || 0), 0);
     const totalDue = filteredInvoices.reduce((acc, i) => acc + (Number(i.dueAmount) || 0), 0);
@@ -610,53 +609,104 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
         'Delivered',
     ];
     return (<div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5">
-      {/* Top Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between gap-1 mb-1">
-            <span className="text-xs font-bold text-slate-500">
-              {'Total Gross Sales'}
-            </span>
-            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-md truncate" title={`General Sales: ${profile.currencySymbol}${totalGeneralSales.toLocaleString()} + Project Sales: ${profile.currencySymbol}${totalProjectSales.toLocaleString()}`}>
-              Sales: {profile.currencySymbol}{totalGeneralSales.toLocaleString()} + Prj: {profile.currencySymbol}{totalProjectSales.toLocaleString()}
-            </span>
+      {/* Top Metric Cards - 5 Cards including Separate General Sales & Project Sales */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+        {/* Card 1: Total Gross Sales */}
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[11px] sm:text-xs font-bold text-slate-500 uppercase tracking-wider">
+                {'Total Gross Sales'}
+              </span>
+              <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                Total
+              </span>
+            </div>
+            <div className="text-lg sm:text-2xl font-black text-slate-900">
+              {profile.currencySymbol}{(Number(totalSales) || 0).toLocaleString()}
+            </div>
           </div>
-          <div className="text-xl sm:text-2xl font-black text-slate-900">
-            {profile.currencySymbol}
-            {(Number(totalSales) || 0).toLocaleString()}
-          </div>
-          <div className="flex items-center justify-between mt-1 text-[11px]">
-            <span className="text-slate-400">
-              {filteredInvoices.length} {'invoices recorded'}
-            </span>
-            <span className="text-slate-500 font-semibold truncate">
-              Sales: {profile.currencySymbol}{totalGeneralSales.toLocaleString()} + Prj: {profile.currencySymbol}{totalProjectSales.toLocaleString()}
-            </span>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-emerald-600 block mb-1">
-            {'Total Cash & Bank Collected'}
-          </span>
-          <div className="text-xl sm:text-2xl font-black text-emerald-700">
-            {profile.currencySymbol}
-            {(Number(totalCollected) || 0).toLocaleString()}
-          </div>
-          <span className="text-[11px] text-emerald-600/80 mt-1 block font-medium">
-            {'via Cash, Bank & Mobile Banking'}
+          <span className="text-[11px] text-slate-400 mt-2 block font-medium truncate">
+            {filteredInvoices.length} {'invoices recorded'}
           </span>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-rose-600 block mb-1">
-            {'Accounts Receivable (Customer Due)'}
-          </span>
-          <div className="text-xl sm:text-2xl font-black text-rose-600">
-            {profile.currencySymbol}
-            {(Number(totalDue) || 0).toLocaleString()}
+        {/* Card 2: General Sales */}
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-blue-200 bg-gradient-to-br from-white to-blue-50/40 shadow-2xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[11px] sm:text-xs font-bold text-blue-700 uppercase tracking-wider">
+                {'General Sales'}
+              </span>
+              <span className="text-[10px] font-bold text-blue-700 bg-blue-100/80 px-1.5 py-0.5 rounded border border-blue-200">
+                POS / Retail
+              </span>
+            </div>
+            <div className="text-lg sm:text-2xl font-black text-blue-900">
+              {profile.currencySymbol}{(Number(totalGeneralSales) || 0).toLocaleString()}
+            </div>
           </div>
-          <span className="text-[11px] text-rose-500 mt-1 block font-medium">
+          <span className="text-[11px] text-blue-600/90 mt-2 block font-medium truncate">
+            {generalInvoices.length} {'sales invoices'}
+          </span>
+        </div>
+
+        {/* Card 3: Project Sales */}
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-amber-200 bg-gradient-to-br from-white to-amber-50/50 shadow-2xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[11px] sm:text-xs font-bold text-amber-800 uppercase tracking-wider">
+                {'Project Sales'}
+              </span>
+              <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-200">
+                Projects
+              </span>
+            </div>
+            <div className="text-lg sm:text-2xl font-black text-amber-950">
+              {profile.currencySymbol}{(Number(totalProjectSales) || 0).toLocaleString()}
+            </div>
+          </div>
+          <span className="text-[11px] text-amber-700 mt-2 block font-medium truncate">
+            {projectInvoices.length} {'project contracts'}
+          </span>
+        </div>
+
+        {/* Card 4: Total Collected */}
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-emerald-200 bg-gradient-to-br from-white to-emerald-50/30 shadow-2xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[11px] sm:text-xs font-bold text-emerald-700 uppercase tracking-wider">
+                {'Total Collected'}
+              </span>
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200">
+                Paid
+              </span>
+            </div>
+            <div className="text-lg sm:text-2xl font-black text-emerald-700">
+              {profile.currencySymbol}{(Number(totalCollected) || 0).toLocaleString()}
+            </div>
+          </div>
+          <span className="text-[11px] text-emerald-600/90 mt-2 block font-medium truncate">
+            {'via Cash, Bank & Mobile'}
+          </span>
+        </div>
+
+        {/* Card 5: Customer Due */}
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-rose-200 bg-gradient-to-br from-white to-rose-50/30 shadow-2xs col-span-2 sm:col-span-1 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[11px] sm:text-xs font-bold text-rose-600 uppercase tracking-wider">
+                {'Customer Due'}
+              </span>
+              <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded border border-rose-200">
+                Receivable
+              </span>
+            </div>
+            <div className="text-lg sm:text-2xl font-black text-rose-600">
+              {profile.currencySymbol}{(Number(totalDue) || 0).toLocaleString()}
+            </div>
+          </div>
+          <span className="text-[11px] text-rose-500 mt-2 block font-medium truncate">
             {invoices.filter((i) => (Number(i.dueAmount) || 0) > 0).length}{' '}
             {'invoices with due'}
           </span>
