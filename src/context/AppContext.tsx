@@ -1740,6 +1740,92 @@ export const AppProvider: React.FC<{
         }
     }, [transactions]);
 
+    // Automatic Two-Way Sync Auto-Cleanup: purge orphaned sales transactions & journal entries for deleted invoices,
+    // and auto-heal general sales journal entries incorrectly assigned to 'Project Sales'
+    useEffect(() => {
+        if (!invoices) return;
+        const invoiceNoSet = new Set(invoices.map(inv => (inv.invoiceNo || '').toLowerCase().trim()).filter(Boolean));
+        const invoiceIdSet = new Set(invoices.map(inv => (inv.id || '').toLowerCase().trim()).filter(Boolean));
+
+        const currentTxs = latestStateRef.current?.transactions || transactions || [];
+        const hasOrphanedTx = currentTxs.some(t => {
+            const ref = (t.refNo || '').toLowerCase().trim();
+            if (!ref.startsWith('dcc-inv-')) return false;
+            return !invoiceNoSet.has(ref) && !invoiceIdSet.has(ref);
+        });
+
+        const currentJournals = latestStateRef.current?.journalEntries || journalEntries || [];
+        const hasOrphanedJnl = currentJournals.some(je => {
+            const ref = (je.refNo || '').toLowerCase().trim();
+            if (ref.startsWith('dcc-inv-') && !invoiceNoSet.has(ref) && !invoiceIdSet.has(ref)) return true;
+            if (je.source === 'SALES') {
+                const match = je.narration?.match(/dcc-inv-[\w-]+/i);
+                if (match && !invoiceNoSet.has(match[0].toLowerCase().trim())) return true;
+            }
+            return false;
+        });
+
+        const hasMismappedSalesJnl = currentJournals.some(je => {
+            if (je.source !== 'SALES') return false;
+            if (je.creditAccountName !== 'Project Sales' && je.creditAccountId !== 'coa-4002' && je.creditAccountId !== 'coa-4051') return false;
+            const ref = (je.refNo || '').toLowerCase().trim();
+            const linkedInv = invoices.find(inv => (inv.invoiceNo || '').toLowerCase().trim() === ref || (inv.id || '').toLowerCase().trim() === ref);
+            return linkedInv && !linkedInv.projectId && !linkedInv.projectCode;
+        });
+
+        if (hasOrphanedTx || hasOrphanedJnl || hasMismappedSalesJnl) {
+            let nextTxs = currentTxs;
+            if (hasOrphanedTx) {
+                nextTxs = currentTxs.filter(t => {
+                    const ref = (t.refNo || '').toLowerCase().trim();
+                    if (!ref.startsWith('dcc-inv-')) return true;
+                    return invoiceNoSet.has(ref) || invoiceIdSet.has(ref);
+                });
+                setTransactions(nextTxs);
+                try { localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(nextTxs)); } catch {}
+            }
+
+            let nextJournals = currentJournals;
+            if (hasOrphanedJnl || hasMismappedSalesJnl) {
+                const currentCoa = latestStateRef.current?.chartOfAccounts || chartOfAccounts || [];
+                const properSalesAcc = resolveSalesRevenueAccount(currentCoa, false);
+
+                nextJournals = currentJournals.filter(je => {
+                    const ref = (je.refNo || '').toLowerCase().trim();
+                    if (ref.startsWith('dcc-inv-') && !invoiceNoSet.has(ref) && !invoiceIdSet.has(ref)) return false;
+                    if (je.source === 'SALES') {
+                        const match = je.narration?.match(/dcc-inv-[\w-]+/i);
+                        if (match && !invoiceNoSet.has(match[0].toLowerCase().trim())) return false;
+                    }
+                    return true;
+                }).map(je => {
+                    if (je.source === 'SALES' && (je.creditAccountName === 'Project Sales' || je.creditAccountId === 'coa-4002' || je.creditAccountId === 'coa-4051')) {
+                        const ref = (je.refNo || '').toLowerCase().trim();
+                        const linkedInv = invoices.find(inv => (inv.invoiceNo || '').toLowerCase().trim() === ref || (inv.id || '').toLowerCase().trim() === ref);
+                        if (linkedInv && !linkedInv.projectId && !linkedInv.projectCode && properSalesAcc) {
+                            return {
+                                ...je,
+                                creditAccountId: properSalesAcc.id,
+                                creditAccountName: properSalesAcc.name,
+                            };
+                        }
+                    }
+                    return je;
+                });
+
+                setJournalEntries(nextJournals);
+                try { localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(nextJournals)); } catch {}
+            }
+
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                transactions: nextTxs,
+                journalEntries: nextJournals,
+            };
+            triggerImmediatePush();
+        }
+    }, [invoices]);
+
     const login = (staffIdOrPasscode: string, passcode?: string): {
         success: boolean;
         message: string;
@@ -1958,6 +2044,30 @@ export const AppProvider: React.FC<{
             isDefault: pm.id === id,
         })));
     };
+    // Helper to resolve accurate Sales Revenue account (strictly separates general POS/sales from Project Sales)
+    const resolveSalesRevenueAccount = (
+        currentCoa: ChartOfAccount[],
+        isProject: boolean = false,
+        specifiedAccountId?: string
+    ): ChartOfAccount => {
+        if (specifiedAccountId) {
+            const matched = currentCoa.find(a => a.id === specifiedAccountId);
+            if (matched) return matched;
+        }
+        if (isProject) {
+            return currentCoa.find(a => a.classification === 'Revenue' && (a.code === '4051' || a.code === '4002' || a.id === 'coa-4051' || a.id === 'coa-4002' || a.name.toLowerCase().includes('project'))) ||
+                   currentCoa.find(a => a.classification === 'Revenue' && a.name.toLowerCase().includes('project')) ||
+                   currentCoa.find(a => a.classification === 'Revenue') ||
+                   currentCoa[0];
+        }
+        // General Sales / POS: strictly exclude accounts with 'project' in name, prioritize 4010
+        return currentCoa.find(a => a.classification === 'Revenue' && (a.code === '4010' || a.id === 'coa-4010')) ||
+               currentCoa.find(a => a.classification === 'Revenue' && !a.name.toLowerCase().includes('project') && (a.name.toLowerCase().includes('sales') || a.name.toLowerCase().includes('revenue') || a.name.toLowerCase().includes('print'))) ||
+               currentCoa.find(a => a.classification === 'Revenue' && !a.name.toLowerCase().includes('project')) ||
+               currentCoa.find(a => a.classification === 'Revenue') ||
+               currentCoa[0];
+    };
+
     // Add Sales Invoice
     const addInvoice = (data: Omit<SalesInvoice, 'id' | 'invoiceNo'>): SalesInvoice => {
         const id = `inv-${Date.now()}`;
@@ -2068,10 +2178,8 @@ export const AppProvider: React.FC<{
 
             // Automatic Double-Entry Journal Creation for Sales Invoice
             const currentCoa = latestStateRef.current?.chartOfAccounts || chartOfAccounts || [];
-            const salesAcc = currentCoa.find(a => a.id === data.chartOfAccountId) ||
-                currentCoa.find(a => a.classification === 'Revenue' && (a.code === '4010' || a.id === 'coa-4010' || a.name.toLowerCase().includes('sales'))) ||
-                currentCoa.find(a => a.classification === 'Revenue') ||
-                currentCoa[0];
+            const isProjectInvoice = Boolean(data.projectId || data.projectCode);
+            const salesAcc = resolveSalesRevenueAccount(currentCoa, isProjectInvoice, data.chartOfAccountId);
             const arAcc = currentCoa.find(a => a.id === 'coa-1050' || a.code === '1050' || a.name.toLowerCase().includes('receivable')) || currentCoa[0];
             const advAcc = currentCoa.find(a => a.id === 'coa-2020' || a.code === '2020' || a.name.toLowerCase().includes('advance')) || currentCoa[0];
 
@@ -2237,6 +2345,7 @@ export const AppProvider: React.FC<{
 
         const updatedInv = nextInvoices.find(inv => inv.id === id);
         if (updatedInv) {
+            const invoiceNo = updatedInv.invoiceNo;
             const currentCusts = latestStateRef.current.customers || customers;
             const nextCusts = currentCusts.map((c: Customer) => {
                 if (isInvoiceMatchingCustomer(updatedInv, c)) {
@@ -2251,10 +2360,81 @@ export const AppProvider: React.FC<{
             try {
                 localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(nextCusts));
             } catch {}
+
+            // Two-Way Sync: Update linked Financial Ledger transactions
+            const currentTxs = latestStateRef.current.transactions || transactions;
+            let txsChanged = false;
+            const updatedTxs = currentTxs.map((t) => {
+                const isMatch = Boolean(t.refNo && (t.refNo === invoiceNo || t.refNo === id)) ||
+                                Boolean(t.description && (t.description.includes(invoiceNo) || t.description.includes(`invoice #${invoiceNo}`)));
+                if (isMatch && t.type === 'INCOME') {
+                    txsChanged = true;
+                    const itemsDesc = (updatedInv.items || []).map((i) => i.name).join(', ');
+                    return {
+                        ...t,
+                        amount: updatedInv.paidAmount,
+                        customerOrSupplier: updatedInv.customerName,
+                        date: updatedInv.date || t.date,
+                        description: `Sales Invoice payment: ${t.paymentAccount || 'Cash'} (${updatedInv.paymentStatus}) - ${itemsDesc}`,
+                    };
+                }
+                return t;
+            });
+            if (txsChanged) {
+                setTransactions(updatedTxs);
+                try {
+                    localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(updatedTxs));
+                } catch {}
+            }
+
+            // Two-Way Sync: Update linked Journal Vouchers
+            const currentJournals = latestStateRef.current.journalEntries || journalEntries;
+            let journalsChanged = false;
+            const isProjectInvoice = Boolean(updatedInv.projectId || updatedInv.projectCode);
+            const currentCoa = latestStateRef.current?.chartOfAccounts || chartOfAccounts || [];
+            const salesAcc = resolveSalesRevenueAccount(currentCoa, isProjectInvoice, updatedInv.chartOfAccountId);
+
+            const updatedJournals = currentJournals.map((je) => {
+                const isMatch = Boolean(je.refNo && (je.refNo === invoiceNo || je.refNo === id)) ||
+                                Boolean(je.narration && (je.narration.includes(invoiceNo) || je.narration.includes(`Invoice #${invoiceNo}`)));
+                if (!isMatch) return je;
+
+                journalsChanged = true;
+                const isDueBooking = je.id.includes('due') || (je.narration && je.narration.toLowerCase().includes('due booking'));
+                const isPaidCollection = je.id.includes('paid') || (je.narration && je.narration.toLowerCase().includes('collection'));
+
+                let newAmount = je.amount;
+                if (isDueBooking) {
+                    newAmount = Number(updatedInv.dueAmount) || 0;
+                } else if (isPaidCollection) {
+                    newAmount = Number(updatedInv.paidAmount) || 0;
+                }
+
+                return {
+                    ...je,
+                    date: updatedInv.date || je.date,
+                    amount: newAmount,
+                    creditAccountId: salesAcc.id,
+                    creditAccountName: salesAcc.name,
+                    narration: isDueBooking
+                        ? `Sales Invoice #${invoiceNo} (Due Booking) - ${updatedInv.customerName}`
+                        : `Sales Invoice #${invoiceNo} Collection (${je.debitAccountName}) - ${updatedInv.customerName}`,
+                };
+            }).filter(je => je.amount > 0);
+
+            if (journalsChanged) {
+                setJournalEntries(updatedJournals);
+                try {
+                    localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(updatedJournals));
+                } catch {}
+            }
+
             latestStateRef.current = {
                 ...latestStateRef.current,
                 invoices: nextInvoices,
                 customers: nextCusts,
+                transactions: txsChanged ? updatedTxs : currentTxs,
+                journalEntries: journalsChanged ? updatedJournals : currentJournals,
             };
         } else {
             latestStateRef.current = {
@@ -3440,10 +3620,35 @@ export const AppProvider: React.FC<{
         const inv = currentInvoices.find((i: SalesInvoice) => i.id === id);
         if (!inv)
             return;
+        const invoiceNo = inv.invoiceNo;
         const nextInvoices = currentInvoices.filter((i: SalesInvoice) => i.id !== id);
         setInvoices(nextInvoices);
         try {
             localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(nextInvoices));
+        } catch {}
+
+        // Two-Way Sync: Clean up Financial Ledger transactions linked to this invoice
+        const currentTxs = latestStateRef.current.transactions || transactions;
+        const nextTxs = currentTxs.filter((t: AccountingTransaction) => {
+            const matchesRef = Boolean(t.refNo && (t.refNo === invoiceNo || t.refNo === id));
+            const matchesDesc = Boolean(t.description && (t.description.includes(invoiceNo) || t.description.includes(`invoice #${invoiceNo}`)));
+            return !(matchesRef || matchesDesc);
+        });
+        setTransactions(nextTxs);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(nextTxs));
+        } catch {}
+
+        // Two-Way Sync: Clean up Journal Vouchers linked to this invoice
+        const currentJournals = latestStateRef.current.journalEntries || journalEntries;
+        const nextJournals = currentJournals.filter((je: JournalEntry) => {
+            const matchesRef = Boolean(je.refNo && (je.refNo === invoiceNo || je.refNo === id));
+            const matchesNarr = Boolean(je.narration && (je.narration.includes(invoiceNo) || je.narration.includes(`Invoice #${invoiceNo}`)));
+            return !(matchesRef || matchesNarr);
+        });
+        setJournalEntries(nextJournals);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(nextJournals));
         } catch {}
 
         const currentCusts = latestStateRef.current.customers || customers;
@@ -3480,6 +3685,8 @@ export const AppProvider: React.FC<{
             ...latestStateRef.current,
             invoices: nextInvoices,
             customers: nextCusts,
+            transactions: nextTxs,
+            journalEntries: nextJournals,
         };
         addAuditLog({
             staffId: activeStaff.id,
@@ -3489,7 +3696,7 @@ export const AppProvider: React.FC<{
             actionType: 'INVOICE_UPDATED',
             entityType: 'Sales',
             refNo: inv.invoiceNo,
-            details: `Deleted sales invoice ${inv.invoiceNo} (Tk ${inv.grandTotal.toLocaleString()}) for customer ${inv.customerName}`,
+            details: `Deleted sales invoice ${inv.invoiceNo} (Tk ${inv.grandTotal.toLocaleString()}) for customer ${inv.customerName} and automatically cleaned linked ledger transactions and journal vouchers.`,
             detailsBn: undefined,
             amount: inv.grandTotal,
             severity: 'warning',
@@ -4358,7 +4565,8 @@ export const AppProvider: React.FC<{
         const cashAcc = chartOfAccounts.find((a) => a.classification === 'Asset' && (a.name.toLowerCase().includes('cash') || a.code === '1010')) || chartOfAccounts[0];
         const bankAcc = chartOfAccounts.find((a) => a.classification === 'Asset' && (a.name.toLowerCase().includes('bank') || a.name.toLowerCase().includes('plc') || a.code === '1020')) || cashAcc;
         const mobileAcc = chartOfAccounts.find((a) => a.classification === 'Asset' && (a.name.toLowerCase().includes('bkash') || a.name.toLowerCase().includes('nagad') || a.code === '1030')) || cashAcc;
-        const salesAcc = chartOfAccounts.find((a) => a.classification === 'Revenue' && (a.code === '4010' || a.name.toLowerCase().includes('print') || a.name.toLowerCase().includes('sales'))) || chartOfAccounts.find((a) => a.classification === 'Revenue') || chartOfAccounts[0];
+        const salesAcc = resolveSalesRevenueAccount(chartOfAccounts, false);
+        const projectSalesAcc = resolveSalesRevenueAccount(chartOfAccounts, true);
         const cogsAcc = chartOfAccounts.find((a) => a.classification === 'Expense' && (a.code === '5010' || a.name.toLowerCase().includes('cost') || a.name.toLowerCase().includes('raw'))) || chartOfAccounts.find((a) => a.classification === 'Expense') || chartOfAccounts[0];
 
         transactions.forEach((tx, idx) => {
@@ -4373,7 +4581,8 @@ export const AppProvider: React.FC<{
             }
 
             const isIncome = tx.type === 'INCOME';
-            let opposingAcc = isIncome ? salesAcc : cogsAcc;
+            const isProjectTx = isProjectTransaction(tx) || Boolean(tx.category && tx.category.toLowerCase().includes('project'));
+            let opposingAcc = isIncome ? (isProjectTx ? projectSalesAcc : salesAcc) : cogsAcc;
 
             if (!isIncome && (tx.category || tx.description)) {
                 const searchStr = `${tx.category || ''} ${tx.description || ''}`.toLowerCase();
@@ -6352,7 +6561,23 @@ export const AppProvider: React.FC<{
                 localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(nextMovements));
             } catch {}
 
-            // 6. Audit Log
+            // 6. Remove Sales journal vouchers
+            const currentJournals = latestStateRef.current.journalEntries || journalEntries;
+            const nextJournals = currentJournals.filter((je: JournalEntry) => {
+                const isSalesSource = je.source === 'SALES';
+                const isInvoiceRef = Boolean(je.refNo && (je.refNo.startsWith('DCC-INV-') || je.refNo.startsWith('inv-')));
+                const isSalesNarr = Boolean(je.narration && (
+                    je.narration.toLowerCase().includes('sales invoice') ||
+                    je.narration.toLowerCase().includes('pos payment')
+                ));
+                return !(isSalesSource || isInvoiceRef || isSalesNarr);
+            });
+            setJournalEntries(nextJournals);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(nextJournals));
+            } catch {}
+
+            // 7. Audit Log
             addAuditLog({
                 staffId: activeStaff?.id || 'admin',
                 staffName: activeStaff?.name || 'Staff',
@@ -6360,12 +6585,12 @@ export const AppProvider: React.FC<{
                 location: 'All',
                 actionType: 'DATA_CLEANED',
                 entityType: 'Sales',
-                details: 'Reset and purged all sales data: invoices, POS records, quotations, customer dues, and sales revenue transactions from system.',
-                detailsBn: 'সকল সেলস ডেটা রিসেট করা হয়েছে (ইনভয়েস, পিওএস, কোটেশন, কাস্টমার বকেয়া ও সেলস আয়)।',
+                details: 'Reset and purged all sales data: invoices, POS records, quotations, customer dues, sales revenue transactions, and sales journal vouchers from system.',
+                detailsBn: 'সকল সেলস ডেটা রিসেট করা হয়েছে (ইনভয়েস, পিওএস, কোটেশন, কাস্টমার বকেয়া, সেলস আয় ও জার্নাল ভাউচার)।',
                 severity: 'critical',
             });
 
-            // 7. Update latestStateRef immediately
+            // 8. Update latestStateRef immediately
             latestStateRef.current = {
                 ...latestStateRef.current,
                 invoices: [],
@@ -6373,6 +6598,7 @@ export const AppProvider: React.FC<{
                 customers: nextCusts,
                 transactions: nextTxs,
                 stockMovements: nextMovements,
+                journalEntries: nextJournals,
             };
         }
         else if (moduleKey === 'QUOTATIONS') {
