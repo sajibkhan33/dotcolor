@@ -1118,7 +1118,7 @@ export const AccountingModule: React.FC = () => {
               <option value="ALL">{'All Accounts'}</option>
               {availablePaymentAccounts.map((acc) => (
                 <option key={acc.id} value={acc.name}>
-                  {acc.name} {acc.nameBn ? `(${acc.nameBn})` : ''}
+                  {acc.name}
                 </option>
               ))}
             </select>
@@ -1269,7 +1269,7 @@ export const AccountingModule: React.FC = () => {
                     {availableExpenseOptions && availableExpenseOptions.length > 0 ? (
                       availableExpenseOptions.map((opt) => (
                         <option key={opt.id} value={opt.name}>
-                          {opt.name} {opt.nameBn ? `(${opt.nameBn})` : ''}
+                          {opt.name}
                         </option>
                       ))
                     ) : (
@@ -1310,7 +1310,7 @@ export const AccountingModule: React.FC = () => {
                   <select value={expenseAccount} onChange={(e) => setExpenseAccount(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium text-xs">
                     {availablePaymentAccounts.map((acc) => (
                       <option key={acc.id} value={acc.name}>
-                        {acc.name} {acc.nameBn ? `(${acc.nameBn})` : ''} — [{profile.currencySymbol}{acc.balance.toLocaleString()}]
+                        {acc.name} — [{profile.currencySymbol}{acc.balance.toLocaleString()}]
                       </option>
                     ))}
                   </select>
@@ -1502,7 +1502,7 @@ export const AccountingModule: React.FC = () => {
                   <select value={incomeCategory} onChange={(e) => setIncomeCategory(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium">
                     {availableIncomeOptions.map((opt) => (
                       <option key={opt.id} value={opt.name}>
-                        {opt.name} {opt.nameBn ? `(${opt.nameBn})` : ''}
+                        {opt.name}
                       </option>
                     ))}
                   </select>
@@ -1533,7 +1533,7 @@ export const AccountingModule: React.FC = () => {
                   <select value={incomeAccount} onChange={(e) => setIncomeAccount(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium text-xs">
                     {availablePaymentAccounts.map((acc) => (
                       <option key={acc.id} value={acc.name}>
-                        {acc.name} {acc.nameBn ? `(${acc.nameBn})` : ''} — [{profile.currencySymbol}{acc.balance.toLocaleString()}]
+                        {acc.name} — [{profile.currencySymbol}{acc.balance.toLocaleString()}]
                       </option>
                     ))}
                   </select>
@@ -2050,7 +2050,7 @@ export const AccountingModule: React.FC = () => {
                   <select value={editTxAccount} onChange={(e) => setEditTxAccount(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium text-xs">
                     {availablePaymentAccounts.map((acc) => (
                       <option key={acc.id} value={acc.name}>
-                        {acc.name} {acc.nameBn ? `(${acc.nameBn})` : ''} — [{profile.currencySymbol}{acc.balance.toLocaleString()}]
+                        {acc.name} — [{profile.currencySymbol}{acc.balance.toLocaleString()}]
                       </option>
                     ))}
                   </select>

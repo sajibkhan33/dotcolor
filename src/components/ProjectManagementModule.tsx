@@ -2263,7 +2263,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                         const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances);
                         return (
                           <option key={pm.id} value={pm.name}>
-                            {pm.name} {pm.nameBn ? `(${pm.nameBn})` : ''} — [{profile.currencySymbol}{bal.toLocaleString()}]
+                            {pm.name} — [{profile.currencySymbol}{bal.toLocaleString()}]
                           </option>
                         );
                       })}

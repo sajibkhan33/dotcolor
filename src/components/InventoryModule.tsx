@@ -645,7 +645,7 @@ export const InventoryModule: React.FC = () => {
                       {productCategories && productCategories.length > 0 ? (
                         productCategories.map((c) => (
                           <option key={c.id} value={c.name}>
-                            {c.name} {c.nameBn ? `(${c.nameBn})` : ''} {c.isRawMaterialGroup || c.isRawMaterial ? ' [Raw Material]' : ''}
+                            {c.name} {c.isRawMaterialGroup || c.isRawMaterial ? ' [Raw Material]' : ''}
                           </option>
                         ))
                       ) : (

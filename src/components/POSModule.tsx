@@ -489,7 +489,7 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
             if (!pc.isRawMaterialGroup) {
                 const count = nonRawProducts.filter(p => matchProductCategory(p, pc.name)).length;
                 if (count > 0) {
-                    const labelEn = pc.nameBn ? `${pc.name} (${pc.nameBn})` : pc.name;
+                    const labelEn = pc.name;
                     catMap.set(pc.name.trim().toLowerCase(), { id: pc.name, labelEn, count });
                 }
             }

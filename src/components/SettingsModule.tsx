@@ -2442,7 +2442,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                     {userRoles
                     .filter((r) => r.name !== 'Super Admin' && r.name.toLowerCase() !== 'superadmin')
                     .map((r) => (<option key={r.id} value={r.id}>
-                          {r.name} {r.nameBn ? `(${r.nameBn})` : ''} — {r.permissions.length} Permissions
+                          {r.name} — {r.permissions.length} Permissions
                         </option>))}
                   </select>)}
               </div>
