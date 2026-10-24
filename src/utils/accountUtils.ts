@@ -218,10 +218,26 @@ export const calculateSingleAccountBalance = (
     const isBrac = accNameLower.includes('brac');
     const isCash = (accNameLower.includes('cash') || accCode === '1001' || accCode === '1010' || (acc.nameBn && acc.nameBn.includes('ক্যাশ'))) && !isBkash && !isNagad;
 
-    // 1. Sum up all matched ledger transactions
+    // 1. Sum up all matched ledger transactions with safeguard against duplicate invoice payments
+    const seenInvoiceChannelSums = new Map<string, number>();
+
     (transactions || []).forEach((tx) => {
         if (doesTransactionMatchAccount(tx, acc)) {
             if (tx.type === 'INCOME') {
+                const ref = (tx.refNo || '').toLowerCase().trim();
+                if (ref.startsWith('dcc-inv-')) {
+                    const invoiceKey = `${ref}_${acc.id || acc.code || acc.name}`;
+                    const amt = Number(tx.amount) || 0;
+                    const linkedInv = (invoices || []).find(i => (i.invoiceNo || '').toLowerCase().trim() === ref);
+                    if (linkedInv) {
+                        const currentSum = seenInvoiceChannelSums.get(invoiceKey) || 0;
+                        const maxAllowed = Number(linkedInv.paidAmount) || 0;
+                        if (currentSum + amt > maxAllowed && currentSum > 0) {
+                            return; // skip duplicate transaction contribution!
+                        }
+                        seenInvoiceChannelSums.set(invoiceKey, currentSum + amt);
+                    }
+                }
                 balance += tx.amount;
             } else if (tx.type === 'EXPENSE') {
                 balance -= tx.amount;
@@ -849,6 +865,21 @@ export const getInvoicePayments = (
     if (!inv) return [];
     const invNo = (inv.invoiceNo || '').toLowerCase().trim();
 
+    const normChannel = (raw?: string): string => {
+        const l = (raw || '').toLowerCase().trim();
+        if (l === 'cash' || l === 'cash in hand' || l === 'counter cash' || l === 'pm-cash' || l.includes('cash in hand') || (l.includes('cash') && !l.includes('bkash') && !l.includes('nagad'))) {
+            return 'Cash in Hand';
+        }
+        if (l.includes('bkash')) return 'bKash';
+        if (l.includes('nagad')) return 'Nagad';
+        if (l.includes('rocket')) return 'Rocket';
+        if (l.includes('city')) return 'City Bank PLC';
+        if (l.includes('southeast')) return 'Southeast Bank';
+        if (l.includes('brac')) return 'BRAC Bank';
+        if (l.includes('bank') || l.includes('card')) return 'Bank Account';
+        return raw || 'Cash in Hand';
+    };
+
     // 1. Check matching income ledger transactions
     const txMatches = (allTransactions || []).filter(t =>
         t.type === 'INCOME' &&
@@ -858,10 +889,26 @@ export const getInvoicePayments = (
     );
 
     if (txMatches.length > 0) {
-        return txMatches.map(t => ({
+        const seenKeys = new Set<string>();
+        const uniqueTxMatches: typeof txMatches = [];
+        let accumulatedPaid = 0;
+        const maxPaid = Number(inv.paidAmount) || 0;
+
+        txMatches.forEach(t => {
+            const ch = normChannel(t.paymentAccount || t.accountHead);
+            const amt = Number(t.amount) || 0;
+            const key = `${ch.toLowerCase()}_${amt}`;
+            if (seenKeys.has(key)) return; // duplicate channel & amount
+            if (maxPaid > 0 && accumulatedPaid + amt > maxPaid && accumulatedPaid > 0) return;
+            seenKeys.add(key);
+            accumulatedPaid += amt;
+            uniqueTxMatches.push(t);
+        });
+
+        return uniqueTxMatches.map(t => ({
             id: t.id,
             date: t.date,
-            channel: t.paymentAccount || t.accountHead || 'Cash',
+            channel: normChannel(t.paymentAccount || t.accountHead),
             amount: Number(t.amount) || 0,
             description: t.description || t.category || 'Payment',
             category: t.category,

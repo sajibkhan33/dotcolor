@@ -187,13 +187,31 @@ const ensureUniqueTransactions = (list: AccountingTransaction[]): AccountingTran
     const seenPrjExpKeys = new Set<string>();
     const result: AccountingTransaction[] = [];
 
+    const normalizeAcc = (name?: string): string => {
+        if (!name) return 'cash in hand';
+        const n = name.trim().toLowerCase();
+        if (n === 'cash' || n === 'counter cash' || n === 'pm-cash' || n === 'cash in hand' || n.includes('cash in hand') || (n.includes('cash') && !n.includes('bkash') && !n.includes('nagad'))) {
+            return 'cash in hand';
+        }
+        if (n.includes('bkash')) return 'bkash';
+        if (n.includes('nagad')) return 'nagad';
+        if (n.includes('rocket')) return 'rocket';
+        if (n.includes('city')) return 'city bank';
+        if (n.includes('southeast')) return 'southeast bank';
+        if (n.includes('brac')) return 'brac bank';
+        return n;
+    };
+
     for (let idx = 0; idx < list.length; idx++) {
         const tx = list[idx];
         if (!tx) continue;
 
-        // Deduplicate duplicate invoice payment entries for the same invoice & payment account & amount & date
-        if (tx.type === 'INCOME' && tx.refNo && tx.refNo.toUpperCase().startsWith('DCC-INV-')) {
-            const invoiceKey = `${tx.refNo.toUpperCase()}_${(tx.paymentAccount || tx.account || '').toLowerCase()}_${tx.amount}_${tx.date}`;
+        const normAcc = normalizeAcc(tx.paymentAccount || tx.account || tx.paymentMethod);
+        const refUpper = (tx.refNo || '').toUpperCase().trim();
+
+        // Deduplicate duplicate invoice payment entries for the same invoice & normalized payment account & amount
+        if (tx.type === 'INCOME' && refUpper.startsWith('DCC-INV-')) {
+            const invoiceKey = `${refUpper}_${normAcc}_${Number(tx.amount) || 0}`;
             if (seenInvoiceKeys.has(invoiceKey)) {
                 continue; // Skip duplicate invoice income transaction
             }
@@ -201,8 +219,8 @@ const ensureUniqueTransactions = (list: AccountingTransaction[]): AccountingTran
         }
 
         // Deduplicate duplicate project expense entries (same project code, category, amount, date, description)
-        if (tx.type === 'EXPENSE' && tx.refNo && tx.refNo.toUpperCase().startsWith('PRJ-')) {
-            const expKey = `${tx.refNo.toUpperCase()}_${(tx.category || '').toLowerCase().trim()}_${tx.amount}_${tx.date}_${(tx.description || '').toLowerCase().trim()}`;
+        if (tx.type === 'EXPENSE' && refUpper.startsWith('PRJ-')) {
+            const expKey = `${refUpper}_${normAcc}_${Number(tx.amount) || 0}_${tx.date}_${(tx.category || '').toLowerCase().trim()}_${(tx.description || '').toLowerCase().trim()}`;
             if (seenPrjExpKeys.has(expKey)) {
                 continue; // Skip duplicate project expense transaction
             }
@@ -210,9 +228,17 @@ const ensureUniqueTransactions = (list: AccountingTransaction[]): AccountingTran
         }
 
         let cleanTx = tx;
+        if (normAcc === 'cash in hand' && (cleanTx.paymentAccount === 'Cash' || cleanTx.account === 'Cash')) {
+            cleanTx = {
+                ...cleanTx,
+                account: 'Cash in Hand',
+                paymentAccount: 'Cash in Hand',
+            };
+        }
+
         if (!tx.id || seenIds.has(tx.id)) {
             const uniqueId = `tx-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 7)}`;
-            cleanTx = { ...tx, id: uniqueId };
+            cleanTx = { ...cleanTx, id: uniqueId };
         }
         seenIds.add(cleanTx.id);
         result.push(cleanTx);
@@ -230,18 +256,22 @@ const ensureUniqueJournalEntries = (list: JournalEntry[]): JournalEntry[] => {
         const je = list[idx];
         if (!je) continue;
 
+        const refUpper = (je.refNo || '').toUpperCase().trim();
+
         // Deduplicate duplicate project expense vouchers (same project code, narration, amount, date)
-        if (je.source === 'PROJECT_EXPENSE' && je.refNo && je.refNo.toUpperCase().startsWith('PRJ-')) {
-            const expKey = `${je.refNo.toUpperCase()}_${je.amount}_${je.date}_${(je.narration || '').toLowerCase().trim()}`;
+        if (je.source === 'PROJECT_EXPENSE' && refUpper.startsWith('PRJ-')) {
+            const expKey = `${refUpper}_${je.amount}_${je.date}_${(je.narration || '').toLowerCase().trim()}`;
             if (seenPrjExpKeys.has(expKey)) {
                 continue; // Skip duplicate project expense voucher
             }
             seenPrjExpKeys.add(expKey);
         }
 
-        // Deduplicate duplicate invoice payment vouchers (same invoice, debit account, amount, date)
-        if (je.source === 'SALES' && je.refNo && je.refNo.toUpperCase().startsWith('DCC-INV-') && !je.id.includes('due')) {
-            const payKey = `${je.refNo.toUpperCase()}_${je.debitAccountId}_${je.amount}_${je.date}`;
+        // Deduplicate duplicate invoice payment vouchers (same invoice, debit account, amount)
+        if ((je.source === 'SALES' || je.source === 'PROJECT_SALES') && refUpper.startsWith('DCC-INV-') && !je.id.includes('due')) {
+            const rawDeb = (je.debitAccountName || je.debitAccountId || '').toLowerCase().trim();
+            const normDeb = (rawDeb.includes('cash') && !rawDeb.includes('bkash') && !rawDeb.includes('nagad')) ? 'cash in hand' : rawDeb;
+            const payKey = `${refUpper}_${normDeb}_${Number(je.amount) || 0}`;
             if (seenInvoicePaidKeys.has(payKey)) {
                 continue;
             }
@@ -249,9 +279,16 @@ const ensureUniqueJournalEntries = (list: JournalEntry[]): JournalEntry[] => {
         }
 
         let cleanJe = je;
+        if (cleanJe.debitAccountName === 'Cash') {
+            cleanJe = { ...cleanJe, debitAccountName: 'Cash in Hand' };
+        }
+        if (cleanJe.creditAccountName === 'Cash') {
+            cleanJe = { ...cleanJe, creditAccountName: 'Cash in Hand' };
+        }
+
         if (!je.id || seenIds.has(je.id)) {
             const uniqueId = `jnl-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 7)}`;
-            cleanJe = { ...je, id: uniqueId };
+            cleanJe = { ...cleanJe, id: uniqueId };
         }
         seenIds.add(cleanJe.id);
         result.push(cleanJe);
@@ -1830,10 +1867,26 @@ export const AppProvider: React.FC<{
             return !invoiceNoSet.has(ref) && !invoiceIdSet.has(ref);
         });
 
-        // Check for duplicate income transactions for invoices where sum exceeds paidAmount
+        // Check for duplicate income transactions for invoices where sum exceeds paidAmount or channel exceeds breakdown
         const seenInvoicePaymentChannels = new Map<string, number>();
+        const seenInvoiceTotalPaid = new Map<string, number>();
         let hasDuplicateTxs = false;
         const dedupedTxs: AccountingTransaction[] = [];
+
+        const getCanonicalChannel = (raw?: string): string => {
+            if (!raw) return 'cash in hand';
+            const l = raw.toLowerCase().trim();
+            if (l === 'cash' || l === 'cash in hand' || l === 'counter cash' || l === 'pm-cash' || l.includes('cash in hand') || (l.includes('cash') && !l.includes('bkash') && !l.includes('nagad'))) {
+                return 'cash in hand';
+            }
+            if (l.includes('bkash')) return 'bkash';
+            if (l.includes('nagad')) return 'nagad';
+            if (l.includes('rocket')) return 'rocket';
+            if (l.includes('city')) return 'city bank';
+            if (l.includes('southeast')) return 'southeast bank';
+            if (l.includes('brac')) return 'brac bank';
+            return l;
+        };
 
         currentTxs.forEach((t) => {
             const ref = (t.refNo || '').toLowerCase().trim();
@@ -1841,13 +1894,50 @@ export const AppProvider: React.FC<{
                 const linkedInv = invoices.find(inv => (inv.invoiceNo || '').toLowerCase().trim() === ref);
                 if (linkedInv) {
                     const maxAllowedPaid = Number(linkedInv.paidAmount) || 0;
-                    const channelKey = `${ref}_${(t.paymentAccount || t.paymentMethod || '').toLowerCase().trim()}`;
-                    const alreadyRecordedAmt = seenInvoicePaymentChannels.get(channelKey) || 0;
-                    if (alreadyRecordedAmt + Number(t.amount) > maxAllowedPaid && alreadyRecordedAmt > 0) {
+                    const normChannel = getCanonicalChannel(t.paymentAccount || t.account || t.paymentMethod);
+                    const channelKey = `${ref}_${normChannel}`;
+                    const currentChannelAmt = seenInvoicePaymentChannels.get(channelKey) || 0;
+                    const currentTotalAmt = seenInvoiceTotalPaid.get(ref) || 0;
+                    const txAmt = Number(t.amount) || 0;
+
+                    // If linked invoice has splitPayments, check allowed amount for this specific channel
+                    let channelMaxAllowed = maxAllowedPaid;
+                    if (linkedInv.splitPayments && Object.keys(linkedInv.splitPayments).length > 0) {
+                        let splitChannelAmt = 0;
+                        Object.entries(linkedInv.splitPayments).forEach(([k, v]) => {
+                            const lk = k.toLowerCase().replace(/[\s_-]/g, '');
+                            if (normChannel === 'cash in hand' && (lk === 'cash' || lk === 'cashinhand')) {
+                                splitChannelAmt += Number(v) || 0;
+                            } else if (normChannel === 'bkash' && lk.includes('bkash')) {
+                                splitChannelAmt += Number(v) || 0;
+                            } else if (normChannel === 'nagad' && lk.includes('nagad')) {
+                                splitChannelAmt += Number(v) || 0;
+                            } else if (normChannel.includes('bank') && (lk.includes('bank') || lk.includes('card'))) {
+                                splitChannelAmt += Number(v) || 0;
+                            }
+                        });
+                        if (splitChannelAmt > 0) {
+                            channelMaxAllowed = splitChannelAmt;
+                        }
+                    }
+
+                    // If adding this transaction exceeds channel max or total paid, it is a duplicate!
+                    if ((currentChannelAmt + txAmt > channelMaxAllowed && currentChannelAmt > 0) || 
+                        (currentTotalAmt + txAmt > maxAllowedPaid && currentTotalAmt >= maxAllowedPaid)) {
                         hasDuplicateTxs = true;
                         return; // Discard duplicate transaction!
                     }
-                    seenInvoicePaymentChannels.set(channelKey, alreadyRecordedAmt + Number(t.amount));
+
+                    seenInvoicePaymentChannels.set(channelKey, currentChannelAmt + txAmt);
+                    seenInvoiceTotalPaid.set(ref, currentTotalAmt + txAmt);
+
+                    if (normChannel === 'cash in hand') {
+                        t = {
+                            ...t,
+                            account: 'Cash in Hand',
+                            paymentAccount: 'Cash in Hand',
+                        };
+                    }
                 }
             }
             dedupedTxs.push(t);
@@ -1872,6 +1962,7 @@ export const AppProvider: React.FC<{
 
         // Check for duplicate journal entries for invoices
         const seenInvoiceJournalChannels = new Map<string, number>();
+        const seenInvoiceJournalTotal = new Map<string, number>();
         let hasDuplicateJournals = false;
         const dedupedJournals: JournalEntry[] = [];
 
@@ -1882,14 +1973,27 @@ export const AppProvider: React.FC<{
                 if (linkedInv) {
                     const isDueBooking = je.id.includes('due') || (je.narration && je.narration.toLowerCase().includes('due booking'));
                     if (!isDueBooking) {
-                        const channelKey = `${ref}_${(je.debitAccountName || je.debitAccountId || '').toLowerCase().trim()}`;
+                        const normDeb = getCanonicalChannel(je.debitAccountName || je.debitAccountId);
+                        const channelKey = `${ref}_${normDeb}`;
                         const maxAllowedPaid = Number(linkedInv.paidAmount) || 0;
                         const alreadyRecordedAmt = seenInvoiceJournalChannels.get(channelKey) || 0;
-                        if (alreadyRecordedAmt + Number(je.amount) > maxAllowedPaid && alreadyRecordedAmt > 0) {
+                        const alreadyTotalAmt = seenInvoiceJournalTotal.get(ref) || 0;
+                        const jeAmt = Number(je.amount) || 0;
+
+                        if ((alreadyRecordedAmt + jeAmt > maxAllowedPaid && alreadyRecordedAmt > 0) ||
+                            (alreadyTotalAmt + jeAmt > maxAllowedPaid && alreadyTotalAmt >= maxAllowedPaid)) {
                             hasDuplicateJournals = true;
                             return; // Discard duplicate journal entry!
                         }
-                        seenInvoiceJournalChannels.set(channelKey, alreadyRecordedAmt + Number(je.amount));
+                        seenInvoiceJournalChannels.set(channelKey, alreadyRecordedAmt + jeAmt);
+                        seenInvoiceJournalTotal.set(ref, alreadyTotalAmt + jeAmt);
+
+                        if (je.debitAccountName === 'Cash') {
+                            je = { ...je, debitAccountName: 'Cash in Hand' };
+                        }
+                        if (je.creditAccountName === 'Cash') {
+                            je = { ...je, creditAccountName: 'Cash in Hand' };
+                        }
                     }
                 }
             }
@@ -1923,12 +2027,15 @@ export const AppProvider: React.FC<{
                     const revAcc = resolveProjectRevenueAccount(p.chartOfAccountId);
                     const pRef = (si.invoiceNo || p.code || '').trim();
 
-                    const hasTx = currentTxs.some(t =>
-                        t.type === 'INCOME' &&
-                        (t.refNo === pRef || (si.invoiceNo && t.refNo === si.invoiceNo) || t.refNo === p.code) &&
-                        (t.paymentAccount?.toLowerCase().includes(m.toLowerCase()) || m.toLowerCase().includes(t.paymentAccount?.toLowerCase() || '') || t.paymentMethod?.toLowerCase() === m.toLowerCase()) &&
-                        Number(t.amount) === pbAmt
-                    );
+                    const normMethod = getCanonicalChannel(m);
+                    const hasTx = currentTxs.some(t => {
+                        if (t.type !== 'INCOME') return false;
+                        const tRef = (t.refNo || '').toLowerCase().trim();
+                        const isRefMatch = tRef === pRef.toLowerCase() || (si.invoiceNo && tRef === si.invoiceNo.toLowerCase().trim()) || tRef === p.code.toLowerCase().trim();
+                        if (!isRefMatch) return false;
+                        const normT = getCanonicalChannel(t.paymentAccount || t.account || t.paymentMethod);
+                        return normT === normMethod && Number(t.amount) === pbAmt;
+                    });
 
                     if (!hasTx) {
                         const isBank = m.toLowerCase().includes('bank') || m.toLowerCase().includes('card');
@@ -5078,7 +5185,7 @@ export const AppProvider: React.FC<{
                             account: isBank ? 'BRAC Bank' : isMobile ? 'bKash / Nagad' : 'Cash in Hand',
                             accountHead: revAcc.name,
                             paymentMethod: pb.method,
-                            paymentAccount: pb.method,
+                            paymentAccount: assetAcc.name,
                             refNo: refNo,
                             customerOrSupplier: calculated.clientName,
                             description: `Project Income: [${code}] ${calculated.clientName} - ${descDetail} (${pb.method})`,
@@ -5871,7 +5978,7 @@ export const AppProvider: React.FC<{
                     account: isBank ? 'BRAC Bank' : isMobile ? 'bKash / Nagad' : 'Cash in Hand',
                     accountHead: revAcc.name,
                     paymentMethod: pb.method,
-                    paymentAccount: pb.method,
+                    paymentAccount: assetAcc.name,
                     refNo: refNo,
                     customerOrSupplier: clientName,
                     description: `Project Income: [${code}] ${clientName} - ${descDetail} (${pb.method})`,
@@ -6599,8 +6706,7 @@ export const AppProvider: React.FC<{
                     if (sale.id && j.id.includes(sale.id)) return true;
                     const jRef = (j.refNo || '').trim();
                     if (sale.invoiceNo && (jRef === sale.invoiceNo || (j.narration && j.narration.includes(sale.invoiceNo)))) {
-                        if (sale.description && j.narration?.includes(sale.description)) return true;
-                        return false;
+                        return true;
                     }
                     if (jRef === project.code) {
                         return Boolean(j.id.includes(sale.id) || (sale.description && j.narration?.includes(sale.description)));
@@ -6613,8 +6719,7 @@ export const AppProvider: React.FC<{
                     if (sale.id && t.id.includes(sale.id)) return true;
                     const tRef = (t.refNo || '').trim();
                     if (sale.invoiceNo && (tRef === sale.invoiceNo || (t.description && t.description.includes(sale.invoiceNo)))) {
-                        if (sale.description && t.description?.includes(sale.description)) return true;
-                        return false;
+                        return true;
                     }
                     if (tRef === project.code) {
                         return Boolean(t.id.includes(sale.id) || (sale.description && t.description?.includes(sale.description)));
