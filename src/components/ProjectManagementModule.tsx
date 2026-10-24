@@ -1344,7 +1344,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                   <div className="flex items-center justify-between">
                     <label className="font-bold text-indigo-950 flex items-center gap-1.5 text-xs">
                       <Receipt className="w-4 h-4 text-indigo-600" />
-                      <span>Create Against Sales Invoice (Optional) / বিক্রয় চালানের বিপরীতে প্রজেক্ট</span>
+                      <span>Create Against Sales Invoice (Optional)</span>
                     </label>
                     <span className="text-[10px] font-semibold text-indigo-600 bg-white px-2 py-0.5 rounded-full border border-indigo-200">
                       Unified COA
@@ -1431,10 +1431,10 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                         />
                         <div className="text-xs">
                           <span className="font-bold text-indigo-950 block">
-                            Auto-generate Official Sales Invoice in Sales & Orders / বিক্রয় চালানের তালিকাভুক্ত করুন
+                            Auto-generate Official Sales Invoice in Sales & Orders
                           </span>
                           <span className="text-[11px] text-indigo-700">
-                            প্রজেক্ট সেভ করার সাথে সাথে Sales & Orders ট্যাবে অফিসিয়াল চালান (DCC-INV) তৈরি হয়ে লিঙ্ক হয়ে যাবে।
+                            An official invoice (DCC-INV) will be automatically created and linked in Sales & Orders upon saving.
                           </span>
                         </div>
                       </label>
@@ -1448,14 +1448,14 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                 <div className="flex items-center justify-between">
                   <label className="font-bold text-emerald-950 flex items-center gap-1.5 text-xs">
                     <Landmark className="w-4 h-4 text-emerald-600" />
-                    <span>Unified Chart of Accounts Head (সমন্বিত এক হিসাব) *</span>
+                    <span>Unified Chart of Accounts Head *</span>
                   </label>
                   <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
                     Single COA Entry
                   </span>
                 </div>
                 <p className="text-[11px] text-emerald-800 font-medium">
-                  এই প্রজেক্ট এবং সংশ্লিষ্ট বিক্রয় চালানের হিসাব এই একক COA রেভিনিউ হেডে জমা হবে (কোনো বিভাজন বা ডুপ্লিকেট হবে না)।
+                  Project revenue and linked sales invoice will be recorded under this single COA revenue head.
                 </p>
                 <select
                   value={newProject.chartOfAccountId}
@@ -1464,7 +1464,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                 >
                   {availableRevenueAccounts.map((acc) => (
                     <option key={acc.id} value={acc.id}>
-                      [{acc.code}] {acc.name} {acc.nameBn ? `(${acc.nameBn})` : ''}
+                      [{acc.code}] {acc.name}
                     </option>
                   ))}
                 </select>
@@ -1482,7 +1482,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                   <label className="font-bold text-slate-700 block mb-1">
                     {'Bengali Name'}
                   </label>
-                  <input type="text" value={newProject.nameBn} onChange={(e) => setNewProject({ ...newProject, nameBn: e.target.value })} placeholder="যেমন: বন্দর নগরী প্রজেক্ট" className="w-full px-3 py-2 border border-slate-200 rounded-xl"/>
+                  <input type="text" value={newProject.nameBn} onChange={(e) => setNewProject({ ...newProject, nameBn: e.target.value })} placeholder="Project name in Bengali (optional)" className="w-full px-3 py-2 border border-slate-200 rounded-xl"/>
                 </div>
               </div>
 
@@ -1787,7 +1787,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                         <div className="sm:col-span-2">
                           <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                            {'Expense Name / Category (খরচের বিবরণ - ঐচ্ছিক)'}
+                            {'Expense Name / Category (Optional)'}
                           </label>
                           <input
                             type="text"
@@ -1829,7 +1829,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                             <div className="flex items-center justify-between">
                               <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                                 <Layers className="w-3.5 h-3.5 text-amber-600" />
-                                <span>🔗 Linked Accounting Accounts (হিসাব খাতের সাথে লিঙ্ক)</span>
+                                <span>🔗 Linked Accounting Accounts</span>
                               </span>
                               <span className="text-[9px] text-amber-800 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
                                 Default: [5206] Project Expense
@@ -1840,7 +1840,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                               {/* Debit Account: COA Expense Head */}
                               <div>
                                 <label className="text-[10px] font-bold text-rose-700 flex items-center gap-1 mb-1">
-                                  <span>Debit Account (খরচের খাত) *</span>
+                                  <span>Debit Account (Expense Head) *</span>
                                 </label>
                                 <select
                                   value={selectedCOAId}
@@ -1851,7 +1851,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                                 >
                                   {availableExpenseAccounts.map((acc) => (
                                     <option key={acc.id} value={acc.id}>
-                                      [{acc.code}] {acc.name} {acc.nameBn ? `(${acc.nameBn})` : ''}
+                                      [{acc.code}] {acc.name}
                                     </option>
                                   ))}
                                 </select>
@@ -1860,7 +1860,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                               {/* Credit Account: Payment Source */}
                               <div>
                                 <label className="text-[10px] font-bold text-emerald-700 flex items-center gap-1 mb-1">
-                                  <span>Paid Via / Credit (টাকা কোথা থেকে খরচ হয়েছে) *</span>
+                                  <span>Paid Via / Credit (Payment Source) *</span>
                                 </label>
                                 <select
                                   value={currentPayment}
@@ -1987,7 +1987,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                 <div>
                   <h3 className="font-black text-slate-900 text-base flex items-center gap-2">
                     <Receipt className="w-5 h-5 text-emerald-600" />
-                    <span>Collect Project Due / বকেয়া আদায়</span>
+                    <span>Collect Project Due</span>
                   </h3>
                   <div className="text-[11px] text-slate-500 font-mono mt-0.5">
                     Project: {collectingDueSale.project.code} • {collectingDueSale.project.name}
@@ -2400,7 +2400,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
               {/* Select Invoice */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Select Sales Invoice (চালান নির্বাচন করুন) *
+                  Select Sales Invoice *
                 </label>
                 <select
                   required
@@ -2449,14 +2449,14 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                 <div className="flex items-center justify-between">
                   <label className="font-bold text-emerald-950 flex items-center gap-1.5 text-xs">
                     <Landmark className="w-4 h-4 text-emerald-600" />
-                    <span>Unified Chart of Accounts Head (সমন্বিত এক হিসাব) *</span>
+                    <span>Unified Chart of Accounts Head *</span>
                   </label>
                   <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
                     Single Account
                   </span>
                 </div>
                 <p className="text-[11px] text-emerald-800 font-medium">
-                  এই প্রজেক্ট এবং নির্বাচিত বিক্রয় চালানটির মোট আয় একক এই একাউন্ট হেডে সংকলিত হবে। আলাদা কোনো ডুপ্লিকেট খতিয়ান হবে না।
+                  Project revenue and linked invoice will be recorded under this single COA head without duplicate entries.
                 </p>
                 <select
                   value={linkInvoiceForm.chartOfAccountId}
@@ -2465,7 +2465,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                 >
                   {availableRevenueAccounts.map((acc) => (
                     <option key={acc.id} value={acc.id}>
-                      [{acc.code}] {acc.name} {acc.nameBn ? `(${acc.nameBn})` : ''}
+                      [{acc.code}] {acc.name}
                     </option>
                   ))}
                 </select>
@@ -2481,10 +2481,10 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                 />
                 <div className="space-y-0.5">
                   <span className="font-bold text-slate-900 block text-xs">
-                    Import invoice billing into project sales / প্রজেক্ট সেলসে চালানের টাকা যোগ করুন
+                    Import invoice billing into project sales
                   </span>
                   <span className="text-[11px] text-slate-500 block leading-tight">
-                    চালানের মোট টাকা ও বর্তমান বকেয়া প্রজেক্টের Sales Income এবং Accounts Receivable এ সমন্বয় করবে।
+                    Invoice total and balance due will be synchronized with Project Sales Income and Accounts Receivable.
                   </span>
                 </div>
               </label>
