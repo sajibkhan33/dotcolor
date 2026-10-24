@@ -184,6 +184,7 @@ const generateUniqueId = (prefix: string) => `${prefix}-${Date.now()}-${Math.ran
 const ensureUniqueTransactions = (list: AccountingTransaction[]): AccountingTransaction[] => {
     const seenIds = new Set<string>();
     const seenInvoiceKeys = new Set<string>();
+    const seenPrjExpKeys = new Set<string>();
     const result: AccountingTransaction[] = [];
 
     for (let idx = 0; idx < list.length; idx++) {
@@ -191,12 +192,21 @@ const ensureUniqueTransactions = (list: AccountingTransaction[]): AccountingTran
         if (!tx) continue;
 
         // Deduplicate duplicate invoice payment entries for the same invoice & payment account & amount & date
-        if (tx.type === 'INCOME' && tx.refNo && tx.refNo.startsWith('DCC-INV-')) {
-            const invoiceKey = `${tx.refNo}_${tx.paymentAccount || tx.account || ''}_${tx.amount}_${tx.date}`;
+        if (tx.type === 'INCOME' && tx.refNo && tx.refNo.toUpperCase().startsWith('DCC-INV-')) {
+            const invoiceKey = `${tx.refNo.toUpperCase()}_${(tx.paymentAccount || tx.account || '').toLowerCase()}_${tx.amount}_${tx.date}`;
             if (seenInvoiceKeys.has(invoiceKey)) {
                 continue; // Skip duplicate invoice income transaction
             }
             seenInvoiceKeys.add(invoiceKey);
+        }
+
+        // Deduplicate duplicate project expense entries (same project code, category, amount, date, description)
+        if (tx.type === 'EXPENSE' && tx.refNo && tx.refNo.toUpperCase().startsWith('PRJ-')) {
+            const expKey = `${tx.refNo.toUpperCase()}_${(tx.category || '').toLowerCase().trim()}_${tx.amount}_${tx.date}_${(tx.description || '').toLowerCase().trim()}`;
+            if (seenPrjExpKeys.has(expKey)) {
+                continue; // Skip duplicate project expense transaction
+            }
+            seenPrjExpKeys.add(expKey);
         }
 
         let cleanTx = tx;
@@ -206,6 +216,45 @@ const ensureUniqueTransactions = (list: AccountingTransaction[]): AccountingTran
         }
         seenIds.add(cleanTx.id);
         result.push(cleanTx);
+    }
+    return result;
+};
+
+const ensureUniqueJournalEntries = (list: JournalEntry[]): JournalEntry[] => {
+    const seenIds = new Set<string>();
+    const seenPrjExpKeys = new Set<string>();
+    const seenInvoicePaidKeys = new Set<string>();
+    const result: JournalEntry[] = [];
+
+    for (let idx = 0; idx < list.length; idx++) {
+        const je = list[idx];
+        if (!je) continue;
+
+        // Deduplicate duplicate project expense vouchers (same project code, narration, amount, date)
+        if (je.source === 'PROJECT_EXPENSE' && je.refNo && je.refNo.toUpperCase().startsWith('PRJ-')) {
+            const expKey = `${je.refNo.toUpperCase()}_${je.amount}_${je.date}_${(je.narration || '').toLowerCase().trim()}`;
+            if (seenPrjExpKeys.has(expKey)) {
+                continue; // Skip duplicate project expense voucher
+            }
+            seenPrjExpKeys.add(expKey);
+        }
+
+        // Deduplicate duplicate invoice payment vouchers (same invoice, debit account, amount, date)
+        if (je.source === 'SALES' && je.refNo && je.refNo.toUpperCase().startsWith('DCC-INV-') && !je.id.includes('due')) {
+            const payKey = `${je.refNo.toUpperCase()}_${je.debitAccountId}_${je.amount}_${je.date}`;
+            if (seenInvoicePaidKeys.has(payKey)) {
+                continue;
+            }
+            seenInvoicePaidKeys.add(payKey);
+        }
+
+        let cleanJe = je;
+        if (!je.id || seenIds.has(je.id)) {
+            const uniqueId = `jnl-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 7)}`;
+            cleanJe = { ...je, id: uniqueId };
+        }
+        seenIds.add(cleanJe.id);
+        result.push(cleanJe);
     }
     return result;
 };
@@ -516,7 +565,8 @@ export const AppProvider: React.FC<{
         return safeGetLocalStorage<ProductCategory[]>(`${STORAGE_KEY}_CATEGORIES`, INITIAL_PRODUCT_CATEGORIES);
     });
     const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => {
-        return safeGetLocalStorage<JournalEntry[]>(`${STORAGE_KEY}_JOURNALS`, INITIAL_JOURNAL_ENTRIES);
+        const list = safeGetLocalStorage<JournalEntry[]>(`${STORAGE_KEY}_JOURNALS`, INITIAL_JOURNAL_ENTRIES);
+        return ensureUniqueJournalEntries(list);
     });
     const [projects, setProjects] = useState<Project[]>(() => {
         return safeGetLocalStorage<Project[]>(`${STORAGE_KEY}_PROJECTS`, INITIAL_PROJECTS);
@@ -1669,28 +1719,53 @@ export const AppProvider: React.FC<{
             );
             if (!linkedProj) return inv;
 
-            const salesItem = (linkedProj.salesItems || []).find(s => s.invoiceNo === inv.invoiceNo) || linkedProj.salesItems?.[0];
-            if (!salesItem) return inv;
+            const matchingSales = (linkedProj.salesItems || []).filter(s => !s.invoiceNo || s.invoiceNo === inv.invoiceNo);
+            const salesToUse = matchingSales.length > 0 ? matchingSales : (linkedProj.salesItems || []);
+            if (salesToUse.length === 0) return inv;
 
-            const projPaid = salesItem.paidAmount !== undefined 
-                ? Number(salesItem.paidAmount) 
-                : (salesItem.collections || []).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
-            const projDue = salesItem.dueAmount !== undefined 
-                ? Number(salesItem.dueAmount) 
-                : Math.max(0, (Number(salesItem.amount) || Number(inv.grandTotal) || 0) - projPaid);
+            const projPaid = salesToUse.reduce((sum, s) => {
+                const p = s.paidAmount !== undefined 
+                    ? Number(s.paidAmount) 
+                    : (s.collections || []).reduce((cSum, c) => cSum + (Number(c.amount) || 0), 0);
+                return sum + p;
+            }, 0);
+            const projGrandTotal = salesToUse.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+            const projDue = Math.max(0, projGrandTotal - projPaid);
 
             const needsProjectRef = (!inv.projectId && !!linkedProj.id) || (!inv.projectCode && !!linkedProj.code);
             if (Number(inv.paidAmount) !== projPaid || Number(inv.dueAmount) !== projDue || needsProjectRef) {
                 invsChanged = true;
                 const newStatus: PaymentStatus = projDue <= 0 ? 'Paid' : projPaid > 0 ? 'Partial' : 'Due';
-                const existingSplits = { ...(inv.splitPayments || {}) };
-                if (projDue <= 0 && existingSplits['Due'] !== undefined) {
-                    delete existingSplits['Due'];
-                }
-                (salesItem.collections || []).forEach(c => {
-                    const m = c.paymentMethod || 'Cash in Hand';
-                    existingSplits[m] = Math.max(existingSplits[m] || 0, Number(c.amount) || 0);
+                const aggregatedSplits: Record<string, number> = {};
+
+                salesToUse.forEach(s => {
+                    if (s.paymentBreakdown && s.paymentBreakdown.length > 0) {
+                        s.paymentBreakdown.forEach(pb => {
+                            const m = pb.method || 'Cash in Hand';
+                            if (!m.toLowerCase().includes('due') && !m.toLowerCase().includes('receivable')) {
+                                aggregatedSplits[m] = (aggregatedSplits[m] || 0) + (Number(pb.amount) || 0);
+                            }
+                        });
+                    } else {
+                        const m = s.paymentMethod || 'Cash in Hand';
+                        const p = Number(s.paidAmount ?? s.amount) || 0;
+                        if (p > 0) {
+                            aggregatedSplits[m] = (aggregatedSplits[m] || 0) + p;
+                        }
+                    }
+                    (s.collections || []).forEach(c => {
+                        const m = c.paymentMethod || 'Cash in Hand';
+                        aggregatedSplits[m] = (aggregatedSplits[m] || 0) + (Number(c.amount) || 0);
+                    });
                 });
+
+                if (projDue > 0) {
+                    aggregatedSplits['Due'] = projDue;
+                }
+
+                const primaryMethods = Object.keys(aggregatedSplits).filter(k => k.toLowerCase() !== 'due');
+                const paymentMethodStr = primaryMethods.length > 1 ? primaryMethods.join(', ') : (primaryMethods[0] || inv.paymentMethod || 'Cash in Hand');
+
                 return {
                     ...inv,
                     projectId: inv.projectId || linkedProj.id,
@@ -1699,7 +1774,8 @@ export const AppProvider: React.FC<{
                     paidAmount: projPaid,
                     dueAmount: projDue,
                     paymentStatus: newStatus,
-                    splitPayments: Object.keys(existingSplits).length > 0 ? existingSplits : inv.splitPayments,
+                    paymentMethod: paymentMethodStr,
+                    splitPayments: Object.keys(aggregatedSplits).length > 0 ? aggregatedSplits : inv.splitPayments,
                 };
             }
             return inv;
@@ -1765,16 +1841,23 @@ export const AppProvider: React.FC<{
                 const linkedInv = invoices.find(inv => (inv.invoiceNo || '').toLowerCase().trim() === ref);
                 if (linkedInv) {
                     const maxAllowedPaid = Number(linkedInv.paidAmount) || 0;
-                    const alreadyRecordedAmt = seenInvoicePaymentChannels.get(ref) || 0;
+                    const channelKey = `${ref}_${(t.paymentAccount || t.paymentMethod || '').toLowerCase().trim()}`;
+                    const alreadyRecordedAmt = seenInvoicePaymentChannels.get(channelKey) || 0;
                     if (alreadyRecordedAmt + Number(t.amount) > maxAllowedPaid && alreadyRecordedAmt > 0) {
                         hasDuplicateTxs = true;
                         return; // Discard duplicate transaction!
                     }
-                    seenInvoicePaymentChannels.set(ref, alreadyRecordedAmt + Number(t.amount));
+                    seenInvoicePaymentChannels.set(channelKey, alreadyRecordedAmt + Number(t.amount));
                 }
             }
             dedupedTxs.push(t);
         });
+
+        // Ensure unique transactions for project expenses and duplicates
+        const cleanTxs = ensureUniqueTransactions(dedupedTxs);
+        if (cleanTxs.length !== currentTxs.length) {
+            hasDuplicateTxs = true;
+        }
 
         const currentJournals = latestStateRef.current?.journalEntries || journalEntries || [];
         const hasOrphanedJnl = currentJournals.some(je => {
@@ -1799,18 +1882,102 @@ export const AppProvider: React.FC<{
                 if (linkedInv) {
                     const isDueBooking = je.id.includes('due') || (je.narration && je.narration.toLowerCase().includes('due booking'));
                     if (!isDueBooking) {
+                        const channelKey = `${ref}_${(je.debitAccountName || je.debitAccountId || '').toLowerCase().trim()}`;
                         const maxAllowedPaid = Number(linkedInv.paidAmount) || 0;
-                        const alreadyRecordedAmt = seenInvoiceJournalChannels.get(ref) || 0;
+                        const alreadyRecordedAmt = seenInvoiceJournalChannels.get(channelKey) || 0;
                         if (alreadyRecordedAmt + Number(je.amount) > maxAllowedPaid && alreadyRecordedAmt > 0) {
                             hasDuplicateJournals = true;
                             return; // Discard duplicate journal entry!
                         }
-                        seenInvoiceJournalChannels.set(ref, alreadyRecordedAmt + Number(je.amount));
+                        seenInvoiceJournalChannels.set(channelKey, alreadyRecordedAmt + Number(je.amount));
                     }
                 }
             }
             dedupedJournals.push(je);
         });
+
+        // Ensure unique journal entries for project expense duplicates
+        const cleanJournals = ensureUniqueJournalEntries(dedupedJournals);
+        if (cleanJournals.length !== currentJournals.length) {
+            hasDuplicateJournals = true;
+        }
+
+        // Self-heal: If any project has sales items with valid breakdowns, ensure each breakdown has an INCOME transaction & JournalEntry
+        const missingProjectSalesTxs: AccountingTransaction[] = [];
+        const missingProjectSalesJournals: JournalEntry[] = [];
+        const currentProjects = latestStateRef.current?.projects || projects || [];
+
+        currentProjects.forEach(p => {
+            (p.salesItems || []).forEach(si => {
+                const breakdowns = (si.paymentBreakdown && si.paymentBreakdown.length > 0)
+                    ? si.paymentBreakdown
+                    : [{ id: `pb-${si.id}`, method: si.paymentMethod || 'Cash in Hand', amount: Number(si.amount) || 0, note: si.note }];
+
+                breakdowns.forEach((pb, pidx) => {
+                    const pbAmt = Number(pb.amount) || 0;
+                    if (pbAmt <= 0) return;
+                    const m = pb.method || 'Cash in Hand';
+                    if (m.toLowerCase().includes('due') || m.toLowerCase().includes('receivable')) return;
+
+                    const assetAcc = resolvePaymentAssetAccount(m);
+                    const revAcc = resolveProjectRevenueAccount(p.chartOfAccountId);
+                    const pRef = (si.invoiceNo || p.code || '').trim();
+
+                    const hasTx = currentTxs.some(t =>
+                        t.type === 'INCOME' &&
+                        (t.refNo === pRef || (si.invoiceNo && t.refNo === si.invoiceNo) || t.refNo === p.code) &&
+                        (t.paymentAccount?.toLowerCase().includes(m.toLowerCase()) || m.toLowerCase().includes(t.paymentAccount?.toLowerCase() || '') || t.paymentMethod?.toLowerCase() === m.toLowerCase()) &&
+                        Number(t.amount) === pbAmt
+                    );
+
+                    if (!hasTx) {
+                        const isBank = m.toLowerCase().includes('bank') || m.toLowerCase().includes('card');
+                        const isMobile = m.toLowerCase().includes('bkash') || m.toLowerCase().includes('nagad') || m.toLowerCase().includes('rocket');
+                        missingProjectSalesTxs.push({
+                            id: generateUniqueId('tx-prj-restored'),
+                            date: si.date || p.startDate || new Date().toISOString().slice(0, 10),
+                            type: 'INCOME',
+                            category: 'Project Revenue',
+                            account: isBank ? 'BRAC Bank' : isMobile ? 'bKash / Nagad' : 'Cash in Hand',
+                            accountHead: revAcc.name,
+                            paymentMethod: m,
+                            paymentAccount: assetAcc.name,
+                            refNo: pRef,
+                            customerOrSupplier: p.clientName,
+                            description: `Project Income: [${p.code}] ${p.clientName} - ${si.description || 'Project Sales'} (${m})`,
+                            amount: pbAmt,
+                            projectId: p.id,
+                            projectCode: p.code,
+                        });
+                    }
+
+                    const hasJnl = currentJournals.some(j =>
+                        (j.refNo === pRef || (si.invoiceNo && j.refNo === si.invoiceNo) || j.refNo === p.code) &&
+                        (j.debitAccountId === assetAcc.id || j.debitAccountName?.toLowerCase().includes(m.toLowerCase())) &&
+                        Number(j.amount) === pbAmt
+                    );
+
+                    if (!hasJnl) {
+                        missingProjectSalesJournals.push({
+                            id: `jnl-ps-restored-${Date.now()}-${pidx}`,
+                            entryNo: `JNL-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${pidx}`,
+                            date: si.date || p.startDate || new Date().toISOString().slice(0, 10),
+                            refNo: pRef,
+                            debitAccountId: assetAcc.id,
+                            debitAccountName: assetAcc.name,
+                            creditAccountId: revAcc.id,
+                            creditAccountName: revAcc.name,
+                            amount: pbAmt,
+                            narration: `Project Sales Income: [${p.code}] ${p.clientName} - ${si.description || 'Project Sales'} (${m})`,
+                            source: 'PROJECT_SALES',
+                            createdBy: activeStaff?.name || 'Managing Director',
+                        });
+                    }
+                });
+            });
+        });
+
+        const hasRestoredItems = missingProjectSalesTxs.length > 0 || missingProjectSalesJournals.length > 0;
 
         const hasMismappedSalesJnl = currentJournals.some(je => {
             if (je.source !== 'SALES') return false;
@@ -1820,8 +1987,11 @@ export const AppProvider: React.FC<{
             return linkedInv && !linkedInv.projectId && !linkedInv.projectCode;
         });
 
-        if (hasOrphanedTx || hasDuplicateTxs || hasOrphanedJnl || hasDuplicateJournals || hasMismappedSalesJnl) {
-            let nextTxs = hasDuplicateTxs ? dedupedTxs : currentTxs;
+        if (hasOrphanedTx || hasDuplicateTxs || hasOrphanedJnl || hasDuplicateJournals || hasMismappedSalesJnl || hasRestoredItems) {
+            let nextTxs = hasDuplicateTxs ? cleanTxs : currentTxs;
+            if (missingProjectSalesTxs.length > 0) {
+                nextTxs = ensureUniqueTransactions([...missingProjectSalesTxs, ...nextTxs]);
+            }
             if (hasOrphanedTx) {
                 nextTxs = nextTxs.filter(t => {
                     const ref = (t.refNo || '').toLowerCase().trim();
@@ -1832,7 +2002,10 @@ export const AppProvider: React.FC<{
             setTransactions(nextTxs);
             try { localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(nextTxs)); } catch {}
 
-            let nextJournals = hasDuplicateJournals ? dedupedJournals : currentJournals;
+            let nextJournals = hasDuplicateJournals ? cleanJournals : currentJournals;
+            if (missingProjectSalesJournals.length > 0) {
+                nextJournals = ensureUniqueJournalEntries([...missingProjectSalesJournals, ...nextJournals]);
+            }
             if (hasOrphanedJnl) {
                 nextJournals = nextJournals.filter(je => {
                     const ref = (je.refNo || '').toLowerCase().trim();
@@ -2432,15 +2605,26 @@ export const AppProvider: React.FC<{
             // Two-Way Sync: Update linked Financial Ledger transactions
             const currentTxs = latestStateRef.current.transactions || transactions;
             let txsChanged = false;
+            const splits = updatedInv.splitPayments;
+            const hasSplits = splits && Object.keys(splits).length > 0;
+            const itemsDesc = (updatedInv.items || []).map((i) => i.name).join(', ');
+
             const updatedTxs = currentTxs.map((t) => {
                 const isMatch = Boolean(t.refNo && (t.refNo === invoiceNo || t.refNo === id)) ||
                                 Boolean(t.description && (t.description.includes(invoiceNo) || t.description.includes(`invoice #${invoiceNo}`)));
                 if (isMatch && t.type === 'INCOME') {
                     txsChanged = true;
-                    const itemsDesc = (updatedInv.items || []).map((i) => i.name).join(', ');
+                    let targetAmt = Number(updatedInv.paidAmount) || 0;
+                    if (hasSplits) {
+                        const tChan = (t.paymentAccount || t.paymentMethod || '').toLowerCase();
+                        const matchedKey = Object.keys(splits).find(k => k.toLowerCase() === tChan || tChan.includes(k.toLowerCase()) || k.toLowerCase().includes(tChan));
+                        if (matchedKey) {
+                            targetAmt = Number(splits[matchedKey]) || 0;
+                        }
+                    }
                     return {
                         ...t,
-                        amount: updatedInv.paidAmount,
+                        amount: targetAmt,
                         customerOrSupplier: updatedInv.customerName,
                         date: updatedInv.date || t.date,
                         description: `Sales Invoice payment: ${t.paymentAccount || 'Cash'} (${updatedInv.paymentStatus}) - ${itemsDesc}`,
@@ -2449,9 +2633,10 @@ export const AppProvider: React.FC<{
                 return t;
             });
             if (txsChanged) {
-                setTransactions(updatedTxs);
+                const uniqueNextTxs = ensureUniqueTransactions(updatedTxs);
+                setTransactions(uniqueNextTxs);
                 try {
-                    localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(updatedTxs));
+                    localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(uniqueNextTxs));
                 } catch {}
             }
 
@@ -2475,7 +2660,17 @@ export const AppProvider: React.FC<{
                 if (isDueBooking) {
                     newAmount = Number(updatedInv.dueAmount) || 0;
                 } else if (isPaidCollection) {
-                    newAmount = Number(updatedInv.paidAmount) || 0;
+                    if (hasSplits) {
+                        const dName = (je.debitAccountName || '').toLowerCase();
+                        const matchedKey = Object.keys(splits).find(k => k.toLowerCase() === dName || dName.includes(k.toLowerCase()) || k.toLowerCase().includes(dName));
+                        if (matchedKey) {
+                            newAmount = Number(splits[matchedKey]) || 0;
+                        } else {
+                            newAmount = Number(updatedInv.paidAmount) || 0;
+                        }
+                    } else {
+                        newAmount = Number(updatedInv.paidAmount) || 0;
+                    }
                 }
 
                 return {
@@ -2491,9 +2686,10 @@ export const AppProvider: React.FC<{
             }).filter(je => je.amount > 0);
 
             if (journalsChanged) {
-                setJournalEntries(updatedJournals);
+                const uniqueNextJournals = ensureUniqueJournalEntries(updatedJournals);
+                setJournalEntries(uniqueNextJournals);
                 try {
-                    localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(updatedJournals));
+                    localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(uniqueNextJournals));
                 } catch {}
             }
 
@@ -5558,6 +5754,9 @@ export const AppProvider: React.FC<{
             delete splitPayments['due'];
         }
 
+        const primaryMethods = Object.keys(splitPayments).filter(k => k.toLowerCase() !== 'due');
+        const paymentMethodStr = primaryMethods.length > 1 ? primaryMethods.join(', ') : (primaryMethods[0] || targetInv.paymentMethod || 'Cash in Hand');
+
         const updatedInv: SalesInvoice = sanitizeSalesInvoice({
             ...targetInv,
             items: invoiceItems,
@@ -5567,6 +5766,7 @@ export const AppProvider: React.FC<{
             paidAmount: finalPaid,
             dueAmount: finalDue,
             paymentStatus: newPaymentStatus,
+            paymentMethod: paymentMethodStr,
             splitPayments: Object.keys(splitPayments).length > 0 ? splitPayments : undefined,
         });
 
@@ -5681,7 +5881,7 @@ export const AppProvider: React.FC<{
         });
 
         if (newJournals.length > 0) {
-            setJournalEntries(prev => [...newJournals, ...prev]);
+            setJournalEntries(prev => ensureUniqueJournalEntries([...newJournals, ...prev]));
         }
         if (newTxs.length > 0) {
             setTransactions(prev => ensureUniqueTransactions([...newTxs, ...prev]));
@@ -5721,26 +5921,22 @@ export const AppProvider: React.FC<{
             invoiceNo: sales.invoiceNo || targetProj?.invoiceNo || undefined,
         };
 
-        setProjects((prev) => {
-            const next = prev.map((p) => {
-                if (p.id === projectId) {
-                    const updatedSales = [...p.salesItems, newItem];
-                    return recalculateProject({ ...p, salesItems: updatedSales });
-                }
-                return p;
-            });
-            try { localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(next)); } catch {}
-            return next;
+        const nextSalesProjects = (latestStateRef.current?.projects || projects).map((p: Project) => {
+            if (p.id === projectId) {
+                const updatedSales = [...(p.salesItems || []), newItem];
+                return recalculateProject({ ...p, salesItems: updatedSales });
+            }
+            return p;
         });
+
+        setProjects(nextSalesProjects);
+        try { localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(nextSalesProjects)); } catch {}
+
         latestStateRef.current = {
             ...latestStateRef.current,
-            projects: (latestStateRef.current.projects || []).map((p: Project) => {
-                if (p.id === projectId) {
-                    const updatedSales = [...(p.salesItems || []), newItem];
-                    return recalculateProject({ ...p, salesItems: updatedSales });
-                }
-                return p;
-            }),
+            transactions: ensureUniqueTransactions([...newTxs, ...(latestStateRef.current?.transactions || transactions)]),
+            journalEntries: ensureUniqueJournalEntries([...newJournals, ...(latestStateRef.current?.journalEntries || journalEntries)]),
+            projects: nextSalesProjects,
         };
 
         if (targetProj?.invoiceId || targetProj?.invoiceNo) {
@@ -5761,7 +5957,6 @@ export const AppProvider: React.FC<{
             severity: 'success',
         });
         triggerImmediatePush();
-        syncProjectsWithAccounting(latestStateRef.current.projects);
     };
 
     const addProjectExpense = (projectId: string, expense: Omit<ProjectExpenseItem, 'id'>) => {
@@ -5835,7 +6030,7 @@ export const AppProvider: React.FC<{
 
         if (newJournals.length > 0) {
             setJournalEntries(prev => {
-                const next = [...newJournals, ...prev];
+                const next = ensureUniqueJournalEntries([...newJournals, ...prev]);
                 try { localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(next)); } catch {}
                 return next;
             });
@@ -5867,26 +6062,22 @@ export const AppProvider: React.FC<{
             });
         }
 
-        setProjects((prev) => {
-            const next = prev.map((p) => {
-                if (p.id === projectId) {
-                    const updatedExpenses = [...p.expenseItems, ...newItems];
-                    return recalculateProject({ ...p, expenseItems: updatedExpenses });
-                }
-                return p;
-            });
-            try { localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(next)); } catch {}
-            return next;
+        const nextExpProjects = (latestStateRef.current?.projects || projects).map((p: Project) => {
+            if (p.id === projectId) {
+                const updatedExpenses = [...(p.expenseItems || []), ...newItems];
+                return recalculateProject({ ...p, expenseItems: updatedExpenses });
+            }
+            return p;
         });
+
+        setProjects(nextExpProjects);
+        try { localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(nextExpProjects)); } catch {}
+
         latestStateRef.current = {
             ...latestStateRef.current,
-            projects: (latestStateRef.current.projects || []).map((p: Project) => {
-                if (p.id === projectId) {
-                    const updatedExpenses = [...(p.expenseItems || []), ...newItems];
-                    return recalculateProject({ ...p, expenseItems: updatedExpenses });
-                }
-                return p;
-            }),
+            transactions: ensureUniqueTransactions([...newTxs, ...(latestStateRef.current?.transactions || transactions)]),
+            journalEntries: ensureUniqueJournalEntries([...newJournals, ...(latestStateRef.current?.journalEntries || journalEntries)]),
+            projects: nextExpProjects,
         };
 
         const totalAddedAmt = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
@@ -5905,7 +6096,6 @@ export const AppProvider: React.FC<{
         });
 
         triggerImmediatePush();
-        syncProjectsWithAccounting(latestStateRef.current.projects);
     };
 
     const deleteProjectSales = (projectId: string, salesId: string) => {
@@ -6406,9 +6596,11 @@ export const AppProvider: React.FC<{
             (project.salesItems || []).forEach((sale) => {
                 const ref = (sale.invoiceNo || project.code || '').trim();
                 const alreadyHasJournal = currentJournals.some(j => {
+                    if (sale.id && j.id.includes(sale.id)) return true;
                     const jRef = (j.refNo || '').trim();
                     if (sale.invoiceNo && (jRef === sale.invoiceNo || (j.narration && j.narration.includes(sale.invoiceNo)))) {
-                        return true;
+                        if (sale.description && j.narration?.includes(sale.description)) return true;
+                        return false;
                     }
                     if (jRef === project.code) {
                         return Boolean(j.id.includes(sale.id) || (sale.description && j.narration?.includes(sale.description)));
@@ -6418,9 +6610,11 @@ export const AppProvider: React.FC<{
 
                 const alreadyHasTx = currentTransactions.some(t => {
                     if (t.type !== 'INCOME') return false;
+                    if (sale.id && t.id.includes(sale.id)) return true;
                     const tRef = (t.refNo || '').trim();
                     if (sale.invoiceNo && (tRef === sale.invoiceNo || (t.description && t.description.includes(sale.invoiceNo)))) {
-                        return true;
+                        if (sale.description && t.description?.includes(sale.description)) return true;
+                        return false;
                     }
                     if (tRef === project.code) {
                         return Boolean(t.id.includes(sale.id) || (sale.description && t.description?.includes(sale.description)));
@@ -6486,8 +6680,14 @@ export const AppProvider: React.FC<{
                 const specificExpAcc = resolveExpenseAccount(exp.category, exp.note);
                 const payAcc = resolvePaymentAssetAccount(exp.paymentMethod || 'Cash');
 
-                const alreadyHasJournal = currentJournals.some(j => j.refNo === project.code && j.narration.includes(exp.category) && j.amount === expAmt);
-                const alreadyHasTx = currentTransactions.some(t => t.refNo === project.code && t.category === exp.category && t.amount === expAmt);
+                const alreadyHasJournal = currentJournals.some(j => 
+                    (exp.id && j.id.includes(exp.id)) ||
+                    (j.refNo === project.code && (j.narration.includes(exp.category) || (exp.note && j.narration.includes(exp.note))) && Number(j.amount) === expAmt)
+                );
+                const alreadyHasTx = currentTransactions.some(t => 
+                    (exp.id && t.id.includes(exp.id)) ||
+                    (t.refNo === project.code && (t.category === exp.category || (exp.note && t.description?.includes(exp.note))) && Number(t.amount) === expAmt)
+                );
 
                 if (!alreadyHasJournal) {
                     newJournals.push({
@@ -6532,13 +6732,13 @@ export const AppProvider: React.FC<{
 
         if (newJournals.length > 0) {
             setJournalEntries(prev => {
-                const next = [...newJournals, ...prev];
+                const next = ensureUniqueJournalEntries([...newJournals, ...prev]);
                 try { localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(next)); } catch {}
                 return next;
             });
             latestStateRef.current = {
                 ...latestStateRef.current,
-                journalEntries: [...newJournals, ...(latestStateRef.current?.journalEntries || [])],
+                journalEntries: ensureUniqueJournalEntries([...newJournals, ...(latestStateRef.current?.journalEntries || [])]),
             };
         }
         if (newTxs.length > 0) {
