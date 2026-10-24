@@ -397,11 +397,14 @@ export const ChartOfAccountsManager: React.FC = () => {
                             (t.accountHead && (nameLower.includes(t.accountHead.toLowerCase()) || t.accountHead.toLowerCase().includes(nameLower)))
                         ))
                         .reduce((s, t) => s + t.amount, 0);
-                    // Reclaim if non-project account mistakenly absorbed project expenses
-                    const baseBal = (acc.currentBalance === totalProjectExpenses && totalProjectExpenses > 0)
-                        ? (acc.openingBalance || 0)
-                        : acc.currentBalance;
-                    liveBal = Math.max(baseBal, matching, (acc.openingBalance || 0) + journalExpDelta);
+
+                    // For non-project general expenses, only count opening balance + matching non-project direct expenses + non-project journal entries
+                    const hasNonPrjTxs = (transactions || []).some(t => t.type === 'EXPENSE' && !isPrjTx(t));
+                    if (hasNonPrjTxs || matching > 0) {
+                        liveBal = (acc.openingBalance || 0) + matching + journalExpDelta;
+                    } else {
+                        liveBal = (acc.openingBalance || 0) + journalExpDelta;
+                    }
                 }
             } else if (acc.classification === 'Equity') {
                 const isRetainedEarnings = (

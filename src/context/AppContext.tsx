@@ -1349,6 +1349,36 @@ export const AppProvider: React.FC<{
                     return { ...acc, currentBalance: targetBal };
                 }
             }
+
+            // 7. General Operating Expense accounts (e.g. Salaries, Rent, Conveyance, Utilities)
+            const isOtherExpense = acc.classification === 'Expense' && !isProjectExp && !isCogsAcc;
+            if (isOtherExpense) {
+                const accNameLower = (acc.name || '').toLowerCase();
+                const accNameBn = (acc.nameBn || '').toLowerCase();
+                const matchingDirect = (transactions || []).filter(t => 
+                    t.type === 'EXPENSE' && 
+                    !isProjectTransaction(t) && 
+                    !(t.refNo || '').toUpperCase().startsWith('PRJ-') && 
+                    !(t.category || '').toLowerCase().includes('project') && 
+                    !(t.accountHead || '').toLowerCase().includes('project') && (
+                        (t.category && (
+                            accNameLower.includes(t.category.toLowerCase()) ||
+                            t.category.toLowerCase().includes(accNameLower) ||
+                            (accNameBn && t.category.toLowerCase().includes(accNameBn)) ||
+                            (accNameBn && accNameBn.includes(t.category.toLowerCase()))
+                        )) ||
+                        (t.accountHead && (
+                            accNameLower.includes(t.accountHead.toLowerCase()) ||
+                            t.accountHead.toLowerCase().includes(accNameLower)
+                        ))
+                    )
+                ).reduce((s, t) => s + t.amount, 0);
+                const targetBal = (acc.openingBalance || 0) + matchingDirect;
+                if (acc.currentBalance !== targetBal) {
+                    coaNeedsUpdate = true;
+                    return { ...acc, currentBalance: targetBal };
+                }
+            }
             return acc;
         });
 
@@ -6078,6 +6108,7 @@ export const AppProvider: React.FC<{
         const timestamp = Date.now();
 
         const defaultCashAcc = resolvePaymentAssetAccount('Cash');
+        const projExpAccount = resolveProjectExpenseAccount() || chartOfAccounts.find(a => a.code === '5206' || a.id === 'coa-5206') || { id: 'coa-5206', code: '5206', name: 'Project Expense' };
         const newJournals: JournalEntry[] = [];
         const newTxs: AccountingTransaction[] = [];
 
@@ -6095,8 +6126,8 @@ export const AppProvider: React.FC<{
                     entryNo: `JNL-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${idx}`,
                     date: exp.date || new Date().toISOString().slice(0, 10),
                     refNo: code,
-                    debitAccountId: expAcc.id,
-                    debitAccountName: expAcc.name,
+                    debitAccountId: projExpAccount.id,
+                    debitAccountName: projExpAccount.name,
                     creditAccountId: payAcc.id,
                     creditAccountName: payAcc.name,
                     amount: expAmount,
@@ -6111,7 +6142,7 @@ export const AppProvider: React.FC<{
                     type: 'EXPENSE',
                     category: exp.category,
                     account: payAcc.name,
-                    accountHead: expAcc.name,
+                    accountHead: projExpAccount.name,
                     paymentMethod: paymentMethodName,
                     paymentAccount: payAcc.name,
                     refNo: code,
