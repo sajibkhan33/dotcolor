@@ -1741,7 +1741,7 @@ export const AppProvider: React.FC<{
     }, [transactions]);
 
     // Automatic Two-Way Sync Auto-Cleanup: purge orphaned sales transactions & journal entries for deleted invoices,
-    // and auto-heal general sales journal entries incorrectly assigned to 'Project Sales'
+    // deduplicate double-counted project sales transactions/vouchers, and auto-heal general sales journal entries incorrectly assigned to 'Project Sales'
     useEffect(() => {
         if (!invoices) return;
         const invoiceNoSet = new Set(invoices.map(inv => (inv.invoiceNo || '').toLowerCase().trim()).filter(Boolean));
@@ -1752,6 +1752,28 @@ export const AppProvider: React.FC<{
             const ref = (t.refNo || '').toLowerCase().trim();
             if (!ref.startsWith('dcc-inv-')) return false;
             return !invoiceNoSet.has(ref) && !invoiceIdSet.has(ref);
+        });
+
+        // Check for duplicate income transactions for invoices where sum exceeds paidAmount
+        const seenInvoicePaymentChannels = new Map<string, number>();
+        let hasDuplicateTxs = false;
+        const dedupedTxs: AccountingTransaction[] = [];
+
+        currentTxs.forEach((t) => {
+            const ref = (t.refNo || '').toLowerCase().trim();
+            if (t.type === 'INCOME' && ref.startsWith('dcc-inv-')) {
+                const linkedInv = invoices.find(inv => (inv.invoiceNo || '').toLowerCase().trim() === ref);
+                if (linkedInv) {
+                    const maxAllowedPaid = Number(linkedInv.paidAmount) || 0;
+                    const alreadyRecordedAmt = seenInvoicePaymentChannels.get(ref) || 0;
+                    if (alreadyRecordedAmt + Number(t.amount) > maxAllowedPaid && alreadyRecordedAmt > 0) {
+                        hasDuplicateTxs = true;
+                        return; // Discard duplicate transaction!
+                    }
+                    seenInvoicePaymentChannels.set(ref, alreadyRecordedAmt + Number(t.amount));
+                }
+            }
+            dedupedTxs.push(t);
         });
 
         const currentJournals = latestStateRef.current?.journalEntries || journalEntries || [];
@@ -1765,6 +1787,31 @@ export const AppProvider: React.FC<{
             return false;
         });
 
+        // Check for duplicate journal entries for invoices
+        const seenInvoiceJournalChannels = new Map<string, number>();
+        let hasDuplicateJournals = false;
+        const dedupedJournals: JournalEntry[] = [];
+
+        currentJournals.forEach((je) => {
+            const ref = (je.refNo || '').toLowerCase().trim();
+            if (ref.startsWith('dcc-inv-')) {
+                const linkedInv = invoices.find(inv => (inv.invoiceNo || '').toLowerCase().trim() === ref);
+                if (linkedInv) {
+                    const isDueBooking = je.id.includes('due') || (je.narration && je.narration.toLowerCase().includes('due booking'));
+                    if (!isDueBooking) {
+                        const maxAllowedPaid = Number(linkedInv.paidAmount) || 0;
+                        const alreadyRecordedAmt = seenInvoiceJournalChannels.get(ref) || 0;
+                        if (alreadyRecordedAmt + Number(je.amount) > maxAllowedPaid && alreadyRecordedAmt > 0) {
+                            hasDuplicateJournals = true;
+                            return; // Discard duplicate journal entry!
+                        }
+                        seenInvoiceJournalChannels.set(ref, alreadyRecordedAmt + Number(je.amount));
+                    }
+                }
+            }
+            dedupedJournals.push(je);
+        });
+
         const hasMismappedSalesJnl = currentJournals.some(je => {
             if (je.source !== 'SALES') return false;
             if (je.creditAccountName !== 'Project Sales' && je.creditAccountId !== 'coa-4002' && je.creditAccountId !== 'coa-4051') return false;
@@ -1773,24 +1820,21 @@ export const AppProvider: React.FC<{
             return linkedInv && !linkedInv.projectId && !linkedInv.projectCode;
         });
 
-        if (hasOrphanedTx || hasOrphanedJnl || hasMismappedSalesJnl) {
-            let nextTxs = currentTxs;
+        if (hasOrphanedTx || hasDuplicateTxs || hasOrphanedJnl || hasDuplicateJournals || hasMismappedSalesJnl) {
+            let nextTxs = hasDuplicateTxs ? dedupedTxs : currentTxs;
             if (hasOrphanedTx) {
-                nextTxs = currentTxs.filter(t => {
+                nextTxs = nextTxs.filter(t => {
                     const ref = (t.refNo || '').toLowerCase().trim();
                     if (!ref.startsWith('dcc-inv-')) return true;
                     return invoiceNoSet.has(ref) || invoiceIdSet.has(ref);
                 });
-                setTransactions(nextTxs);
-                try { localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(nextTxs)); } catch {}
             }
+            setTransactions(nextTxs);
+            try { localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(nextTxs)); } catch {}
 
-            let nextJournals = currentJournals;
-            if (hasOrphanedJnl || hasMismappedSalesJnl) {
-                const currentCoa = latestStateRef.current?.chartOfAccounts || chartOfAccounts || [];
-                const properSalesAcc = resolveSalesRevenueAccount(currentCoa, false);
-
-                nextJournals = currentJournals.filter(je => {
+            let nextJournals = hasDuplicateJournals ? dedupedJournals : currentJournals;
+            if (hasOrphanedJnl) {
+                nextJournals = nextJournals.filter(je => {
                     const ref = (je.refNo || '').toLowerCase().trim();
                     if (ref.startsWith('dcc-inv-') && !invoiceNoSet.has(ref) && !invoiceIdSet.has(ref)) return false;
                     if (je.source === 'SALES') {
@@ -1798,7 +1842,14 @@ export const AppProvider: React.FC<{
                         if (match && !invoiceNoSet.has(match[0].toLowerCase().trim())) return false;
                     }
                     return true;
-                }).map(je => {
+                });
+            }
+
+            if (hasMismappedSalesJnl) {
+                const currentCoa = latestStateRef.current?.chartOfAccounts || chartOfAccounts || [];
+                const properSalesAcc = resolveSalesRevenueAccount(currentCoa, false);
+
+                nextJournals = nextJournals.map(je => {
                     if (je.source === 'SALES' && (je.creditAccountName === 'Project Sales' || je.creditAccountId === 'coa-4002' || je.creditAccountId === 'coa-4051')) {
                         const ref = (je.refNo || '').toLowerCase().trim();
                         const linkedInv = invoices.find(inv => (inv.invoiceNo || '').toLowerCase().trim() === ref || (inv.id || '').toLowerCase().trim() === ref);
@@ -1812,15 +1863,32 @@ export const AppProvider: React.FC<{
                     }
                     return je;
                 });
-
-                setJournalEntries(nextJournals);
-                try { localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(nextJournals)); } catch {}
             }
+            setJournalEntries(nextJournals);
+            try { localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(nextJournals)); } catch {}
+
+            // Recalculate Chart of Accounts asset balances to clear doubled cash
+            const currentCoa = latestStateRef.current?.chartOfAccounts || chartOfAccounts || [];
+            const nextCoa = currentCoa.map((acc) => {
+                if (acc.classification === 'Asset') {
+                    return {
+                        ...acc,
+                        currentBalance: calculateSingleAccountBalance(acc, nextTxs, invoices, latestStateRef.current?.projects || projects, nextJournals),
+                    };
+                }
+                return acc;
+            });
+            setChartOfAccounts(nextCoa);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(nextCoa));
+                localStorage.setItem(`${STORAGE_KEY}_CHART_OF_ACCOUNTS`, JSON.stringify(nextCoa));
+            } catch {}
 
             latestStateRef.current = {
                 ...latestStateRef.current,
                 transactions: nextTxs,
                 journalEntries: nextJournals,
+                chartOfAccounts: nextCoa,
             };
             triggerImmediatePush();
         }
@@ -4761,6 +4829,9 @@ export const AppProvider: React.FC<{
         if (calculated.salesItems.length > 0) {
             const newJournals: JournalEntry[] = [];
             const newTxs: AccountingTransaction[] = [];
+            const currentTxs = latestStateRef.current?.transactions || transactions || [];
+            const currentJournals = latestStateRef.current?.journalEntries || journalEntries || [];
+
             calculated.salesItems.forEach((si, sidx) => {
                 const breakdowns = (si.paymentBreakdown && si.paymentBreakdown.length > 0)
                     ? si.paymentBreakdown
@@ -4772,29 +4843,37 @@ export const AppProvider: React.FC<{
                     const assetAcc = resolvePaymentAssetAccount(pb.method);
                     const refNo = si.invoiceNo || `${code}-${si.date || new Date().toISOString().slice(0, 10)}`;
 
-                    const descDetail = si.invoiceNo ? `Invoice #${si.invoiceNo}` : (si.description || 'Billing');
+                    const descDetail = si.description ? `${si.description}${si.invoiceNo ? ` (#${si.invoiceNo})` : ''}` : (si.invoiceNo ? `Invoice #${si.invoiceNo}` : 'Billing');
 
-                    newJournals.push({
-                        id: `jnl-ps-init-${Date.now()}-${sidx}-${pidx}`,
-                        entryNo: `JNL-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${sidx}${pidx}`,
-                        date: si.date || new Date().toISOString().slice(0, 10),
-                        refNo: refNo,
-                        debitAccountId: assetAcc.id,
-                        debitAccountName: assetAcc.name,
-                        creditAccountId: revAcc.id,
-                        creditAccountName: revAcc.name,
-                        amount: pbAmount,
-                        narration: `Project Sales Income (Unified COA): [${code}] ${calculated.clientName} - ${descDetail} (${pb.method})`,
-                        source: 'PROJECT_SALES',
-                        createdBy: activeStaff?.name || 'Managing Director',
-                    });
+                    // If linked to an invoice, check if journal entry already exists to avoid duplication
+                    const existingJournal = si.invoiceNo ? currentJournals.find(j => j.refNo === si.invoiceNo || (j.narration && j.narration.includes(si.invoiceNo))) : undefined;
+
+                    if (!existingJournal) {
+                        newJournals.push({
+                            id: `jnl-ps-init-${Date.now()}-${sidx}-${pidx}`,
+                            entryNo: `JNL-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${sidx}${pidx}`,
+                            date: si.date || new Date().toISOString().slice(0, 10),
+                            refNo: refNo,
+                            debitAccountId: assetAcc.id,
+                            debitAccountName: assetAcc.name,
+                            creditAccountId: revAcc.id,
+                            creditAccountName: revAcc.name,
+                            amount: pbAmount,
+                            narration: `Project Sales Income (Unified COA): [${code}] ${calculated.clientName} - ${descDetail} (${pb.method})`,
+                            source: 'PROJECT_SALES',
+                            createdBy: activeStaff?.name || 'Managing Director',
+                        });
+                    }
 
                     const isBank = pb.method.toLowerCase().includes('bank') || pb.method.toLowerCase().includes('brac') || pb.method.toLowerCase().includes('card');
                     const isMobile = pb.method.toLowerCase().includes('bkash') || pb.method.toLowerCase().includes('nagad') || pb.method.toLowerCase().includes('rocket');
                     const isDue = pb.method.toLowerCase().includes('due') || pb.method.toLowerCase().includes('receivable');
 
+                    // If linked to an invoice, check if transaction already exists to avoid double payment counting
+                    const existingTx = si.invoiceNo ? currentTxs.find(t => t.type === 'INCOME' && (t.refNo === si.invoiceNo || (t.description && t.description.includes(si.invoiceNo)))) : undefined;
+
                     // Only cash/bank/MFS collections enter the financial ledger. Unpaid Due is tracked via JournalEntry and Project due.
-                    if (!isDue) {
+                    if (!isDue && !existingTx) {
                         newTxs.push({
                             id: generateUniqueId('tx-prj-sale-init'),
                             date: si.date || new Date().toISOString().slice(0, 10),
@@ -5157,26 +5236,43 @@ export const AppProvider: React.FC<{
             };
             updatedSales.push(newSaleItem);
 
-            paymentBreakdowns.forEach((pb, pidx) => {
-                const pbAmount = Number(pb.amount) || 0;
-                if (pbAmount <= 0) return;
-                const assetAcc = resolvePaymentAssetAccount(pb.method);
-                const newJournal: JournalEntry = {
-                    id: `jnl-ps-link-${Date.now()}-${pidx}`,
-                    entryNo: `JNL-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${pidx}`,
-                    date: inv.date || new Date().toISOString().slice(0, 10),
-                    refNo: inv.invoiceNo,
-                    debitAccountId: assetAcc.id,
-                    debitAccountName: assetAcc.name,
-                    creditAccountId: revAcc.id,
-                    creditAccountName: revAcc.name,
-                    amount: pbAmount,
-                    narration: `Project Sales Income (Unified COA): [${targetProj.code}] ${targetProj.clientName} - Invoice #${inv.invoiceNo} (${pb.method})`,
-                    source: 'PROJECT_SALES',
-                    createdBy: activeStaff?.name || 'Managing Director',
-                };
-                setJournalEntries(prev => [newJournal, ...prev]);
-            });
+            const currentJournals = latestStateRef.current?.journalEntries || journalEntries || [];
+            const hasExistingJournal = currentJournals.some(j => j.refNo === inv.invoiceNo || (j.narration && j.narration.includes(inv.invoiceNo)));
+
+            if (!hasExistingJournal) {
+                paymentBreakdowns.forEach((pb, pidx) => {
+                    const pbAmount = Number(pb.amount) || 0;
+                    if (pbAmount <= 0) return;
+                    const assetAcc = resolvePaymentAssetAccount(pb.method);
+                    const newJournal: JournalEntry = {
+                        id: `jnl-ps-link-${Date.now()}-${pidx}`,
+                        entryNo: `JNL-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${pidx}`,
+                        date: inv.date || new Date().toISOString().slice(0, 10),
+                        refNo: inv.invoiceNo,
+                        debitAccountId: assetAcc.id,
+                        debitAccountName: assetAcc.name,
+                        creditAccountId: revAcc.id,
+                        creditAccountName: revAcc.name,
+                        amount: pbAmount,
+                        narration: `Project Sales Income (Unified COA): [${targetProj.code}] ${targetProj.clientName} - Invoice #${inv.invoiceNo} (${pb.method})`,
+                        source: 'PROJECT_SALES',
+                        createdBy: activeStaff?.name || 'Managing Director',
+                    };
+                    setJournalEntries(prev => [newJournal, ...prev]);
+                });
+            } else {
+                setJournalEntries(prev => prev.map(j => {
+                    if (j.refNo === inv.invoiceNo || (j.narration && j.narration.includes(inv.invoiceNo))) {
+                        return {
+                            ...j,
+                            creditAccountId: revAcc.id,
+                            creditAccountName: revAcc.name,
+                            source: 'PROJECT_SALES',
+                        };
+                    }
+                    return j;
+                }));
+            }
         }
 
         updateProject(targetProj.id, {
@@ -6308,9 +6404,29 @@ export const AppProvider: React.FC<{
         // 2. Identify and record any missing project sales and expense items
         currentProjects.forEach(project => {
             (project.salesItems || []).forEach((sale) => {
-                const ref = sale.invoiceNo || project.code;
-                const alreadyHasJournal = currentJournals.some(j => (j.refNo === ref && j.narration.includes(sale.description)) || j.id.includes(sale.id));
-                const alreadyHasTx = currentTransactions.some(t => t.refNo === ref && t.description.includes(sale.description));
+                const ref = (sale.invoiceNo || project.code || '').trim();
+                const alreadyHasJournal = currentJournals.some(j => {
+                    const jRef = (j.refNo || '').trim();
+                    if (sale.invoiceNo && (jRef === sale.invoiceNo || (j.narration && j.narration.includes(sale.invoiceNo)))) {
+                        return true;
+                    }
+                    if (jRef === project.code) {
+                        return Boolean(j.id.includes(sale.id) || (sale.description && j.narration?.includes(sale.description)));
+                    }
+                    return false;
+                });
+
+                const alreadyHasTx = currentTransactions.some(t => {
+                    if (t.type !== 'INCOME') return false;
+                    const tRef = (t.refNo || '').trim();
+                    if (sale.invoiceNo && (tRef === sale.invoiceNo || (t.description && t.description.includes(sale.invoiceNo)))) {
+                        return true;
+                    }
+                    if (tRef === project.code) {
+                        return Boolean(t.id.includes(sale.id) || (sale.description && t.description?.includes(sale.description)));
+                    }
+                    return false;
+                });
 
                 if (!alreadyHasJournal || !alreadyHasTx) {
                     const validBreakdowns = (sale.paymentBreakdown && sale.paymentBreakdown.length > 0)
