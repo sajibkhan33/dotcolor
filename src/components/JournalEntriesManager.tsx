@@ -229,7 +229,12 @@ export const JournalEntriesManager: React.FC = () => {
 
         <div className="flex items-center gap-2">
           {transactions.length > 0 && (
-            <button type="button" onClick={handleSyncVouchers} className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-2xs transition-all" title="Generate vouchers from financial ledger">
+            <button
+              type="button"
+              disabled
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-emerald-600/50 text-white/70 rounded-xl shadow-2xs cursor-not-allowed opacity-60"
+              title="Sync from Ledger is disabled (Vouchers are automatically generated in real-time)"
+            >
               <RefreshCw className="w-3.5 h-3.5"/>
               <span>{'Sync from Ledger'}</span>
             </button>
