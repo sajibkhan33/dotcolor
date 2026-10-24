@@ -675,13 +675,15 @@ export const isInvoiceTransaction = (tx: Partial<AccountingTransaction>): boolea
     const desc = (tx.description || '').toLowerCase();
     const id = (tx.id || '').toLowerCase();
 
+    // Direct Operating Incomes recorded via INC- voucher are NEVER invoice transactions!
+    if (ref.startsWith('INC-') || id.startsWith('tx-inc-')) return false;
+
     if (id.startsWith('tx-prj-')) return false;
     if (ref.startsWith('COL-') || ref.startsWith('PRJ-')) return false;
     if (desc.includes('project due') || desc.includes('project sales') || desc.includes('project expense')) return false;
 
     if (id.startsWith('tx-auto-inv')) return true;
     if (ref.startsWith('DCC-INV-') || ref.startsWith('INV-')) return true;
-    if (cat === 'sales revenue') return true;
     if (cat.includes('due collection') || cat.includes('pos payment') || cat.includes('invoice payment')) return true;
     if (desc.includes('sales invoice payment') || desc.includes('due collection against invoice') || desc.includes('pos payment') || desc.includes('invoice payment')) return true;
     return false;

@@ -439,6 +439,8 @@ export const ChartOfAccountsManager: React.FC = () => {
                             !isProjectDueCollectionTransaction(t) && 
                             !isAdvanceDepositTransaction(t) && 
                             !isAdvanceAdjustmentTransaction(t) &&
+                            !(t.category || '').toLowerCase().includes('advance') &&
+                            !(t.category || '').includes('অগ্রিম') &&
                             !(t.category || '').toLowerCase().includes('project') &&
                             !(t.description || '').toLowerCase().includes('project')
                         )

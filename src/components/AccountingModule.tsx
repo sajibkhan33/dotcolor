@@ -9,7 +9,7 @@ import { ExpenseHeadManager } from './ExpenseHeadManager';
 import { JournalEntriesManager } from './JournalEntriesManager';
 import { getBankAccountsBreakdown, getMfsAccountsBreakdown, getPaymentMethodLiveBalance, calculateSingleAccountBalance, isAdvanceAdjustmentTransaction, isDueReceivableTransaction } from '../utils/accountUtils';
 export const AccountingModule: React.FC = () => {
-    const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, invoices = [], paymentMethods = [], customers = [], updateCustomer, addTransaction, updateTransaction, deleteTransaction, projects = [], addProjectExpense, addProject, addProjectSales, collectProjectDue, generateInvoiceForProject, checkPermission, activeStaff } = useApp();
+    const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, invoices = [], paymentMethods = [], customers = [], updateCustomer, addTransaction, updateTransaction, deleteTransaction, projects = [], addProjectExpense, addProject, addProjectSales, collectProjectDue, generateInvoiceForProject, checkPermission, activeStaff, addJournalEntry } = useApp();
 
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
         (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
@@ -607,6 +607,7 @@ export const AccountingModule: React.FC = () => {
                 paymentAccountId: matchedPayCoa?.id,
             });
         } else {
+            const expRef = `EXP-${Date.now().toString().slice(-4)}`;
             addTransaction({
                 date: new Date().toISOString().slice(0, 10),
                 type: 'EXPENSE',
@@ -617,8 +618,38 @@ export const AccountingModule: React.FC = () => {
                 paymentAccount: selectedAccount,
                 accountHead: selectedAccount,
                 paymentMethod: selectedAccount,
-                refNo: `EXP-${Date.now().toString().slice(-4)}`,
+                refNo: expRef,
             });
+
+            const creditAsset = chartOfAccounts.find(a => 
+                a.name.toLowerCase() === selectedAccount.toLowerCase() ||
+                (selectedAccount.toLowerCase().includes('cash') && (a.code === '1001' || a.code === '1010' || a.name.toLowerCase().includes('cash'))) ||
+                (selectedAccount.toLowerCase().includes('bkash') && a.code === '1007') ||
+                (selectedAccount.toLowerCase().includes('nagad') && a.code === '1006')
+            ) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
+
+            const debitExp = chartOfAccounts.find(a => 
+                a.classification === 'Expense' && (
+                    a.name.toLowerCase() === expenseCategory.toLowerCase() ||
+                    a.code === '5206' ||
+                    a.name.toLowerCase().includes(expenseCategory.toLowerCase())
+                )
+            ) || chartOfAccounts.find(a => a.classification === 'Expense') || chartOfAccounts[0];
+
+            if (debitExp && creditAsset && addJournalEntry) {
+                addJournalEntry({
+                    date: new Date().toISOString().slice(0, 10),
+                    refNo: expRef,
+                    debitAccountId: debitExp.id,
+                    debitAccountName: debitExp.name,
+                    creditAccountId: creditAsset.id,
+                    creditAccountName: creditAsset.name,
+                    amount: expenseAmount,
+                    narration: expenseTitle + (expenseNote ? ` • ${expenseNote}` : ''),
+                    source: 'EXPENSE',
+                    createdBy: activeStaff?.name || 'Managing Director',
+                });
+            }
         }
 
         setShowExpenseModal(false);
@@ -726,6 +757,7 @@ export const AccountingModule: React.FC = () => {
             }
         } else {
             if (!incomeTitle) return;
+            const incRef = `INC-${Date.now().toString().slice(-4)}`;
             addTransaction({
                 date: today,
                 type: 'INCOME',
@@ -736,8 +768,42 @@ export const AccountingModule: React.FC = () => {
                 paymentAccount: selectedAccount,
                 accountHead: selectedAccount,
                 paymentMethod: selectedAccount,
-                refNo: `INC-${Date.now().toString().slice(-4)}`,
+                refNo: incRef,
             });
+
+            // Automatically post matching double-entry Journal Voucher immediately!
+            const debitAsset = chartOfAccounts.find(a => 
+                a.name.toLowerCase() === selectedAccount.toLowerCase() ||
+                (selectedAccount.toLowerCase().includes('cash') && (a.code === '1001' || a.code === '1010' || a.name.toLowerCase().includes('cash'))) ||
+                (selectedAccount.toLowerCase().includes('bkash') && a.code === '1007') ||
+                (selectedAccount.toLowerCase().includes('nagad') && a.code === '1006')
+            ) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
+
+            const isAdv = incomeCategory.toLowerCase().includes('advance') || incomeCategory.includes('অগ্রিম');
+            const creditHead = chartOfAccounts.find(a => {
+                if (isAdv) {
+                    return a.classification === 'Liability' && (a.code === '2002' || a.code === '2020' || a.name.toLowerCase().includes('advance'));
+                }
+                return a.classification === 'Revenue' && (
+                    a.name.toLowerCase() === incomeCategory.toLowerCase() ||
+                    (incomeCategory.toLowerCase().includes('sales') && (a.code === '4001' || a.code === '4010'))
+                );
+            }) || chartOfAccounts.find(a => a.classification === (isAdv ? 'Liability' : 'Revenue')) || chartOfAccounts[0];
+
+            if (debitAsset && creditHead && addJournalEntry) {
+                addJournalEntry({
+                    date: today,
+                    refNo: incRef,
+                    debitAccountId: debitAsset.id,
+                    debitAccountName: debitAsset.name,
+                    creditAccountId: creditHead.id,
+                    creditAccountName: creditHead.name,
+                    amount: numAmount,
+                    narration: incomeTitle,
+                    source: isAdv ? 'CUSTOMER_PAYMENT' : 'SALES',
+                    createdBy: activeStaff?.name || 'Managing Director',
+                });
+            }
 
             if (incomeCustomerId) {
                 const cust = customers.find((c) => c.id === incomeCustomerId);
