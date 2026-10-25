@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { InvoiceItem, PaymentMethod, ProductionStatus, UnitType, PRESET_INVOICE_ITEM_TYPES } from '../types';
 import { X, FileText, Plus, Trash2, Calendar, User, Phone, Building, CheckCircle2, Percent, Hash, Truck, DollarSign, Search, UserPlus, } from 'lucide-react';
@@ -67,7 +67,8 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
     const [vatAmountInput, setVatAmountInput] = useState<number>(0);
     const [vatType, setVatType] = useState<'amount' | 'percent'>('percent');
     // Payment & Settlement
-    const [paidAmount, setPaidAmount] = useState<number | ''>('');
+    const [paidAmount, setPaidAmount] = useState<number | ''>(0);
+    const [selectedPaymentPreset, setSelectedPaymentPreset] = useState<'full_paid' | 'half_advance' | 'full_due' | null>(null);
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Cash');
     const [productionStatus, setProductionStatus] = useState<ProductionStatus>('Queued');
     const [notes, setNotes] = useState('');
@@ -97,8 +98,19 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
         return taxableAmount > 0 ? Number(((effectiveVat / taxableAmount) * 100).toFixed(2)) : 0;
     }, [vatType, vatAmountInput, effectiveVat, taxableAmount]);
     const grandTotal = taxableAmount + effectiveVat;
-    const effectivePaid = paidAmount === '' ? grandTotal : Math.min(grandTotal, Math.max(0, Number(paidAmount)));
+    const effectivePaid = paidAmount === '' ? 0 : Math.min(grandTotal, Math.max(0, Number(paidAmount)));
     const dueAmount = Math.max(0, grandTotal - effectivePaid);
+
+    // Synchronize paid amount if an active preset is selected when grandTotal changes
+    useEffect(() => {
+        if (selectedPaymentPreset === 'full_paid') {
+            setPaidAmount(grandTotal);
+        } else if (selectedPaymentPreset === 'half_advance') {
+            setPaidAmount(Math.round(grandTotal / 2));
+        } else if (selectedPaymentPreset === 'full_due') {
+            setPaidAmount(0);
+        }
+    }, [grandTotal, selectedPaymentPreset]);
     const paymentStatus = effectivePaid >= grandTotal && grandTotal > 0
         ? 'Paid'
         : effectivePaid > 0
@@ -937,36 +949,139 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
                     {'Amount Paid:'}
                   </label>
                   <div className="flex items-center gap-1.5">
-                    <input type="number" step="any" min="0" max={grandTotal} value={paidAmount} onChange={(e) => setPaidAmount(e.target.value === '' ? '' : Number(e.target.value))} placeholder={grandTotal.toString()} className="w-28 text-right px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-black text-xs focus:ring-1 focus:ring-amber-500/30"/>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      max={grandTotal}
+                      value={paidAmount}
+                      onChange={(e) => {
+                        setSelectedPaymentPreset(null);
+                        setPaidAmount(e.target.value === '' ? '' : Number(e.target.value));
+                      }}
+                      placeholder="0"
+                      className="w-28 text-right px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-black text-xs focus:ring-1 focus:ring-amber-500/30"
+                    />
                   </div>
                 </div>
 
-                {/* Quick Paid Presets */}
-                <div className="flex justify-end gap-1.5 flex-wrap">
-                  {customerMode === 'existing' && (() => {
-                    const cust = customers.find((c) => c.id === selectedCustomerId);
-                    const adv = Number(cust?.advanceBalance) || 0;
-                    if (adv <= 0) return null;
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => setPaidAmount(Math.min(adv, grandTotal))}
-                        className="px-2 py-0.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded text-[10px] font-extrabold cursor-pointer flex items-center gap-1 shadow-2xs"
-                        title={`Customer has ${profile.currencySymbol}${adv.toLocaleString()} advance balance`}
+                {/* Quick Paid Presets - All Unchecked By Default */}
+                <div className="flex flex-col gap-1.5 pt-1">
+                  <div className="flex items-center justify-between gap-1 text-[10.5px]">
+                    <span className="font-bold text-slate-500 uppercase tracking-wider text-[9.5px]">
+                      {'Payment Option:'}
+                    </span>
+                    {customerMode === 'existing' && (() => {
+                      const cust = customers.find((c) => c.id === selectedCustomerId);
+                      const adv = Number(cust?.advanceBalance) || 0;
+                      if (adv <= 0) return null;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPaymentPreset(null);
+                            setPaidAmount(Math.min(adv, grandTotal));
+                          }}
+                          className="px-2 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded text-[10px] font-bold cursor-pointer flex items-center gap-1 shadow-2xs"
+                          title={`Customer has ${profile.currencySymbol}${adv.toLocaleString()} advance balance`}
+                        >
+                          <span>Adjust Advance ({profile.currencySymbol}{Math.min(adv, grandTotal).toLocaleString()})</span>
+                        </button>
+                      );
+                    })()}
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {/* Full Paid Button - Click to check/uncheck */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedPaymentPreset === 'full_paid') {
+                          setSelectedPaymentPreset(null);
+                          setPaidAmount(0);
+                        } else {
+                          setSelectedPaymentPreset('full_paid');
+                          setPaidAmount(grandTotal);
+                        }
+                      }}
+                      className={`px-2 py-1.5 rounded-lg text-[10.5px] font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
+                        selectedPaymentPreset === 'full_paid'
+                          ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-1 ring-emerald-500'
+                          : 'bg-white hover:bg-emerald-50 text-slate-700 border-slate-300 hover:border-emerald-300'
+                      }`}
+                    >
+                      <span
+                        className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] font-black border transition-all ${
+                          selectedPaymentPreset === 'full_paid'
+                            ? 'bg-white text-emerald-700 border-white'
+                            : 'border-slate-400 text-transparent bg-transparent'
+                        }`}
                       >
-                        <span>Adjust Advance ({profile.currencySymbol}{Math.min(adv, grandTotal).toLocaleString()})</span>
-                      </button>
-                    );
-                  })()}
-                  <button type="button" onClick={() => setPaidAmount(grandTotal)} className="px-2 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded text-[10px] font-extrabold cursor-pointer">
-                    {'Full Paid'}
-                  </button>
-                  <button type="button" onClick={() => setPaidAmount(Math.round(grandTotal / 2))} className="px-2 py-0.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded text-[10px] font-extrabold cursor-pointer">
-                    {'50% Advance'}
-                  </button>
-                  <button type="button" onClick={() => setPaidAmount(0)} className="px-2 py-0.5 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded text-[10px] font-extrabold cursor-pointer">
-                    {'Full Due'}
-                  </button>
+                        ✓
+                      </span>
+                      <span>{'Full Paid'}</span>
+                    </button>
+
+                    {/* 50% Advance Button - Click to check/uncheck */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedPaymentPreset === 'half_advance') {
+                          setSelectedPaymentPreset(null);
+                          setPaidAmount(0);
+                        } else {
+                          setSelectedPaymentPreset('half_advance');
+                          setPaidAmount(Math.round(grandTotal / 2));
+                        }
+                      }}
+                      className={`px-2 py-1.5 rounded-lg text-[10.5px] font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
+                        selectedPaymentPreset === 'half_advance'
+                          ? 'bg-amber-600 text-white border-amber-700 shadow-xs ring-1 ring-amber-500'
+                          : 'bg-white hover:bg-amber-50 text-slate-700 border-slate-300 hover:border-amber-300'
+                      }`}
+                    >
+                      <span
+                        className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] font-black border transition-all ${
+                          selectedPaymentPreset === 'half_advance'
+                            ? 'bg-white text-amber-700 border-white'
+                            : 'border-slate-400 text-transparent bg-transparent'
+                        }`}
+                      >
+                        ✓
+                      </span>
+                      <span>{'50% Advance'}</span>
+                    </button>
+
+                    {/* Full Due Button - Click to check/uncheck */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedPaymentPreset === 'full_due') {
+                          setSelectedPaymentPreset(null);
+                          setPaidAmount(0);
+                        } else {
+                          setSelectedPaymentPreset('full_due');
+                          setPaidAmount(0);
+                        }
+                      }}
+                      className={`px-2 py-1.5 rounded-lg text-[10.5px] font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
+                        selectedPaymentPreset === 'full_due'
+                          ? 'bg-rose-600 text-white border-rose-700 shadow-xs ring-1 ring-rose-500'
+                          : 'bg-white hover:bg-rose-50 text-slate-700 border-slate-300 hover:border-rose-300'
+                      }`}
+                    >
+                      <span
+                        className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] font-black border transition-all ${
+                          selectedPaymentPreset === 'full_due'
+                            ? 'bg-white text-rose-700 border-white'
+                            : 'border-slate-400 text-transparent bg-transparent'
+                        }`}
+                      >
+                        ✓
+                      </span>
+                      <span>{'Full Due'}</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex justify-between items-center text-xs font-bold pt-1">
