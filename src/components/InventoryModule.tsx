@@ -388,13 +388,14 @@ export const InventoryModule: React.FC = () => {
 
                       <td className="py-3 px-4 text-center">
                         <div className="flex items-center justify-center gap-1.5">
-                          {/* Stock In/Out/Transfer Adjust button */}
+                          {/* Stock In/Out/Transfer Adjust button (Disabled) */}
                           {canAdjustStock && (
-                            <button type="button" onClick={() => {
-                              setAdjustModalProduct(p);
-                              setAdjustQty(1);
-                              setAdjustType('IN');
-                            }} className="p-1.5 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200 text-[10px] font-bold" title="Adjust / Transfer Stock">
+                            <button
+                              type="button"
+                              disabled
+                              className="p-1.5 text-amber-500/40 bg-amber-50/40 rounded-lg border border-amber-200/40 text-[10px] font-bold cursor-not-allowed opacity-50"
+                              title="Stock adjustment / transfer is disabled"
+                            >
                               <ArrowRightLeft className="w-3.5 h-3.5"/>
                             </button>
                           )}
