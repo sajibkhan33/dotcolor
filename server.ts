@@ -235,7 +235,7 @@ app.post('/api/state', requireAuth, async (req, res) => {
   }
 
   try {
-    const { data, clientRev, senderTabId } = req.body;
+    const { data, clientRev, senderTabId, force } = req.body;
     if (!data) {
       return res.status(400).json({ success: false, message: 'Data payload is required.' });
     }
@@ -245,12 +245,12 @@ app.post('/api/state', requireAuth, async (req, res) => {
       data.auditLogs = data.auditLogs.slice(-500);
     }
 
-    // CON-03: Optimistic Concurrency Control
+    // CON-03: Optimistic Concurrency Control (bypassed if force === true, e.g. admin data purge / reset)
     const existing = await ErpState.findOne({ id: 'singleton' });
     let currentRev = 0;
     if (existing) {
       currentRev = (existing as any).revision || existing.data?._rev || 1;
-      if (typeof clientRev === 'number' && clientRev < currentRev) {
+      if (!force && typeof clientRev === 'number' && clientRev < currentRev) {
         return res.status(409).json({
           success: false,
           conflict: true,
@@ -261,7 +261,7 @@ app.post('/api/state', requireAuth, async (req, res) => {
       }
     }
 
-    const nextRev = currentRev + 1;
+    const nextRev = Math.max(currentRev, typeof clientRev === 'number' ? clientRev : 0) + 1;
     data._rev = nextRev;
 
     const updated = await ErpState.findOneAndUpdate(

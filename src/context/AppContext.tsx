@@ -709,7 +709,7 @@ export const AppProvider: React.FC<{
     const lastServerUpdatedAtRef = useRef(0);
     const serverRevisionRef = useRef<number>(1);
     const syncTimeoutRef = useRef<any>(null);
-    const pushToCloudRef = useRef<() => Promise<void>>(() => Promise.resolve());
+    const pushToCloudRef = useRef<(options?: { force?: boolean }) => Promise<void>>(() => Promise.resolve());
     const tabIdRef = useRef<string>(`tab_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`);
     const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
     const isFirstMountRef = useRef(true);
@@ -740,55 +740,76 @@ export const AppProvider: React.FC<{
         try {
             isImportingRef.current = true;
             const rawInvs = localStorage.getItem(`${STORAGE_KEY}_INVOICES`);
-            if (rawInvs) setInvoices(sanitizeSalesInvoices(JSON.parse(rawInvs)));
+            if (rawInvs !== null) setInvoices(sanitizeSalesInvoices(JSON.parse(rawInvs)));
 
             const rawTxs = localStorage.getItem(`${STORAGE_KEY}_TRANSACTIONS`);
-            if (rawTxs) setTransactions(JSON.parse(rawTxs));
+            if (rawTxs !== null) setTransactions(JSON.parse(rawTxs));
 
             const rawProjs = localStorage.getItem(`${STORAGE_KEY}_PROJECTS`);
-            if (rawProjs) setProjects(JSON.parse(rawProjs));
+            if (rawProjs !== null) setProjects(JSON.parse(rawProjs));
 
             const rawPos = localStorage.getItem(`${STORAGE_KEY}_PURCHASE_ORDERS`);
-            if (rawPos) setPurchaseOrders(JSON.parse(rawPos));
+            if (rawPos !== null) setPurchaseOrders(JSON.parse(rawPos));
 
             const rawProds = localStorage.getItem(`${STORAGE_KEY}_PRODUCTS`);
-            if (rawProds) setProducts(JSON.parse(rawProds));
+            if (rawProds !== null) setProducts(JSON.parse(rawProds));
 
             const rawCusts = localStorage.getItem(`${STORAGE_KEY}_CUSTOMERS`);
-            if (rawCusts) setCustomers(JSON.parse(rawCusts));
+            if (rawCusts !== null) setCustomers(JSON.parse(rawCusts));
 
             const rawSupps = localStorage.getItem(`${STORAGE_KEY}_SUPPLIERS`);
-            if (rawSupps) setSuppliers(JSON.parse(rawSupps));
+            if (rawSupps !== null) setSuppliers(JSON.parse(rawSupps));
 
             const rawCoa = localStorage.getItem(`${STORAGE_KEY}_COA`);
-            if (rawCoa) setChartOfAccounts(JSON.parse(rawCoa));
+            if (rawCoa !== null) setChartOfAccounts(JSON.parse(rawCoa));
 
             const rawExp = localStorage.getItem(`${STORAGE_KEY}_EXPENSE_HEADS`);
-            if (rawExp) setExpenseHeads(JSON.parse(rawExp));
+            if (rawExp !== null) setExpenseHeads(JSON.parse(rawExp));
 
             const rawJournals = localStorage.getItem(`${STORAGE_KEY}_JOURNALS`);
-            if (rawJournals) setJournalEntries(JSON.parse(rawJournals));
+            if (rawJournals !== null) setJournalEntries(JSON.parse(rawJournals));
 
             const rawQuotes = localStorage.getItem(`${STORAGE_KEY}_QUOTATIONS`);
-            if (rawQuotes) setQuotations(JSON.parse(rawQuotes));
+            if (rawQuotes !== null) setQuotations(JSON.parse(rawQuotes));
 
             const rawStocks = localStorage.getItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`);
-            if (rawStocks) setStockMovements(JSON.parse(rawStocks));
+            if (rawStocks !== null) setStockMovements(JSON.parse(rawStocks));
 
             const rawStaff = localStorage.getItem(`${STORAGE_KEY}_STAFF`);
-            if (rawStaff) setStaffMembers(JSON.parse(rawStaff));
+            if (rawStaff !== null) setStaffMembers(JSON.parse(rawStaff));
 
             const rawRoles = localStorage.getItem(`${STORAGE_KEY}_ROLES`);
-            if (rawRoles) setUserRoles(JSON.parse(rawRoles));
+            if (rawRoles !== null) setUserRoles(JSON.parse(rawRoles));
 
             const rawCats = localStorage.getItem(`${STORAGE_KEY}_CATEGORIES`);
-            if (rawCats) setProductCategories(JSON.parse(rawCats));
+            if (rawCats !== null) setProductCategories(JSON.parse(rawCats));
 
             const rawPm = localStorage.getItem(`${STORAGE_KEY}_PAYMENT_METHODS`);
-            if (rawPm) setPaymentMethods(JSON.parse(rawPm));
+            if (rawPm !== null) setPaymentMethods(JSON.parse(rawPm));
 
             const rawProfile = localStorage.getItem(`${STORAGE_KEY}_PROFILE`);
-            if (rawProfile) setProfile(JSON.parse(rawProfile));
+            if (rawProfile !== null) setProfile(JSON.parse(rawProfile));
+
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                ...(rawInvs !== null ? { invoices: sanitizeSalesInvoices(JSON.parse(rawInvs)) } : {}),
+                ...(rawTxs !== null ? { transactions: JSON.parse(rawTxs) } : {}),
+                ...(rawProjs !== null ? { projects: JSON.parse(rawProjs) } : {}),
+                ...(rawPos !== null ? { purchaseOrders: JSON.parse(rawPos) } : {}),
+                ...(rawProds !== null ? { products: JSON.parse(rawProds) } : {}),
+                ...(rawCusts !== null ? { customers: JSON.parse(rawCusts) } : {}),
+                ...(rawSupps !== null ? { suppliers: JSON.parse(rawSupps) } : {}),
+                ...(rawCoa !== null ? { chartOfAccounts: JSON.parse(rawCoa) } : {}),
+                ...(rawExp !== null ? { expenseHeads: JSON.parse(rawExp) } : {}),
+                ...(rawJournals !== null ? { journalEntries: JSON.parse(rawJournals) } : {}),
+                ...(rawQuotes !== null ? { quotations: JSON.parse(rawQuotes) } : {}),
+                ...(rawStocks !== null ? { stockMovements: JSON.parse(rawStocks) } : {}),
+                ...(rawStaff !== null ? { staffMembers: JSON.parse(rawStaff) } : {}),
+                ...(rawRoles !== null ? { userRoles: JSON.parse(rawRoles) } : {}),
+                ...(rawCats !== null ? { productCategories: JSON.parse(rawCats) } : {}),
+                ...(rawPm !== null ? { paymentMethods: JSON.parse(rawPm) } : {}),
+                ...(rawProfile !== null ? { profile: JSON.parse(rawProfile) } : {}),
+            };
 
             setTimeout(() => {
                 isImportingRef.current = false;
@@ -6941,18 +6962,20 @@ export const AppProvider: React.FC<{
             return next;
         });
 
-        addAuditLog({
-            staffId: activeStaff?.id || 'sys',
-            staffName: activeStaff?.name || 'System',
-            staffRole: activeStaff?.role || 'Admin',
-            location: 'Office',
-            actionType: 'COA_UPDATED',
-            entityType: 'Accounting',
-            details: `Dynamic sync: Revenue [${revAcc.code}] ${revAcc.name} (Tk ${totalPrjSales.toLocaleString()}), Expense [${expAcc.code}] ${expAcc.name} (Tk ${totalPrjExpenses.toLocaleString()}), Receivable [${receivableAcc?.code || '1003'}] (Tk ${totalCustomerReceivables.toLocaleString()})`,
-            detailsBn: undefined,
-            amount: totalPrjSales + totalPrjExpenses,
-            severity: 'info',
-        });
+        if (salesSynced > 0 || expensesSynced > 0) {
+            addAuditLog({
+                staffId: activeStaff?.id || 'sys',
+                staffName: activeStaff?.name || 'System',
+                staffRole: activeStaff?.role || 'Admin',
+                location: 'Office',
+                actionType: 'COA_UPDATED',
+                entityType: 'Accounting',
+                details: `Dynamic sync: Revenue [${revAcc.code}] ${revAcc.name} (Tk ${totalPrjSales.toLocaleString()}), Expense [${expAcc.code}] ${expAcc.name} (Tk ${totalPrjExpenses.toLocaleString()}), Receivable [${receivableAcc?.code || '1003'}] (Tk ${totalCustomerReceivables.toLocaleString()})`,
+                detailsBn: undefined,
+                amount: totalPrjSales + totalPrjExpenses,
+                severity: 'info',
+            });
+        }
 
         return { salesSynced, expensesSynced, totalAmount: totalPrjSales + totalPrjExpenses };
     };
@@ -7269,6 +7292,7 @@ export const AppProvider: React.FC<{
                 localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(zeroDuesSuppliers));
                 localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(zeroStockProducts));
                 localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(zeroBalCOA));
+                localStorage.setItem(`${STORAGE_KEY}_CHART_OF_ACCOUNTS`, JSON.stringify(zeroBalCOA));
             } catch {}
 
             addAuditLog({
@@ -7299,11 +7323,13 @@ export const AppProvider: React.FC<{
             };
         }
 
-        // Instant cloud sync push
+        // Instant cloud sync force-push (bypasses conflicts & concurrency lock to guarantee permanent wipe)
         isCloudLoadedRef.current = true;
-        triggerImmediatePush();
+        isSyncingRef.current = false;
+        if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+        broadcastCrossTabSync();
         if (pushToCloudRef.current) {
-            pushToCloudRef.current();
+            pushToCloudRef.current({ force: true });
         }
     };
     const resetSalesData = () => {
@@ -7506,16 +7532,8 @@ export const AppProvider: React.FC<{
                 try { localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(data.journalEntries)); } catch {}
             }
             if (data.projects && Array.isArray(data.projects)) {
-                const localProjs = safeGetLocalStorage<Project[]>(`${STORAGE_KEY}_PROJECTS`, []);
-                const incomingProjs = data.projects as Project[];
-                const mergedProjs = [...incomingProjs];
-                localProjs.forEach(lp => {
-                    if (!mergedProjs.some(mp => mp.id === lp.id || (mp.code && mp.code === lp.code))) {
-                        mergedProjs.push(lp);
-                    }
-                });
-                setProjects(mergedProjs);
-                try { localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(mergedProjs)); } catch {}
+                setProjects(data.projects);
+                try { localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(data.projects)); } catch {}
             }
             if (data.paymentMethods && Array.isArray(data.paymentMethods)) {
                 setPaymentMethods(data.paymentMethods);
@@ -7576,8 +7594,9 @@ export const AppProvider: React.FC<{
         }
     };
 
-    const pushToCloud = async () => {
-        if (!isCloudLoadedRef.current || isSyncingRef.current) return;
+    const pushToCloud = async (options?: { force?: boolean }) => {
+        if (!isCloudLoadedRef.current) return;
+        if (!options?.force && isSyncingRef.current) return;
         try {
             isSyncingRef.current = true;
             setCloudSyncStatus('syncing');
@@ -7596,13 +7615,18 @@ export const AppProvider: React.FC<{
                     data: payload,
                     clientRev: serverRevisionRef.current,
                     senderTabId: tabIdRef.current,
+                    force: Boolean(options?.force),
                 }),
             });
             if (res.status === 409) {
-                // CON-03: Optimistic concurrency conflict detected. Pull remote changes immediately to prevent data loss.
-                console.warn('Cloud sync conflict: Remote server has newer state. Pulling latest data...');
-                await pullFromCloud();
-                return;
+                if (options?.force) {
+                    console.warn('Force push bypassed conflict check.');
+                } else {
+                    // CON-03: Optimistic concurrency conflict detected. Pull remote changes immediately to prevent data loss.
+                    console.warn('Cloud sync conflict: Remote server has newer state. Pulling latest data...');
+                    await pullFromCloud();
+                    return;
+                }
             }
             if (res.ok) {
                 const data = await res.json();
@@ -7636,7 +7660,7 @@ export const AppProvider: React.FC<{
             return;
         }
         if (options?.forcePush) {
-            await pushToCloud();
+            await pushToCloud({ force: true });
             return;
         }
         // Smart manual sync: check remote metadata first
