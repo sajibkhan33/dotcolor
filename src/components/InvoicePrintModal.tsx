@@ -232,9 +232,13 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [onClose]);
     const isMobile = viewportWidth < 820;
+    const baseSheetWidth = isPadMode ? 782 : 794;
+    const baseSheetHeight = isPadMode ? 1070 : 1123;
     const scale = isMobile && isMobileFit
-        ? Math.max(0.3, Math.min(1, (viewportWidth - 32) / 794))
+        ? Math.max(0.3, Math.min(1, (viewportWidth - (isPublicView ? 16 : 24)) / baseSheetWidth))
         : 1;
+    const scaledWidth = Math.ceil(baseSheetWidth * scale);
+    const scaledHeight = Math.ceil(baseSheetHeight * scale);
     useEffect(() => {
         if (sheetRef.current) {
             setSheetHeight(sheetRef.current.offsetHeight || 1123);
@@ -469,7 +473,9 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                 ? window.location.origin
                 : 'https://dotcolor.onrender.com';
             const targetInvoiceId = invoice.id || invoice.invoiceNo;
-            const invoiceQrUrl = `${origin}/?invoiceId=${encodeURIComponent(targetInvoiceId)}`;
+            const isQuote = Boolean((invoice as any).isQuote || (targetInvoiceId && (targetInvoiceId.startsWith('qt-') || targetInvoiceId.startsWith('QT-') || targetInvoiceId.startsWith('q-') || targetInvoiceId.startsWith('Q-'))));
+            const paramKey = isQuote ? 'quotationId' : 'invoiceId';
+            const invoiceQrUrl = `${origin}/?${paramKey}=${encodeURIComponent(targetInvoiceId)}`;
             QRCode.toDataURL(invoiceQrUrl, {
                 width: 160,
                 margin: 1,
@@ -1597,50 +1603,65 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
           {/* ============================================================== */}
           {/* 1. STANDARD A4 TAX / SALES INVOICE (Paginated) */}
           {/* ============================================================== */}
-          {template === 'A4' && (<div className="w-full flex flex-col items-center gap-6 print:gap-0 print:block print:w-full print:max-w-full print:m-0 print:p-0" style={isMobile && isMobileFit
-                ? {
-                    height: `${Math.ceil((sheetHeight || (isPadMode ? 1070 : 1123)) * scale * invoicePages.length)}px`,
-                    overflow: 'hidden',
-                }
-                : undefined}>
+          {template === 'A4' && (<div className="w-full flex flex-col items-center gap-4 print:gap-0 print:block print:w-full print:max-w-full print:m-0 print:p-0">
               {invoicePages.map((page, pIdx) => (
                 <div
                   key={page.pageNumber}
-                  ref={pIdx === 0 ? sheetRef : undefined}
-                  id={pIdx === 0 ? "a4-document-sheet" : undefined}
-                  style={
-                    isPadMode
-                      ? {
-                          width: '782px',
-                          minWidth: '782px',
-                          maxWidth: '782px',
-                          height: '1070px',
-                          minHeight: '1070px',
-                          maxHeight: '1070px',
-                          paddingTop: `${padTopMarginMm}mm`,
-                          paddingBottom: '25.4mm',
-                          paddingLeft: '12.7mm',
-                          paddingRight: '12.7mm',
-                          ...(isMobile && isMobileFit
-                            ? {
-                                transform: `scale(${scale})`,
-                                transformOrigin: 'top center',
-                              }
-                            : {}),
-                        }
-                      : isMobile && isMobileFit
-                      ? {
-                          transform: `scale(${scale})`,
-                          transformOrigin: 'top center',
-                        }
-                      : undefined
-                  }
-                  className={`a4-page-sheet relative bg-white overflow-hidden mx-auto print:mx-0 rounded-none shadow-xl print:shadow-none border-0 border-transparent print:border-none flex flex-col justify-between text-black text-xs shrink-0 box-border ${
-                    isPadMode
-                      ? 'w-[782px] min-w-[782px] max-w-[782px] h-[1070px] min-h-[1070px] max-h-[1070px]'
-                      : 'w-[794px] min-w-[794px] max-w-[794px] h-[1123px] min-h-[1123px] max-h-[1123px] p-8'
-                  }`}
+                  className="w-full flex justify-center print:block print:w-full print:m-0 print:p-0"
+                  style={isMobile && isMobileFit ? {
+                    width: '100%',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    marginBottom: pIdx < invoicePages.length - 1 ? '16px' : 0,
+                  } : undefined}
                 >
+                  <div
+                    className="mobile-scale-wrapper print:w-full print:m-0"
+                    style={isMobile && isMobileFit ? {
+                      width: `${scaledWidth}px`,
+                      height: `${scaledHeight}px`,
+                      position: 'relative',
+                      overflow: 'hidden',
+                      flexShrink: 0,
+                      margin: '0 auto',
+                    } : undefined}
+                  >
+                    <div
+                      ref={pIdx === 0 ? sheetRef : undefined}
+                      id={pIdx === 0 ? "a4-document-sheet" : undefined}
+                      style={
+                        isPadMode
+                          ? {
+                              width: '782px',
+                              minWidth: '782px',
+                              maxWidth: '782px',
+                              height: '1070px',
+                              minHeight: '1070px',
+                              maxHeight: '1070px',
+                              paddingTop: `${padTopMarginMm}mm`,
+                              paddingBottom: '25.4mm',
+                              paddingLeft: '12.7mm',
+                              paddingRight: '12.7mm',
+                              ...(isMobile && isMobileFit
+                                ? {
+                                    transform: `scale(${scale})`,
+                                    transformOrigin: 'top left',
+                                  }
+                                : {}),
+                            }
+                          : isMobile && isMobileFit
+                          ? {
+                              transform: `scale(${scale})`,
+                              transformOrigin: 'top left',
+                            }
+                          : undefined
+                      }
+                      className={`a4-page-sheet relative bg-white overflow-hidden mx-auto print:mx-0 rounded-none shadow-xl print:shadow-none border-0 border-transparent print:border-none flex flex-col justify-between text-black text-xs shrink-0 box-border ${
+                        isPadMode
+                          ? 'w-[782px] min-w-[782px] max-w-[782px] h-[1070px] min-h-[1070px] max-h-[1070px]'
+                          : 'w-[794px] min-w-[794px] max-w-[794px] h-[1123px] min-h-[1123px] max-h-[1123px] p-8'
+                      }`}
+                    >
                   <div className="a4-page-content space-y-4 flex-1">
                     {page.isFirstPage ? (
                       /* Page 1: Full Document Header & BILL TO box */
@@ -1987,48 +2008,56 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                     </div>
                   </div>
                 </div>
+                  </div>
+                </div>
               ))}
             </div>)}
 
         {/* ============================================================== */}
         {/* 2. FACTORY WORK ORDER / JOB CARD */}
         {/* ============================================================== */}
-        {template === 'WORK_ORDER' && (<div className="w-full flex justify-center print:block print:w-full print:max-w-full print:m-0 print:p-0" style={isMobile && isMobileFit
-                ? {
-                    height: `${Math.ceil((sheetHeight || 1123) * scale)}px`,
-                    overflow: 'hidden',
-                }
-                : undefined}>
-            <div ref={sheetRef} id="a4-document-sheet" style={
-              isPadMode
-                ? {
-                    width: '782px',
-                    minWidth: '782px',
-                    maxWidth: '782px',
-                    height: '1070px',
-                    minHeight: '1070px',
-                    maxHeight: '1070px',
-                    paddingTop: `${padTopMarginMm}mm`,
-                    paddingBottom: '25.4mm',
-                    paddingLeft: '12.7mm',
-                    paddingRight: '12.7mm',
-                    ...(isMobile && isMobileFit
-                      ? {
-                          transform: `scale(${scale})`,
-                          transformOrigin: 'top center',
-                        }
-                      : {}),
+        {template === 'WORK_ORDER' && (<div className="w-full flex justify-center print:block print:w-full print:max-w-full print:m-0 print:p-0">
+            <div
+              className="mobile-scale-wrapper print:w-full print:m-0"
+              style={isMobile && isMobileFit ? {
+                width: `${scaledWidth}px`,
+                height: `${scaledHeight}px`,
+                position: 'relative',
+                overflow: 'hidden',
+                flexShrink: 0,
+                margin: '0 auto',
+              } : undefined}
+            >
+              <div ref={sheetRef} id="a4-document-sheet" style={
+                isPadMode
+                  ? {
+                      width: '782px',
+                      minWidth: '782px',
+                      maxWidth: '782px',
+                      height: '1070px',
+                      minHeight: '1070px',
+                      maxHeight: '1070px',
+                      paddingTop: `${padTopMarginMm}mm`,
+                      paddingBottom: '25.4mm',
+                      paddingLeft: '12.7mm',
+                      paddingRight: '12.7mm',
+                      ...(isMobile && isMobileFit
+                        ? {
+                            transform: `scale(${scale})`,
+                            transformOrigin: 'top left',
+                          }
+                        : {}),
+                    }
+                  : isMobile && isMobileFit
+                  ? {
+                      transform: `scale(${scale})`,
+                      transformOrigin: 'top left',
                   }
-                : isMobile && isMobileFit
-                ? {
-                    transform: `scale(${scale})`,
-                    transformOrigin: 'top center',
-                }
-                : undefined} className={`a4-page-sheet relative bg-white overflow-hidden mx-auto print:mx-0 rounded-none shadow-xl print:shadow-none border-0 border-transparent print:border-none flex flex-col justify-between text-xs text-slate-900 shrink-0 box-border ${
-                  isPadMode
-                    ? 'w-[782px] min-w-[782px] max-w-[782px] h-[1070px] min-h-[1070px] max-h-[1070px]'
-                    : 'w-[794px] min-w-[794px] print:w-full print:min-w-0 print:max-w-full print:shrink min-h-[1123px] print:min-h-0 p-8'
-                }`}>
+                  : undefined} className={`a4-page-sheet relative bg-white overflow-hidden mx-auto print:mx-0 rounded-none shadow-xl print:shadow-none border-0 border-transparent print:border-none flex flex-col justify-between text-xs text-slate-900 shrink-0 box-border ${
+                    isPadMode
+                      ? 'w-[782px] min-w-[782px] max-w-[782px] h-[1070px] min-h-[1070px] max-h-[1070px]'
+                      : 'w-[794px] min-w-[794px] print:w-full print:min-w-0 print:max-w-full print:shrink min-h-[1123px] print:min-h-0 p-8'
+                  }`}>
               <div className="a4-page-content space-y-6 flex-1">
               {/* Header with Brand Logo on Left, QR Banner on Right */}
               <DocumentHeader documentTitle="PRODUCTION WORK ORDER" documentSubtitle={`${profile.name || 'DotColorCommunication'} • Technical Work Order & Service Unit`} documentNo={`WO-${invoice.invoiceNo}`} documentDate={invoice.date} referenceNo={invoice.referenceNo} isPadMode={isPadMode} padTopMarginMm={padTopMarginMm}/>
@@ -2146,17 +2175,24 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                 </div>
               </div>
             </div>
+            </div>
           </div>)}
 
           {/* ============================================================== */}
           {/* 3. DELIVERY CHALLAN */}
           {/* ============================================================== */}
-          {template === 'CHALLAN' && (<div className="w-full flex justify-center print:block print:w-full print:max-w-full print:m-0 print:p-0" style={isMobile && isMobileFit
-                ? {
-                    height: `${Math.ceil((sheetHeight || 1123) * scale)}px`,
-                    overflow: 'hidden',
-                }
-                : undefined}>
+          {template === 'CHALLAN' && (<div className="w-full flex justify-center print:block print:w-full print:max-w-full print:m-0 print:p-0">
+            <div
+              className="mobile-scale-wrapper print:w-full print:m-0"
+              style={isMobile && isMobileFit ? {
+                width: `${scaledWidth}px`,
+                height: `${scaledHeight}px`,
+                position: 'relative',
+                overflow: 'hidden',
+                flexShrink: 0,
+                margin: '0 auto',
+              } : undefined}
+            >
               <div ref={sheetRef} id="a4-document-sheet" style={
                 isPadMode
                   ? {
@@ -2173,14 +2209,14 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                       ...(isMobile && isMobileFit
                         ? {
                             transform: `scale(${scale})`,
-                            transformOrigin: 'top center',
+                            transformOrigin: 'top left',
                           }
                         : {}),
                     }
                   : isMobile && isMobileFit
                 ? {
                     transform: `scale(${scale})`,
-                    transformOrigin: 'top center',
+                    transformOrigin: 'top left',
                 }
                 : undefined} className={`a4-page-sheet relative bg-white overflow-hidden mx-auto print:mx-0 rounded-none shadow-xl print:shadow-none border-0 border-transparent print:border-none flex flex-col justify-between text-black text-xs shrink-0 box-border ${
                   isPadMode
@@ -2315,6 +2351,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                   </span>
                 </div>
               </div>
+            </div>
             </div>
           </div>)}
 
