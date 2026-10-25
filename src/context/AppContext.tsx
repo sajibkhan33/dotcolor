@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useRef 
 import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, InvoiceItem, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus, ProjectSalesCollection, ProjectSalesPaymentBreakdown } from '../types';
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
 import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
-import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation } from '../utils/accountUtils';
+import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation, resolveExpenseAccount as resolveExpenseAccountUtil } from '../utils/accountUtils';
 import { hashPin, verifyPin, isPinHashed } from '../utils/securityUtils';
 
 const STORAGE_KEY = 'DOT_COLOR_ERP_V1_STATE';
@@ -989,6 +989,29 @@ export const AppProvider: React.FC<{
     useEffect(() => {
         if (!chartOfAccounts || chartOfAccounts.length === 0) return;
 
+        // Auto-correct any operating expenses that were mistakenly debited to Project Expense
+        let journalNeedsUpdate = false;
+        const updatedJournals = (journalEntries || []).map(j => {
+            const isOperatingExp = (j.source === 'EXPENSE' || (j.refNo && j.refNo.toUpperCase().startsWith('EXP-')));
+            const isDebitedToPrj = j.debitAccountId === 'coa-5206' || j.debitAccountId === '5206' || (j.debitAccountName && j.debitAccountName.toLowerCase().includes('project'));
+            if (isOperatingExp && isDebitedToPrj) {
+                const tx = (transactions || []).find(t => t.refNo && j.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim());
+                const resolved = resolveExpenseAccountUtil(tx?.category || j.narration, j.narration, chartOfAccounts, expenseHeads);
+                if (resolved && resolved.id !== 'coa-5206' && !resolved.name.toLowerCase().includes('project')) {
+                    journalNeedsUpdate = true;
+                    return { ...j, debitAccountId: resolved.id, debitAccountName: resolved.name };
+                }
+            }
+            return j;
+        });
+        if (journalNeedsUpdate) {
+            setJournalEntries(updatedJournals);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(updatedJournals));
+            } catch {}
+            latestStateRef.current = { ...latestStateRef.current, journalEntries: updatedJournals };
+        }
+
         const totalPrjSales = (projects || []).reduce((s, p) => s + (p.totalSales || 0), 0);
         const totalPrjExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
 
@@ -1051,6 +1074,15 @@ export const AppProvider: React.FC<{
 
         let coaNeedsUpdate = false;
         const updatedCOA = chartOfAccounts.map(acc => {
+            // Auto-fix duplicate 5202 code for Client Hospitality, Tea & Snacks to standard 5204
+            if (acc.classification === 'Expense' && (acc.name.toLowerCase().includes('hospitality') || acc.name.toLowerCase().includes('tea')) && acc.code === '5202') {
+                const hasDuplicate = chartOfAccounts.some(other => other.id !== acc.id && other.code === '5202');
+                if (hasDuplicate) {
+                    coaNeedsUpdate = true;
+                    return { ...acc, code: '5204' };
+                }
+            }
+
             // 1. Dedicated Project Expense Account
             const isProjectExp = (expAcc && acc.id === expAcc.id) || acc.code === '5206' || acc.code === '5300' || acc.id === 'coa-5206' || acc.name.toLowerCase().trim() === 'project expense';
             if (isProjectExp) {
@@ -5046,46 +5078,8 @@ export const AppProvider: React.FC<{
     };
 
     const resolveExpenseAccount = (categoryName: string, note?: string) => {
-        const query = `${categoryName || ''} ${note || ''}`.toLowerCase();
-        
-        // 1. Check if specific sub-expense heads exist in chartOfAccounts
-        if (query.includes('conveyance') || query.includes('transport') || query.includes('fuel') || query.includes('truck') || query.includes('courier') || query.includes('delivery')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5080' || a.name.toLowerCase().includes('conveyance')));
-            if (acc) return acc;
-        }
-        if (query.includes('labor') || query.includes('labour') || query.includes('wage') || query.includes('worker') || query.includes('technician') || query.includes('installation') || query.includes('setup') || query.includes('amin vai') || query.includes('fabrication')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5070' || a.name.toLowerCase().includes('wages') || a.name.toLowerCase().includes('salaries')));
-            if (acc) return acc;
-        }
-        if (query.includes('entertainment') || query.includes('refreshment') || query.includes('tea') || query.includes('snack') || query.includes('food') || query.includes('lunch') || query.includes('hospitality') || query.includes('hotel')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5090' || a.name.toLowerCase().includes('hospitality') || a.name.toLowerCase().includes('refreshment')));
-            if (acc) return acc;
-        }
-        if (query.includes('electricity') || query.includes('generator') || query.includes('diesel') || query.includes('power')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5040' || a.name.toLowerCase().includes('electricity')));
-            if (acc) return acc;
-        }
-        if (query.includes('rent') || query.includes('lease') || query.includes('facility')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5050' || a.name.toLowerCase().includes('rent')));
-            if (acc) return acc;
-        }
-        if (query.includes('machine') || query.includes('servicing') || query.includes('equipment') || query.includes('crane') || query.includes('printer head')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5030' || a.name.toLowerCase().includes('servicing')));
-            if (acc) return acc;
-        }
-        if (query.includes('permit') || query.includes('tax') || query.includes('official fee') || query.includes('license')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5120' || a.name.toLowerCase().includes('tax') || a.name.toLowerCase().includes('permit')));
-            if (acc) return acc;
-        }
-
-        // 2. Dedicated Project Expense Head (5100 Project Expense)
-        const projExpAcc = resolveProjectExpenseAccount();
-        if (projExpAcc) {
-            return projExpAcc;
-        }
-
-        const cogsAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5010' || a.name.toLowerCase().includes('raw') || a.name.toLowerCase().includes('cost')));
-        return cogsAcc || chartOfAccounts.find(a => a.classification === 'Expense') || chartOfAccounts[0];
+        return resolveExpenseAccountUtil(categoryName, note, chartOfAccounts, expenseHeads, true) ||
+               resolveProjectExpenseAccount();
     };
 
     const resolveProjectRevenueAccount = (targetAccountId?: string) => {
@@ -6715,6 +6709,16 @@ export const AppProvider: React.FC<{
             }
             if (j.source === 'PROJECT_SALES' && revAcc && j.creditAccountId !== revAcc.id) {
                 return { ...j, creditAccountId: revAcc.id, creditAccountName: revAcc.name };
+            }
+            // Re-route operating expense journals mistakenly debited to Project Expense (like EXP-5138 food bill)
+            const isOperatingExp = (j.source === 'EXPENSE' || (j.refNo && j.refNo.toUpperCase().startsWith('EXP-')));
+            const isDebitedToPrj = j.debitAccountId === 'coa-5206' || j.debitAccountId === '5206' || (j.debitAccountName && j.debitAccountName.toLowerCase().includes('project'));
+            if (isOperatingExp && isDebitedToPrj) {
+                const tx = currentTransactions.find(t => t.refNo && j.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim());
+                const resolved = resolveExpenseAccountUtil(tx?.category || j.narration, j.narration, currentCoa, expenseHeads);
+                if (resolved && resolved.id !== 'coa-5206' && !resolved.name.toLowerCase().includes('project')) {
+                    return { ...j, debitAccountId: resolved.id, debitAccountName: resolved.name };
+                }
             }
             return j;
         }));

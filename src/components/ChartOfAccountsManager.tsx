@@ -3,9 +3,9 @@ import { useApp } from '../context/AppContext';
 import { ChartOfAccount, SalesInvoice } from '../types';
 import { BookOpen, Plus, Search, Filter, Edit2, Trash2, Lock, CheckCircle2, AlertCircle, X, FileText, Printer, ArrowUpDown, Download, Upload, } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction } from '../utils/accountUtils';
+import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, doesTransactionMatchExpenseAccount, resolveExpenseAccount } from '../utils/accountUtils';
 export const ChartOfAccountsManager: React.FC = () => {
-    const { chartOfAccounts, invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], purchaseOrders = [], products = [], journalEntries = [], language, profile, activeStaff, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
+    const { chartOfAccounts, expenseHeads = [], invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], purchaseOrders = [], products = [], journalEntries = [], language, profile, activeStaff, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
     const [filterClassification, setFilterClassification] = useState<string>('ALL');
     const [showAddModal, setShowAddModal] = useState(false);
@@ -395,18 +395,11 @@ export const ChartOfAccountsManager: React.FC = () => {
                 } else {
                     const matching = (transactions || [])
                         .filter(t => t.type === 'EXPENSE' && !isPrjTx(t) && (
-                            (t.category && (nameLower.includes(t.category.toLowerCase()) || t.category.toLowerCase().includes(nameLower))) ||
-                            (t.accountHead && (nameLower.includes(t.accountHead.toLowerCase()) || t.accountHead.toLowerCase().includes(nameLower)))
+                            doesTransactionMatchExpenseAccount(t, acc, expenseHeads, chartOfAccounts, journalEntries)
                         ))
                         .reduce((s, t) => s + t.amount, 0);
 
-                    // For non-project general expenses, only count opening balance + matching non-project direct expenses + non-project journal entries
-                    const hasNonPrjTxs = (transactions || []).some(t => t.type === 'EXPENSE' && !isPrjTx(t));
-                    if (hasNonPrjTxs || matching > 0) {
-                        liveBal = (acc.openingBalance || 0) + matching + journalExpDelta;
-                    } else {
-                        liveBal = (acc.openingBalance || 0) + journalExpDelta;
-                    }
+                    liveBal = (acc.openingBalance || 0) + matching + journalExpDelta;
                 }
             } else if (acc.classification === 'Equity') {
                 const isRetainedEarnings = (

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { ExpenseHead } from '../types';
 import { Layers, Plus, Search, Edit2, Trash2, Eye, CheckCircle2, XCircle, TrendingDown, DollarSign, AlertCircle, Briefcase, Sliders, } from 'lucide-react';
+import { resolveExpenseAccount } from '../utils/accountUtils';
 export const ExpenseHeadManager: React.FC = () => {
     const { expenseHeads, chartOfAccounts, language, profile, activeStaff, addExpenseHead, updateExpenseHead, deleteExpenseHead, checkPermission, } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
@@ -79,33 +80,13 @@ export const ExpenseHeadManager: React.FC = () => {
             const exact = chartOfAccounts.find(a => 
                 a.id === head.linkedAccountId || 
                 a.code === head.linkedAccountId || 
-                a.code === head.linkedAccountId.replace('coa-', '')
+                a.code === head.linkedAccountId.replace('coa-', '') ||
+                a.id === `coa-${head.linkedAccountId}`
             );
             if (exact) return exact;
         }
-        // Intelligent dynamic matching by Head Code or Category
-        if (head.code === 'EH-PRJ' || head.category?.toLowerCase() === 'projects' || head.name.toLowerCase().includes('project')) {
-            return chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5100' || a.name.toLowerCase().includes('project')));
-        }
-        if (head.code === 'EH-RENT' || head.category?.toLowerCase() === 'facility' || head.name.toLowerCase().includes('rent')) {
-            return chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5050' || a.name.toLowerCase().includes('rent')));
-        }
-        if (head.code === 'EH-ELEC' || head.category?.toLowerCase() === 'utilities' || head.name.toLowerCase().includes('electricity')) {
-            return chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5040' || a.name.toLowerCase().includes('electricity')));
-        }
-        if (head.code === 'EH-MAINT' || head.category?.toLowerCase() === 'maintenance' || head.name.toLowerCase().includes('servicing')) {
-            return chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5030' || a.name.toLowerCase().includes('servicing')));
-        }
-        if (head.code === 'EH-WAGE' || head.category?.toLowerCase() === 'payroll' || head.name.toLowerCase().includes('wage') || head.name.toLowerCase().includes('salary')) {
-            return chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5070' || a.name.toLowerCase().includes('wages') || a.name.toLowerCase().includes('salaries')));
-        }
-        if (head.code === 'EH-TRANS' || head.category?.toLowerCase() === 'logistics' || head.name.toLowerCase().includes('conveyance')) {
-            return chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5080' || a.name.toLowerCase().includes('conveyance')));
-        }
-        if (head.code === 'EH-CONS' || head.code === 'EH-PACK' || head.category?.toLowerCase() === 'operations') {
-            return chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5010' || a.name.toLowerCase().includes('raw') || a.name.toLowerCase().includes('cost')));
-        }
-        return null;
+        // Intelligent dynamic matching by Head Code, Name or Category
+        return resolveExpenseAccount(head.name, head.description, chartOfAccounts, expenseHeads) || null;
     };
 
     const filteredHeads = useMemo(() => {

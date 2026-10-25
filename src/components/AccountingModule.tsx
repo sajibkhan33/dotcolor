@@ -7,7 +7,7 @@ import { ReportPrintModal } from './ReportPrintModal';
 import { ChartOfAccountsManager } from './ChartOfAccountsManager';
 import { ExpenseHeadManager } from './ExpenseHeadManager';
 import { JournalEntriesManager } from './JournalEntriesManager';
-import { getBankAccountsBreakdown, getMfsAccountsBreakdown, getPaymentMethodLiveBalance, calculateSingleAccountBalance, isAdvanceAdjustmentTransaction, isDueReceivableTransaction } from '../utils/accountUtils';
+import { getBankAccountsBreakdown, getMfsAccountsBreakdown, getPaymentMethodLiveBalance, calculateSingleAccountBalance, isAdvanceAdjustmentTransaction, isDueReceivableTransaction, resolveExpenseAccount } from '../utils/accountUtils';
 export const AccountingModule: React.FC = () => {
     const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, invoices = [], paymentMethods = [], customers = [], updateCustomer, addTransaction, updateTransaction, deleteTransaction, projects = [], addProjectExpense, addProject, addProjectSales, collectProjectDue, generateInvoiceForProject, checkPermission, activeStaff, addJournalEntry } = useApp();
 
@@ -217,7 +217,7 @@ export const AccountingModule: React.FC = () => {
                 n.includes('project') ||
                 bn.includes('প্রজেক্ট') ||
                 c === '5206' ||
-                c === '5100' ||
+                c === 'EH-PRJ' ||
                 c === 'EH-PROJ'
             );
         };
@@ -588,10 +588,11 @@ export const AccountingModule: React.FC = () => {
         }
 
         if (selectedProjectId) {
-            const matchedExpCoa = chartOfAccounts.find(a => 
-                a.name.toLowerCase() === expenseCategory.toLowerCase() ||
-                (isProjectExpense && (a.code === '5206' || a.code === '5100' || a.name.toLowerCase().includes('project')))
-            );
+            const matchedExpCoa = resolveExpenseAccount(expenseCategory, expenseTitle, chartOfAccounts, expenseHeads) ||
+                chartOfAccounts.find(a => 
+                    a.name.toLowerCase() === expenseCategory.toLowerCase() ||
+                    (isProjectExpense && (a.code === '5206' || a.name.toLowerCase().includes('project')))
+                );
             const matchedPayCoa = chartOfAccounts.find(a => 
                 a.name.toLowerCase() === selectedAccount.toLowerCase() ||
                 (selectedAccount.toLowerCase().includes('cash') && (a.code === '1001' || a.code === '1010' || a.name.toLowerCase().includes('cash')))
@@ -608,6 +609,8 @@ export const AccountingModule: React.FC = () => {
             });
         } else {
             const expRef = `EXP-${Date.now().toString().slice(-4)}`;
+            const debitExp = resolveExpenseAccount(expenseCategory, expenseTitle, chartOfAccounts, expenseHeads, true);
+
             addTransaction({
                 date: new Date().toISOString().slice(0, 10),
                 type: 'EXPENSE',
@@ -616,7 +619,7 @@ export const AccountingModule: React.FC = () => {
                 amount: expenseAmount,
                 account: selectedAccount,
                 paymentAccount: selectedAccount,
-                accountHead: selectedAccount,
+                accountHead: debitExp?.name || selectedAccount,
                 paymentMethod: selectedAccount,
                 refNo: expRef,
             });
@@ -625,16 +628,10 @@ export const AccountingModule: React.FC = () => {
                 a.name.toLowerCase() === selectedAccount.toLowerCase() ||
                 (selectedAccount.toLowerCase().includes('cash') && (a.code === '1001' || a.code === '1010' || a.name.toLowerCase().includes('cash'))) ||
                 (selectedAccount.toLowerCase().includes('bkash') && a.code === '1007') ||
-                (selectedAccount.toLowerCase().includes('nagad') && a.code === '1006')
+                (selectedAccount.toLowerCase().includes('nagad') && a.code === '1006') ||
+                (selectedAccount.toLowerCase().includes('city') && a.name.toLowerCase().includes('city')) ||
+                (selectedAccount.toLowerCase().includes('southeast') && a.name.toLowerCase().includes('southeast'))
             ) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
-
-            const debitExp = chartOfAccounts.find(a => 
-                a.classification === 'Expense' && (
-                    a.name.toLowerCase() === expenseCategory.toLowerCase() ||
-                    a.code === '5206' ||
-                    a.name.toLowerCase().includes(expenseCategory.toLowerCase())
-                )
-            ) || chartOfAccounts.find(a => a.classification === 'Expense') || chartOfAccounts[0];
 
             if (debitExp && creditAsset && addJournalEntry) {
                 addJournalEntry({

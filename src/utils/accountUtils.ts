@@ -1,4 +1,4 @@
-import { ChartOfAccount, AccountingTransaction, SalesInvoice, PaymentMethodConfig, AccountBalances, Supplier, PurchaseOrder, ProductItem, JournalEntry, Project } from '../types';
+import { ChartOfAccount, AccountingTransaction, SalesInvoice, PaymentMethodConfig, AccountBalances, Supplier, PurchaseOrder, ProductItem, JournalEntry, Project, ExpenseHead } from '../types';
 
 /**
  * Normalizes account or channel string for fuzzy matching
@@ -1212,4 +1212,304 @@ export const calculateInventoryValuation = (
     }
 
     return Math.max(0, closingVal + journalDelta);
+};
+
+/**
+ * Resolves the appropriate Expense account from Chart of Accounts
+ * based on an Expense Head, category name, or description/note.
+ */
+export const resolveExpenseAccount = (
+    categoryOrHeadName: string,
+    noteOrTitle: string = '',
+    chartOfAccounts: ChartOfAccount[] = [],
+    expenseHeads: ExpenseHead[] = [],
+    allowFallback: boolean = false
+): ChartOfAccount | undefined => {
+    if (!chartOfAccounts || chartOfAccounts.length === 0) return undefined;
+
+    const catRaw = (categoryOrHeadName || '').trim();
+    const catLower = catRaw.toLowerCase();
+    const noteLower = (noteOrTitle || '').toLowerCase().trim();
+    const combined = `${catLower} ${noteLower}`.trim();
+
+    // 1. If category matches an active Expense Head with a linkedAccountId
+    const matchedHead = (expenseHeads || []).find(h => 
+        h.isActive && (
+            h.id === catRaw ||
+            h.code.toLowerCase() === catLower ||
+            h.name.toLowerCase().trim() === catLower ||
+            (h.nameBn && h.nameBn.trim() === catRaw)
+        )
+    );
+
+    if (matchedHead && matchedHead.linkedAccountId) {
+        const link = matchedHead.linkedAccountId.toLowerCase().trim();
+        const linkedCoa = chartOfAccounts.find(a => 
+            a.id.toLowerCase() === link || 
+            a.code.toLowerCase() === link ||
+            a.id.toLowerCase() === `coa-${link}` ||
+            a.code.toLowerCase() === link.replace('coa-', '')
+        );
+        if (linkedCoa) return linkedCoa;
+    }
+
+    // 2. Direct exact ID or Name match in Chart of Accounts (classification === 'Expense')
+    const exactCoa = chartOfAccounts.find(a => 
+        a.classification === 'Expense' && (
+            a.id === catRaw ||
+            a.name.toLowerCase().trim() === catLower ||
+            (a.nameBn && a.nameBn.trim() === catRaw)
+        )
+    );
+    if (exactCoa) return exactCoa;
+
+    // 3. Keyword / Semantic matching across standard business expense categories
+    // 3a. Tea, Refreshment, Food, Snacks, Hospitality
+    if (combined.includes('tea') || combined.includes('refreshment') || combined.includes('snack') || combined.includes('food') || combined.includes('lunch') || combined.includes('hospitality') || combined.includes('entertainment') || combined.includes('নাস্তা') || combined.includes('আপ্যায়ন')) {
+        const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (
+            a.name.toLowerCase().includes('hospitality') || 
+            a.name.toLowerCase().includes('tea') || 
+            a.name.toLowerCase().includes('refreshment') || 
+            a.name.toLowerCase().includes('snack') ||
+            (a.nameBn && (a.nameBn.includes('আপ্যায়ন') || a.nameBn.includes('চা'))) ||
+            a.code === '5090' || 
+            a.code === '5204'
+        ));
+        if (acc) return acc;
+    }
+
+    // 3b. Rent & Facility Lease
+    if (combined.includes('rent') || combined.includes('lease') || combined.includes('facility') || combined.includes('ভাড়া')) {
+        const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (
+            a.name.toLowerCase().includes('rent') || 
+            a.name.toLowerCase().includes('lease') ||
+            (a.nameBn && a.nameBn.includes('ভাড়া')) ||
+            a.code === '5200' || 
+            a.code === '5050'
+        ));
+        if (acc) return acc;
+    }
+
+    // 3c. Electricity, Generator, Fuel, Power & Utilities
+    if (combined.includes('electric') || combined.includes('power') || combined.includes('generator') || combined.includes('diesel') || combined.includes('বিদ্যুৎ')) {
+        const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (
+            a.name.toLowerCase().includes('electric') || 
+            a.name.toLowerCase().includes('power') || 
+            a.name.toLowerCase().includes('generator') ||
+            (a.nameBn && a.nameBn.includes('বিদ্যুৎ')) ||
+            a.code === '5203' || 
+            a.code === '5040'
+        ));
+        if (acc) return acc;
+    }
+
+    // 3d. Salaries, Wages, Overtime, Labor, Payroll
+    if (combined.includes('salary') || combined.includes('salaries') || combined.includes('wage') || combined.includes('payroll') || combined.includes('overtime') || combined.includes('worker') || combined.includes('labor') || combined.includes('labour') || combined.includes('বেতন') || combined.includes('মজুরি')) {
+        const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (
+            a.name.toLowerCase().includes('salar') || 
+            a.name.toLowerCase().includes('wage') || 
+            a.name.toLowerCase().includes('payroll') ||
+            (a.nameBn && (a.nameBn.includes('বেতন') || a.nameBn.includes('মজুরি'))) ||
+            a.code === '5201' || 
+            a.code === '5070'
+        ));
+        if (acc) return acc;
+    }
+
+    // 3e. Internet, Telecom, Software, Mobile, IT
+    if (combined.includes('internet') || combined.includes('telecom') || combined.includes('software') || combined.includes('hosting') || combined.includes('mobile') || combined.includes('broadband') || combined.includes('ইন্টারনেট')) {
+        const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (
+            a.name.toLowerCase().includes('internet') || 
+            a.name.toLowerCase().includes('telecom') || 
+            a.name.toLowerCase().includes('software') ||
+            (a.nameBn && a.nameBn.includes('ইন্টারনেট')) ||
+            (a.code === '5202' && !a.name.toLowerCase().includes('hospitality')) || 
+            a.code === '5110'
+        ));
+        if (acc) return acc;
+    }
+
+    // 3f. Conveyance, Transport, Fuel, Courier, Delivery Logistics
+    if (combined.includes('conveyance') || combined.includes('courier') || combined.includes('delivery') || combined.includes('transport') || combined.includes('logistics') || combined.includes('fare') || combined.includes('যাতায়াত') || combined.includes('গাড়ি ভাড়া')) {
+        const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (
+            a.name.toLowerCase().includes('conveyance') || 
+            a.name.toLowerCase().includes('delivery') || 
+            a.name.toLowerCase().includes('courier') || 
+            a.name.toLowerCase().includes('transport') ||
+            (a.nameBn && a.nameBn.includes('যাতায়াত')) ||
+            a.code === '5100' || 
+            a.code === '5080'
+        ));
+        if (acc) return acc;
+    }
+
+    // 3g. Machine Maintenance, Servicing, Spare Parts
+    if (combined.includes('machine') || combined.includes('maintenance') || combined.includes('servicing') || combined.includes('spare') || combined.includes('repair') || combined.includes('মেরামত')) {
+        const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (
+            a.name.toLowerCase().includes('maint') || 
+            a.name.toLowerCase().includes('servicing') || 
+            a.name.toLowerCase().includes('repair') ||
+            (a.nameBn && a.nameBn.includes('মেরামত')) ||
+            a.code === '5030'
+        ));
+        if (acc) return acc;
+    }
+
+    // 3h. Marketing, Ads & Promotions
+    if (combined.includes('market') || combined.includes('ad') || combined.includes('promotion') || combined.includes('campaign') || combined.includes('বিজ্ঞাপন')) {
+        const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (
+            a.name.toLowerCase().includes('market') || 
+            a.name.toLowerCase().includes('promotion') || 
+            a.name.toLowerCase().includes('ad') ||
+            (a.nameBn && a.nameBn.includes('বিজ্ঞাপন')) ||
+            a.code === '5070'
+        ));
+        if (acc) return acc;
+    }
+
+    // 3i. Municipal Tax, Trade License & Legal Fees
+    if (combined.includes('tax') || combined.includes('license') || combined.includes('municipal') || combined.includes('vat') || combined.includes('ট্যাক্স') || combined.includes('লাইসেন্স')) {
+        const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (
+            a.name.toLowerCase().includes('tax') || 
+            a.name.toLowerCase().includes('license') ||
+            (a.nameBn && (a.nameBn.includes('ট্যাক্স') || a.nameBn.includes('লাইসেন্স'))) ||
+            a.code === '5120'
+        ));
+        if (acc) return acc;
+    }
+
+    // 3j. Raw Materials, Factory Consumables, COGS
+    if (combined.includes('raw') || combined.includes('cogs') || combined.includes('cost of good') || combined.includes('material') || combined.includes('solvent') || combined.includes('packaging') || combined.includes('বক্স') || combined.includes('কাঁচামাল')) {
+        const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (
+            a.name.toLowerCase().includes('cost of goods') || 
+            a.name.toLowerCase().includes('raw') || 
+            a.name.toLowerCase().includes('cogs') ||
+            (a.nameBn && a.nameBn.includes('কাঁচামাল')) ||
+            a.code === '5001' || 
+            a.code === '5010'
+        ));
+        if (acc) return acc;
+    }
+
+    // 3k. Project Expenses (ONLY if category or note specifically indicates Project)
+    const isExplicitProject = catLower.includes('project') || noteLower.includes('project') || combined.includes('প্রজেক্ট');
+    if (isExplicitProject) {
+        const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (
+            a.code === '5206' || 
+            a.code === '5300' || 
+            a.id === 'coa-5206' || 
+            a.name.toLowerCase().includes('project') ||
+            (a.nameBn && a.nameBn.includes('প্রজেক্ট'))
+        ));
+        if (acc) return acc;
+    }
+
+    // 3l. Miscellaneous & Petty Expenses
+    if (combined.includes('misc') || combined.includes('petty') || combined.includes('other') || combined.includes('অন্যান্য')) {
+        const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (
+            a.name.toLowerCase().includes('misc') || 
+            a.name.toLowerCase().includes('petty') ||
+            (a.nameBn && a.nameBn.includes('অন্যান্য')) ||
+            a.code === '5130'
+        ));
+        if (acc) return acc;
+    }
+
+    // 4. Fallback (only if allowFallback is enabled, e.g. when recording a new expense)
+    if (allowFallback) {
+        const fallbackGeneral = chartOfAccounts.find(a => 
+            a.classification === 'Expense' && 
+            !a.name.toLowerCase().includes('project') && 
+            a.code !== '5206' &&
+            a.id !== 'coa-5206'
+        );
+        if (fallbackGeneral) return fallbackGeneral;
+        return chartOfAccounts.find(a => a.classification === 'Expense') || chartOfAccounts[0];
+    }
+
+    return undefined;
+};
+
+/**
+ * Checks if an accounting transaction belongs to a specific Chart of Accounts expense account
+ */
+export const doesTransactionMatchExpenseAccount = (
+    t: AccountingTransaction,
+    acc: ChartOfAccount,
+    expenseHeads: ExpenseHead[] = [],
+    chartOfAccounts: ChartOfAccount[] = [],
+    journalEntries: JournalEntry[] = []
+): boolean => {
+    if (!t || t.type !== 'EXPENSE' || !acc) return false;
+
+    const accNameLower = (acc.name || '').toLowerCase().trim();
+    const accCode = (acc.code || '').trim();
+    const accId = (acc.id || '').trim();
+    const isProjectExpAcc = accCode === '5206' || accCode === '5300' || accId === 'coa-5206' || accNameLower.includes('project');
+
+    // Project Transactions must only match Project Expense account (5206)
+    const isPrj = isProjectTransaction(t) || Boolean(t.projectId || t.projectCode || (t.refNo && t.refNo.startsWith('PRJ-')));
+    if (isPrj) {
+        return isProjectExpAcc;
+    }
+    if (isProjectExpAcc && !isPrj) {
+        // Non-project operating expense must NEVER match Project Expense
+        return false;
+    }
+
+    // 1. Transaction accountHead direct match (by exact name or ID)
+    if (t.accountHead) {
+        const hLower = t.accountHead.toLowerCase().trim();
+        if (hLower === accNameLower || hLower === accId.toLowerCase()) {
+            return true;
+        }
+    }
+
+    // 2. Check if a Journal Voucher exists for this transaction and debits this account specifically (by ID or exact Name)
+    if (t.refNo && journalEntries && journalEntries.length > 0) {
+        const matchedJournal = journalEntries.find(j => 
+            j.refNo && j.refNo.toLowerCase().trim() === t.refNo.toLowerCase().trim()
+        );
+        if (matchedJournal) {
+            const jDebitName = (matchedJournal.debitAccountName || '').toLowerCase().trim();
+            if (
+                matchedJournal.debitAccountId === accId ||
+                (jDebitName && jDebitName === accNameLower)
+            ) {
+                return true;
+            }
+        }
+    }
+
+    // 3. Check if t.category matches an ExpenseHead linked to this COA account
+    const categoryLower = (t.category || '').toLowerCase().trim();
+    if (categoryLower) {
+        const matchingHead = (expenseHeads || []).find(h => 
+            h.name.toLowerCase().trim() === categoryLower || 
+            (h.nameBn && h.nameBn.trim() === categoryLower) ||
+            h.code.toLowerCase() === categoryLower
+        );
+        if (matchingHead && matchingHead.linkedAccountId) {
+            const link = matchingHead.linkedAccountId.toLowerCase().trim();
+            if (
+                link === accId.toLowerCase() ||
+                accId.toLowerCase() === `coa-${link}`
+            ) {
+                return true;
+            }
+        }
+    }
+
+    // 4. Direct exact match with category
+    if (categoryLower && categoryLower === accNameLower) {
+        return true;
+    }
+
+    // 5. Semantic resolver match (by unique ID or exact name)
+    const resolved = resolveExpenseAccount(t.category || '', t.description || '', chartOfAccounts, expenseHeads, false);
+    if (resolved && (resolved.id === accId || resolved.name.toLowerCase().trim() === accNameLower)) {
+        return true;
+    }
+
+    return false;
 };
