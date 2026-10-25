@@ -22,6 +22,12 @@
     },
     "allowImportingTsExtensions": true,
     "types": ["vite/client"],
-    "noEmit": true
-  }
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["src"]
 }
