@@ -252,6 +252,12 @@ export const calculateSingleAccountBalance = (
             .map((t) => (t.refNo || '').toLowerCase().trim())
     );
 
+    const recordedTxRefs = new Set(
+        (transactions || [])
+            .filter((t) => t.refNo)
+            .map((t) => (t.refNo || '').toLowerCase().trim())
+    );
+
     // Build set of invoice numbers / IDs linked to projects to prevent double-counting
     const projectLinkedInvoiceNos = new Set<string>();
     if (projects && Array.isArray(projects)) {
@@ -326,9 +332,16 @@ export const calculateSingleAccountBalance = (
     // 3. Reconcile manual journal entries (source === 'MANUAL' or non-synced journal vouchers)
     (journalEntries || []).forEach((j) => {
         // Exclude system auto-generated journals that mirror existing transactions to avoid double-counting
-        if (j.source === 'LEDGER_SYNC' || j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE') return;
+        if (
+            j.source === 'LEDGER_SYNC' || 
+            j.source === 'PROJECT_SALES' || 
+            j.source === 'PROJECT_EXPENSE' || 
+            j.source === 'EXPENSE' || 
+            j.source === 'SALES' || 
+            j.source === 'PURCHASE'
+        ) return;
         const jRef = (j.refNo || '').toLowerCase().trim();
-        if (jRef && recordedInvoiceRefs.has(jRef)) return;
+        if (jRef && (recordedInvoiceRefs.has(jRef) || recordedTxRefs.has(jRef))) return;
 
         const isDebit = (
             j.debitAccountId === acc.id ||
@@ -1075,6 +1088,24 @@ export const calculateTotalCustomerReceivables = (
 };
 
 /**
+ * Checks if a transaction represents a debt repayment/payment to a supplier against a Purchase Order or supplier due
+ */
+export const isSupplierPaymentTransaction = (t: AccountingTransaction): boolean => {
+    if (!t) return false;
+    const cat = (t.category || '').toLowerCase();
+    const desc = (t.description || '').toLowerCase();
+    const ref = (t.refNo || '').toLowerCase();
+    return (
+        cat.includes('supplier due') ||
+        cat.includes('po payment') ||
+        desc.includes('payment for purchase order') ||
+        desc.includes('payment to supplier') ||
+        desc.includes('supplier due payment') ||
+        ref.startsWith('sup-pay-')
+    );
+};
+
+/**
  * Calculates dynamic real-time Accounts Payable (Suppliers) due from Suppliers and Purchase Orders
  */
 export const calculateTotalSupplierPayables = (
@@ -1084,7 +1115,12 @@ export const calculateTotalSupplierPayables = (
     // If purchase orders exist in system, active supplier payables are strictly the dues from Received POs
     if (purchaseOrders && purchaseOrders.length > 0) {
         return purchaseOrders
-            .filter((p) => p.status === 'Received')
+            .filter((p) => 
+                p.status === 'Received' || 
+                (p as any).status === 'Received (Partial)' || 
+                (p as any).challanStatus === 'Received' || 
+                (p as any).challanStatus === 'Received (Partial)'
+            )
             .reduce((sum, p) => {
                 const due = p.dueAmount !== undefined
                     ? Number(p.dueAmount)
@@ -1125,7 +1161,12 @@ export const calculateInventoryValuation = (
 
     // Total purchase value of received POs
     const totalReceivedPurchases = (purchaseOrders || [])
-        .filter((p) => p.status === 'Received')
+        .filter((p) => 
+            p.status === 'Received' || 
+            (p as any).status === 'Received (Partial)' || 
+            (p as any).challanStatus === 'Received' || 
+            (p as any).challanStatus === 'Received (Partial)'
+        )
         .reduce((acc, po) => acc + Number(po.grandTotal ?? po.totalAmount ?? 0), 0);
 
     const nameLower = (account?.name || '').toLowerCase();
@@ -1198,18 +1239,11 @@ export const calculateInventoryValuation = (
     // For Raw Materials (1060 / raw material) or unified Inventory account:
     const isRawOnly = (account?.code === '1060' || nameLower.includes('raw material') || nameBn.includes('কাঁচামাল'));
 
-    let closingVal = 0;
-    if (products && products.length > 0) {
-        // When product inventory is tracked in the system, use real stock quantity * cost price
-        if (isRawOnly) {
-            closingVal = rawStockValuation + (account?.openingBalance || 0);
-        } else {
-            closingVal = totalStockValuation + (account?.openingBalance || 0);
-        }
-    } else {
-        // If product catalog is not populated yet, fallback to opening balance + received purchases
-        closingVal = (account?.openingBalance || 0) + totalReceivedPurchases;
-    }
+    // When products exist with tracked physical stock, valuation derives strictly from physical stock.
+    // If physical product stock is not yet populated, fallback to total received purchases.
+    const baseStockVal = isRawOnly ? rawStockValuation : totalStockValuation;
+    const baseVal = baseStockVal > 0 ? baseStockVal : totalReceivedPurchases;
+    const closingVal = baseVal + (account?.openingBalance || 0);
 
     return Math.max(0, closingVal + journalDelta);
 };

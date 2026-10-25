@@ -198,8 +198,14 @@ export const AccountingModule: React.FC = () => {
     }, [expenseCategory]);
 
     useEffect(() => {
-        if (isProjectExpense && !selectedProjectId && projects.length === 1) {
-            setSelectedProjectId(projects[0].id);
+        if (!isProjectExpense) {
+            if (selectedProjectId) {
+                setSelectedProjectId('');
+            }
+        } else {
+            if (!selectedProjectId && projects.length === 1) {
+                setSelectedProjectId(projects[0].id);
+            }
         }
     }, [isProjectExpense, projects, selectedProjectId]);
 
@@ -587,7 +593,7 @@ export const AccountingModule: React.FC = () => {
             return;
         }
 
-        if (selectedProjectId) {
+        if (isProjectExpense && selectedProjectId) {
             const matchedExpCoa = resolveExpenseAccount(expenseCategory, expenseTitle, chartOfAccounts, expenseHeads) ||
                 chartOfAccounts.find(a => 
                     a.name.toLowerCase() === expenseCategory.toLowerCase() ||
@@ -1314,14 +1320,9 @@ export const AccountingModule: React.FC = () => {
                 </div>
               </div>
 
-              {/* Project Linking Section */}
-              <div className={`p-3.5 rounded-xl border transition-all ${
-                isProjectExpense
-                  ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-300/40'
-                  : selectedProjectId
-                  ? 'bg-indigo-50/60 border-indigo-200'
-                  : 'bg-slate-50 border-slate-200/80'
-              }`}>
+              {/* Project Linking Section (Only visible when Category is Project Expense) */}
+              {isProjectExpense && (
+                <div className="p-3.5 rounded-xl border transition-all bg-amber-50/70 border-amber-300 ring-1 ring-amber-300/40">
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
                     <Briefcase className="w-4 h-4 text-amber-600" />
@@ -1428,6 +1429,7 @@ export const AccountingModule: React.FC = () => {
                   );
                 })()}
               </div>
+            )}
             </div>
 
             {(() => {
@@ -1458,7 +1460,7 @@ export const AccountingModule: React.FC = () => {
                     >
                       {isOverdraft
                         ? 'Insufficient Account Balance'
-                        : selectedProjectId
+                        : isProjectExpense && selectedProjectId
                         ? `Confirm & Link to Project (${profile.currencySymbol}${(Number(expenseAmount) || 0).toLocaleString()})`
                         : 'Confirm Expense'}
                     </button>

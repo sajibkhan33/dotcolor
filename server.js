@@ -184,7 +184,7 @@ app.post("/api/state", requireAuth, async (req, res) => {
     });
   }
   try {
-    const { data, clientRev, senderTabId } = req.body;
+    const { data, clientRev, senderTabId, force } = req.body;
     if (!data) {
       return res.status(400).json({ success: false, message: "Data payload is required." });
     }
@@ -195,7 +195,7 @@ app.post("/api/state", requireAuth, async (req, res) => {
     let currentRev = 0;
     if (existing) {
       currentRev = existing.revision || existing.data?._rev || 1;
-      if (typeof clientRev === "number" && clientRev < currentRev) {
+      if (!force && typeof clientRev === "number" && clientRev < currentRev) {
         return res.status(409).json({
           success: false,
           conflict: true,
@@ -205,7 +205,7 @@ app.post("/api/state", requireAuth, async (req, res) => {
         });
       }
     }
-    const nextRev = currentRev + 1;
+    const nextRev = Math.max(currentRev, typeof clientRev === "number" ? clientRev : 0) + 1;
     data._rev = nextRev;
     const updated = await ErpState.findOneAndUpdate(
       { id: "singleton" },

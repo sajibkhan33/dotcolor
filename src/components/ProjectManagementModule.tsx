@@ -83,7 +83,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
     const [linkingProject, setLinkingProject] = useState<Project | null>(null);
     const [linkInvoiceForm, setLinkInvoiceForm] = useState({
         invoiceId: '',
-        chartOfAccountId: 'coa-4051',
+        chartOfAccountId: 'coa-4002',
         syncSalesItem: true,
     });
     // New Project Form State
@@ -98,7 +98,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
         endDate: '',
         notes: '',
         invoiceId: '',
-        chartOfAccountId: 'coa-4051',
+        chartOfAccountId: 'coa-4002',
         includeSalesItem: true,
         autoGenerateInvoice: true,
     });
@@ -228,16 +228,48 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
         const revs = (chartOfAccounts || []).filter(a => a.classification === 'Revenue' && a.isActive !== false);
         if (revs.length === 0) {
             return [
+                { id: 'coa-4002', code: '4002', name: 'Project Sales', nameBn: 'প্রজেক্ট সেলস' },
                 { id: 'coa-4051', code: '4051', name: 'Project Sales Income', nameBn: 'প্রজেক্ট সেলস ইনকাম' },
                 { id: 'coa-4010', code: '4010', name: 'Digital Printing & Flex Banner Sales', nameBn: 'ডিজিটাল প্রিন্টিং বিক্রয়' },
             ];
         }
         return [...revs].sort((a, b) => {
-            if (a.code === '4051' || a.id === 'coa-4051') return -1;
-            if (b.code === '4051' || b.id === 'coa-4051') return 1;
+            const isPrjA = a.code === '4002' || a.code === '4051' || a.id === 'coa-4002' || a.id === 'coa-4051' || a.name.toLowerCase().includes('project');
+            const isPrjB = b.code === '4002' || b.code === '4051' || b.id === 'coa-4002' || b.id === 'coa-4051' || b.name.toLowerCase().includes('project');
+            if (isPrjA && !isPrjB) return -1;
+            if (!isPrjA && isPrjB) return 1;
             return a.code.localeCompare(b.code);
         });
     }, [chartOfAccounts]);
+
+    const defaultProjectRevAccId = useMemo(() => {
+        const found = availableRevenueAccounts.find(a => 
+            a.code === '4002' || 
+            a.code === '4051' || 
+            a.id === 'coa-4002' || 
+            a.id === 'coa-4051' || 
+            a.name.toLowerCase().includes('project') || 
+            (a.nameBn && a.nameBn.includes('প্রজেক্ট'))
+        );
+        return found ? found.id : (availableRevenueAccounts[0]?.id || 'coa-4002');
+    }, [availableRevenueAccounts]);
+
+    useEffect(() => {
+        if (defaultProjectRevAccId) {
+            setNewProject(prev => {
+                if (!prev.chartOfAccountId || prev.chartOfAccountId === 'coa-4051' || prev.chartOfAccountId === 'coa-4001') {
+                    return { ...prev, chartOfAccountId: defaultProjectRevAccId };
+                }
+                return prev;
+            });
+            setLinkInvoiceForm(prev => {
+                if (!prev.chartOfAccountId || prev.chartOfAccountId === 'coa-4051' || prev.chartOfAccountId === 'coa-4001') {
+                    return { ...prev, chartOfAccountId: defaultProjectRevAccId };
+                }
+                return prev;
+            });
+        }
+    }, [defaultProjectRevAccId]);
 
     const projectRevAcc = useMemo(() => {
         return chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4002' || a.code === '4051' || a.id === 'coa-4002' || a.id === 'coa-4051' || a.name.toLowerCase().includes('project') || a.code === '4060')) || { code: '4002', name: 'Project Sales', id: 'coa-4002' };
@@ -398,7 +430,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
             endDate: '',
             notes: '',
             invoiceId: '',
-            chartOfAccountId: 'coa-4051',
+            chartOfAccountId: defaultProjectRevAccId || 'coa-4002',
             includeSalesItem: true,
             autoGenerateInvoice: true,
         });
@@ -606,7 +638,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                   endDate: '',
                   notes: '',
                   invoiceId: '',
-                  chartOfAccountId: 'coa-4051',
+                  chartOfAccountId: defaultProjectRevAccId || 'coa-4002',
                   includeSalesItem: true,
                   autoGenerateInvoice: true,
               });

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useRef 
 import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, InvoiceItem, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus, ProjectSalesCollection, ProjectSalesPaymentBreakdown } from '../types';
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
 import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
-import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation, resolveExpenseAccount as resolveExpenseAccountUtil } from '../utils/accountUtils';
+import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation, resolveExpenseAccount as resolveExpenseAccountUtil, isSupplierPaymentTransaction } from '../utils/accountUtils';
 import { hashPin, verifyPin, isPinHashed } from '../utils/securityUtils';
 
 const STORAGE_KEY = 'DOT_COLOR_ERP_V1_STATE';
@@ -1093,6 +1093,60 @@ export const AppProvider: React.FC<{
             return;
         }
 
+        // Auto-provision 5030 Machine Servicing & Spare Parts if missing
+        let maintAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5030' || a.id === 'coa-5030' || a.name.toLowerCase().includes('machine') || a.name.toLowerCase().includes('maint')));
+        if (!maintAcc) {
+            const newMaintAcc: ChartOfAccount = {
+                id: 'coa-5030',
+                code: '5030',
+                name: 'Machine Servicing & Spare Parts',
+                nameBn: 'মেশিন সার্ভিসিং ও খুচরা যন্ত্রাংশ',
+                classification: 'Expense',
+                accountGroup: 'Direct Expenses / COGS',
+                normalBalance: 'Debit',
+                openingBalance: 0,
+                currentBalance: 0,
+                description: 'Maintenance of industrial printheads, CNC laser tubes, servo motors, and machine spare parts',
+                isSystem: true,
+                isActive: true,
+            };
+            const withMaint = [...chartOfAccounts, newMaintAcc];
+            setChartOfAccounts(withMaint);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(withMaint));
+            } catch {}
+            latestStateRef.current = { ...latestStateRef.current, chartOfAccounts: withMaint };
+            triggerImmediatePush();
+            return;
+        }
+
+        // Auto-provision 5120 Municipal Tax, Permits & Official Fees if missing
+        let taxAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5120' || a.id === 'coa-5120' || a.name.toLowerCase().includes('tax') || a.name.toLowerCase().includes('municipal')));
+        if (!taxAcc) {
+            const newTaxAcc: ChartOfAccount = {
+                id: 'coa-5120',
+                code: '5120',
+                name: 'Municipal Tax, Permits & Official Fees',
+                nameBn: 'পৌর কর, ট্রেড লাইসেন্স ও সরকারি ফি',
+                classification: 'Expense',
+                accountGroup: 'Operating Expenses',
+                normalBalance: 'Debit',
+                openingBalance: 0,
+                currentBalance: 0,
+                description: 'City corporation commercial fees, fire safety permits, trade license renewal, and municipal taxes',
+                isSystem: true,
+                isActive: true,
+            };
+            const withTax = [...chartOfAccounts, newTaxAcc];
+            setChartOfAccounts(withTax);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(withTax));
+            } catch {}
+            latestStateRef.current = { ...latestStateRef.current, chartOfAccounts: withTax };
+            triggerImmediatePush();
+            return;
+        }
+
         let coaNeedsUpdate = false;
         const updatedCOA = chartOfAccounts.map(acc => {
             // Auto-fix duplicate 5202 code for Client Hospitality, Tea & Snacks to standard 5204
@@ -1133,9 +1187,9 @@ export const AppProvider: React.FC<{
                 }
 
                 const poExpenses = (transactions || [])
-                    .filter(t => t.type === 'EXPENSE' && (
-                        (t.category && (t.category.toLowerCase().includes('raw') || t.category.toLowerCase().includes('purchase') || t.category.toLowerCase().includes('po'))) ||
-                        (t.description && (t.description.toLowerCase().includes('purchase') || t.description.toLowerCase().includes('po') || t.description.toLowerCase().includes('raw')))
+                    .filter(t => t.type === 'EXPENSE' && !isSupplierPaymentTransaction(t) && (
+                        (t.category && (t.category.toLowerCase().includes('raw') || t.category.toLowerCase().includes('purchase'))) ||
+                        (t.description && (t.description.toLowerCase().includes('purchase') || t.description.toLowerCase().includes('raw')))
                     ))
                     .reduce((s, t) => s + t.amount, 0);
 
@@ -3773,6 +3827,36 @@ export const AppProvider: React.FC<{
             description: `Payment for Purchase Order ${po.poNo} (${newStatus}) - Supplier: ${po.supplierName}`,
         };
         setTransactions((prev) => ensureUniqueTransactions([newTx, ...prev]));
+
+        // Automatic Double-Entry Journal for PO Payment: Debit Accounts Payable (2001/2010), Credit Cash/Bank Asset
+        const currentCoa = latestStateRef.current?.chartOfAccounts || chartOfAccounts || [];
+        const apAcc = currentCoa.find(a => a.id === 'coa-2001' || a.id === 'coa-2010' || a.code === '2001' || a.code === '2010' || a.name.toLowerCase().includes('payable')) || currentCoa[0];
+        const payAssetAcc = matchChannelToAccount(paymentAccount || paymentMethod || 'Cash', currentCoa, paymentMethods) || currentCoa[0];
+
+        if (apAcc && payAssetAcc) {
+            const supplierJournal: JournalEntry = {
+                id: generateUniqueId('jnl-po-pay'),
+                entryNo: `JNL-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`,
+                date: new Date().toISOString().slice(0, 10),
+                refNo: po.poNo,
+                debitAccountId: apAcc.id,
+                debitAccountName: apAcc.name,
+                creditAccountId: payAssetAcc.id,
+                creditAccountName: payAssetAcc.name,
+                amount: safeAmount,
+                narration: `Payment for Purchase Order ${po.poNo} to ${po.supplierName} via ${payAssetAcc.name}`,
+                source: 'PURCHASE',
+                createdBy: activeStaff?.name || 'Authorized Staff',
+            };
+            setJournalEntries(prev => [supplierJournal, ...prev]);
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                journalEntries: [supplierJournal, ...(latestStateRef.current?.journalEntries || [])],
+            };
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(latestStateRef.current.journalEntries));
+            } catch {}
+        }
         // 4. Audit log
         addAuditLog({
             staffId: activeStaff.id,

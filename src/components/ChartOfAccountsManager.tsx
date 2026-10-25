@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { ChartOfAccount, SalesInvoice } from '../types';
 import { BookOpen, Plus, Search, Filter, Edit2, Trash2, Lock, CheckCircle2, AlertCircle, X, FileText, Printer, ArrowUpDown, Download, Upload, } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, doesTransactionMatchExpenseAccount, resolveExpenseAccount } from '../utils/accountUtils';
+import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, doesTransactionMatchExpenseAccount, resolveExpenseAccount, isSupplierPaymentTransaction } from '../utils/accountUtils';
 export const ChartOfAccountsManager: React.FC = () => {
     const { chartOfAccounts, expenseHeads = [], invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], purchaseOrders = [], products = [], journalEntries = [], language, profile, activeStaff, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
@@ -383,9 +383,9 @@ export const ChartOfAccountsManager: React.FC = () => {
                     liveBal = (acc.openingBalance || 0) + Math.max(projectMatching, totalProjectExpenses, journalExpDelta);
                 } else if (isCogs) {
                     const poExpenses = (transactions || [])
-                        .filter(t => t.type === 'EXPENSE' && !isPrjTx(t) && (
-                            (t.category && (t.category.toLowerCase().includes('raw') || t.category.toLowerCase().includes('purchase') || t.category.toLowerCase().includes('po'))) ||
-                            (t.description && (t.description.toLowerCase().includes('purchase') || t.description.toLowerCase().includes('po') || t.description.toLowerCase().includes('raw')))
+                        .filter(t => t.type === 'EXPENSE' && !isPrjTx(t) && !isSupplierPaymentTransaction(t) && (
+                            (t.category && (t.category.toLowerCase().includes('raw') || t.category.toLowerCase().includes('purchase'))) ||
+                            (t.description && (t.description.toLowerCase().includes('purchase') || t.description.toLowerCase().includes('raw')))
                         ))
                         .reduce((s, t) => s + t.amount, 0);
                     const baseCogs = (acc.currentBalance === totalProjectExpenses && totalProjectExpenses > 0)
@@ -446,7 +446,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                         .reduce((s, t) => s + (Number(t.amount) || 0), 0);
                     const totalOperationalRevenue = totalNonProjectInvoiceSales + totalProjectSales + directIncomes;
                     const totalOperationalExpenses = (transactions || [])
-                        .filter(t => t.type === 'EXPENSE')
+                        .filter(t => t.type === 'EXPENSE' && !isSupplierPaymentTransaction(t))
                         .reduce((s, t) => s + (Number(t.amount) || 0), 0);
                     const netOperatingProfit = totalOperationalRevenue - totalOperationalExpenses;
                     liveBal = (acc.openingBalance || 0) + netOperatingProfit + journalEquityDelta;
@@ -514,7 +514,7 @@ export const ChartOfAccountsManager: React.FC = () => {
             }
         });
 
-        const txExpense = (transactions || []).filter(t => t.type === 'EXPENSE').reduce((s, t) => s + t.amount, 0);
+        const txExpense = (transactions || []).filter(t => t.type === 'EXPENSE' && !isSupplierPaymentTransaction(t)).reduce((s, t) => s + t.amount, 0);
 
         return { 
             totalAssets, 
