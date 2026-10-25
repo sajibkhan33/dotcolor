@@ -38,24 +38,36 @@ const getInitialTab = (): string => {
     return 'pos';
 };
 /**
- * Extracts any invoice query parameter from the URL (?invoiceId=..., ?invoiceNo=..., ?inv=...)
- * and immediately cleans it from the address bar via window.history.replaceState.
- * This guarantees that QR scans open the modal once, but refreshes or browser history
- * autocomplete will NOT continuously re-trigger the modal.
+ * Extracts public document query parameters from the URL (?invoiceId=..., ?quoteId=..., ?quotationId=..., ?inv=..., ?doc=...)
+ * We preserve the URL in the address bar so user refreshes or shares will keep viewing the document,
+ * without falling back to ERP Login or revealing internal ERP pages.
  */
-const extractAndCleanInvoiceUrlParam = (): string | null => {
+interface PublicDocParam {
+    id: string;
+    type: 'invoice' | 'quotation';
+}
+
+const getPublicDocumentParam = (): PublicDocParam | null => {
     try {
         if (typeof window === 'undefined')
             return null;
         const url = new URL(window.location.href);
-        const id = url.searchParams.get('invoiceId') || url.searchParams.get('invoiceNo') || url.searchParams.get('inv');
-        if (id) {
-            url.searchParams.delete('invoiceId');
-            url.searchParams.delete('invoiceNo');
-            url.searchParams.delete('inv');
-            const cleanUrl = url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : '') + url.hash;
-            window.history.replaceState(window.history.state || {}, '', cleanUrl);
-            return id.trim();
+        const quoteId = url.searchParams.get('quoteId') || url.searchParams.get('quotationId');
+        if (quoteId && quoteId.trim()) {
+            return { id: quoteId.trim(), type: 'quotation' };
+        }
+        const invId = url.searchParams.get('invoiceId') || url.searchParams.get('invoiceNo') || url.searchParams.get('inv');
+        if (invId && invId.trim()) {
+            const trimmed = invId.trim();
+            const isQuote = trimmed.toLowerCase().startsWith('qt-') || trimmed.toLowerCase().startsWith('q-');
+            return { id: trimmed, type: isQuote ? 'quotation' : 'invoice' };
+        }
+        const docId = url.searchParams.get('doc') || url.searchParams.get('id');
+        const view = url.searchParams.get('view');
+        if (docId && docId.trim() && (view === 'public' || docId.startsWith('INV-') || docId.startsWith('QT-') || docId.toLowerCase().startsWith('inv-') || docId.toLowerCase().startsWith('qt-'))) {
+            const trimmed = docId.trim();
+            const isQuote = trimmed.toLowerCase().startsWith('qt-') || trimmed.toLowerCase().startsWith('q-');
+            return { id: trimmed, type: isQuote ? 'quotation' : 'invoice' };
         }
     }
     catch { }
@@ -63,7 +75,7 @@ const extractAndCleanInvoiceUrlParam = (): string | null => {
 };
 const MainLayout: React.FC = () => {
     const [activeTab, setActiveTab] = useState<string>(getInitialTab);
-    const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(extractAndCleanInvoiceUrlParam);
+    const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
     const [modalMode, setModalMode] = useState<'invoice' | 'challan' | 'pos'>('invoice');
     const [directPrintOptions, setDirectPrintOptions] = useState<{
         autoPrint: boolean;
@@ -138,7 +150,11 @@ const MainLayout: React.FC = () => {
     }, [profile?.name]);
     // Auto-clean any lingering invoiceId / QR scan query params from the browser address bar
     useEffect(() => {
-        extractAndCleanInvoiceUrlParam();
+        try {
+            const url = new URL(window.location.href);
+            ['invoiceId', 'invoiceNo', 'inv', 'quoteId', 'quotationId', 'doc'].forEach((p) => url.searchParams.delete(p));
+            window.history.replaceState(window.history.state || {}, '', url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : '') + url.hash);
+        } catch {}
     }, []);
     // Sync activeTab with URL & localStorage whenever it changes
     useEffect(() => {
@@ -288,19 +304,29 @@ const MainLayout: React.FC = () => {
 };
 const AppContent: React.FC = () => {
     const { isAuthenticated } = useApp();
-    const [publicInvoiceId, setPublicInvoiceId] = useState<string | null>(extractAndCleanInvoiceUrlParam);
-    useEffect(() => {
-        // Extra safety: clean any lingering invoice params from address bar on mount
-        extractAndCleanInvoiceUrlParam();
-    }, []);
-    if (!isAuthenticated && publicInvoiceId) {
-        return (<div className="min-h-screen bg-slate-900/60 flex items-center justify-center p-2 sm:p-4">
-        <InvoicePrintModal invoiceId={publicInvoiceId} mode="invoice" isPublicView={true} onClose={() => {
-                extractAndCleanInvoiceUrlParam();
-                setPublicInvoiceId(null);
-            }}/>
-      </div>);
+    const publicDoc = React.useMemo(() => getPublicDocumentParam(), []);
+
+    // 1. ISOLATED PUBLIC DOCUMENT VIEW (Sales Invoice & Quotation)
+    // If a document ID is present in the URL (from a QR scan or shared public link),
+    // render ONLY the dedicated public document viewer.
+    // Zero exposure to Login, Logout, Dashboard, Projects, or internal ERP screens.
+    if (publicDoc) {
+        return (
+            <div className="min-h-screen w-full bg-slate-900 text-slate-100 flex flex-col justify-start items-center">
+                <InvoicePrintModal
+                    invoiceId={publicDoc.id}
+                    mode="invoice"
+                    isPublicView={true}
+                    onClose={() => {
+                        // In public view, there is no modal backdrop close;
+                        // user closes their browser tab or navigates back in their browser.
+                    }}
+                />
+            </div>
+        );
     }
+
+    // 2. Normal ERP Flow (Login screen for unauthenticated, MainLayout for authenticated staff)
     if (!isAuthenticated) {
         return <Login />;
     }

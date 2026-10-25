@@ -1240,6 +1240,8 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
 
       <div className={autoPrint
             ? `fixed -left-[9999px] -top-[9999px] ${template === 'POS' ? 'w-[80mm]' : 'w-[210mm]'} opacity-0 pointer-events-none`
+            : isPublicView
+            ? "w-full min-h-screen bg-slate-900 flex flex-col items-center p-0 sm:py-6 sm:px-4 overflow-y-auto print:static print:bg-white print:p-0 print:overflow-visible print:block"
             : "fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto print:static print:bg-white print:p-0 print:overflow-visible print:block"}>
       {/* Print styles for direct browser print (Ctrl+P / direct print) */}
       <style>{`
@@ -1364,7 +1366,11 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
         }
       `}</style>
       {/* Container - Sized to match A4 invoice document width */}
-      <div className="bg-white rounded-2xl max-w-[820px] w-full max-h-[96vh] flex flex-col shadow-2xl border border-slate-200 print:max-w-none print:w-full print:max-h-none print:h-auto print:border-none print:shadow-none print:rounded-none">
+      <div className={`bg-white ${
+        isPublicView
+          ? 'w-full max-w-[860px] min-h-screen sm:min-h-0 sm:rounded-2xl border-0 sm:border border-slate-200'
+          : 'rounded-2xl max-w-[820px] w-full max-h-[96vh] border border-slate-200'
+      } flex flex-col shadow-2xl print:max-w-none print:w-full print:max-h-none print:h-auto print:border-none print:shadow-none print:rounded-none`}>
         
         {/* Top Control Bar (Hidden when printing via CSS @media print) */}
         <div className="print:hidden px-2 sm:px-3 py-1.5 border-b border-slate-200 flex items-center justify-between gap-1 overflow-x-auto scrollbar-none bg-slate-50 rounded-t-2xl">
