@@ -181,8 +181,8 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
             ];
         }
         return [...list].sort((a, b) => {
-            const isPrjA = a.code === '5206' || a.code === '5300' || a.name.toLowerCase().includes('project');
-            const isPrjB = b.code === '5206' || b.code === '5300' || b.name.toLowerCase().includes('project');
+            const isPrjA = a.code === '5206' || a.name.toLowerCase().includes('project');
+            const isPrjB = b.code === '5206' || b.name.toLowerCase().includes('project');
             if (isPrjA && !isPrjB) return -1;
             if (!isPrjA && isPrjB) return 1;
             return a.code.localeCompare(b.code);
@@ -276,7 +276,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
     }, [chartOfAccounts]);
 
     const projectExpAcc = useMemo(() => {
-        return chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5206' || a.code === '5300' || a.id === 'coa-5206' || a.name.toLowerCase().includes('project'))) ||
+        return chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5206' || a.id === 'coa-5206' || a.name.toLowerCase().includes('project'))) ||
                chartOfAccounts.find(a => a.classification === 'Expense' && a.code === '5100' && a.name.toLowerCase().includes('project')) ||
                chartOfAccounts.find(a => a.classification === 'Expense') ||
                { code: '5206', name: 'Project Expense', id: 'coa-5206' };

@@ -1037,7 +1037,7 @@ export const AppProvider: React.FC<{
         const totalPrjExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
 
         let revAcc = chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4002' || a.code === '4051' || a.code === '4060' || a.id === 'coa-4002' || a.id === 'coa-4051' || a.name.toLowerCase().includes('project')));
-        let expAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5206' || a.code === '5300' || a.id === 'coa-5206' || a.name.toLowerCase().includes('project'))) ||
+        let expAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5206' || a.id === 'coa-5206' || a.name.toLowerCase().includes('project'))) ||
                        chartOfAccounts.find(a => a.classification === 'Expense' && a.code === '5100' && a.name.toLowerCase().includes('project'));
         const cogsAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5010' || a.name.toLowerCase().includes('raw') || a.name.toLowerCase().includes('cost')));
 
@@ -1159,7 +1159,7 @@ export const AppProvider: React.FC<{
             }
 
             // 1. Dedicated Project Expense Account
-            const isProjectExp = (expAcc && acc.id === expAcc.id) || acc.code === '5206' || acc.code === '5300' || acc.id === 'coa-5206' || acc.name.toLowerCase().trim() === 'project expense';
+            const isProjectExp = (expAcc && acc.id === expAcc.id) || acc.code === '5206' || acc.id === 'coa-5206' || acc.name.toLowerCase().trim() === 'project expense';
             if (isProjectExp) {
                 const targetExpBal = (acc.openingBalance || 0) + totalPrjExpenses;
                 if (acc.currentBalance !== targetExpBal) {
@@ -5175,7 +5175,7 @@ export const AppProvider: React.FC<{
     };
 
     const resolveProjectExpenseAccount = () => {
-        return chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5206' || a.code === '5300' || a.id === 'coa-5206' || a.name.toLowerCase().includes('project'))) ||
+        return chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5206' || a.id === 'coa-5206' || a.name.toLowerCase().includes('project'))) ||
                chartOfAccounts.find(a => a.classification === 'Expense' && a.code === '5100' && a.name.toLowerCase().includes('project')) ||
                chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5010' || a.name.toLowerCase().includes('raw') || a.name.toLowerCase().includes('cost'))) ||
                chartOfAccounts.find(a => a.classification === 'Expense') ||
@@ -7290,7 +7290,7 @@ export const AppProvider: React.FC<{
                 (j: JournalEntry) => j.source === 'PROJECT_EXPENSE' || j.source === 'PROJECT_SALES'
             );
             const cleanedCOA = (latestStateRef.current.chartOfAccounts || chartOfAccounts).map((acc: ChartOfAccount) => {
-                const isPrj = acc.code === '5206' || acc.code === '5300' || acc.code === '4002' || acc.code === '4051' || acc.code === '4060' || acc.name.toLowerCase().includes('project');
+                const isPrj = acc.code === '5206' || acc.code === '4002' || acc.code === '4051' || acc.code === '4060' || acc.name.toLowerCase().includes('project');
                 if (isPrj) {
                     return { ...acc, currentBalance: acc.openingBalance || 0 };
                 }

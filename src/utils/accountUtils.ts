@@ -1396,7 +1396,8 @@ export const resolveExpenseAccount = (
             a.name.toLowerCase().includes('promotion') || 
             a.name.toLowerCase().includes('ad') ||
             (a.nameBn && a.nameBn.includes('বিজ্ঞাপন')) ||
-            a.code === '5070'
+            a.code === '5070' ||
+            a.code === '5300'
         ));
         if (acc) return acc;
     }
@@ -1430,7 +1431,6 @@ export const resolveExpenseAccount = (
     if (isExplicitProject) {
         const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (
             a.code === '5206' || 
-            a.code === '5300' || 
             a.id === 'coa-5206' || 
             a.name.toLowerCase().includes('project') ||
             (a.nameBn && a.nameBn.includes('প্রজেক্ট'))
@@ -1479,7 +1479,7 @@ export const doesTransactionMatchExpenseAccount = (
     const accNameLower = (acc.name || '').toLowerCase().trim();
     const accCode = (acc.code || '').trim();
     const accId = (acc.id || '').trim();
-    const isProjectExpAcc = accCode === '5206' || accCode === '5300' || accId === 'coa-5206' || accNameLower.includes('project');
+    const isProjectExpAcc = accCode === '5206' || accId === 'coa-5206' || accNameLower.includes('project');
 
     // Project Transactions must only match Project Expense account (5206)
     const isPrj = isProjectTransaction(t) || Boolean(t.projectId || t.projectCode || (t.refNo && t.refNo.startsWith('PRJ-')));

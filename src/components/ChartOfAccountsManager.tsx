@@ -308,8 +308,7 @@ export const ChartOfAccountsManager: React.FC = () => {
             } else if (acc.classification === 'Expense') {
                 const isProjectExp = (
                     acc.id === 'coa-5206' || 
-                    acc.code === '5206' || 
-                    acc.code === '5300' ||
+                    acc.code === '5206' ||
                     nameLower.includes('project') || 
                     nameBn.includes('প্রজেক্ট')
                 );
@@ -501,7 +500,6 @@ export const ChartOfAccountsManager: React.FC = () => {
                 totalExpenses += acc.currentBalance;
                 const isPrj = (
                     acc.code === '5206' || 
-                    acc.code === '5300' || 
                     acc.id === 'coa-5206' || 
                     (acc.name || '').toLowerCase().includes('project') || 
                     (acc.nameBn || '').includes('প্রজেক্ট')
