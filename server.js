@@ -109,6 +109,9 @@ app.get("/api/state", requireAuth, async (_req, res) => {
   }
 });
 app.get("/api/public/invoice/:id", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   const queryId = (req.params.id || "").trim().toLowerCase();
   const queryNoHash = queryId.replace(/^#/, "");
   if (!isConnected) {
@@ -123,13 +126,13 @@ app.get("/api/public/invoice/:id", async (req, res) => {
     const quotations = Array.isArray(doc.data.quotations) ? doc.data.quotations : [];
     const profile = doc.data.profile || {};
     const foundInvoice = invoices.find(
-      (inv) => inv.id && inv.id.toLowerCase() === queryId || inv.invoiceNo && inv.invoiceNo.toLowerCase() === queryId || inv.invoiceNo && inv.invoiceNo.toLowerCase() === queryNoHash
+      (inv) => inv.id && inv.id.toLowerCase() === queryId || inv.id && inv.id.toLowerCase() === queryNoHash || inv.invoiceNo && inv.invoiceNo.toLowerCase() === queryId || inv.invoiceNo && inv.invoiceNo.toLowerCase() === queryNoHash || inv.id && inv.id.toLowerCase().replace(/^#/, "") === queryNoHash || inv.invoiceNo && inv.invoiceNo.toLowerCase().replace(/^#/, "") === queryNoHash
     );
     if (foundInvoice) {
       return res.json({ success: true, type: "invoice", data: foundInvoice, profile });
     }
     const foundQuote = quotations.find(
-      (q) => q.id && q.id.toLowerCase() === queryId || q.quoteNo && q.quoteNo.toLowerCase() === queryId || q.quoteNo && q.quoteNo.toLowerCase() === queryNoHash
+      (q) => q.id && q.id.toLowerCase() === queryId || q.id && q.id.toLowerCase() === queryNoHash || q.quoteNo && q.quoteNo.toLowerCase() === queryId || q.quoteNo && q.quoteNo.toLowerCase() === queryNoHash || q.id && q.id.toLowerCase().replace(/^#/, "") === queryNoHash || q.quoteNo && q.quoteNo.toLowerCase().replace(/^#/, "") === queryNoHash
     );
     if (foundQuote) {
       return res.json({ success: true, type: "quotation", data: foundQuote, profile });

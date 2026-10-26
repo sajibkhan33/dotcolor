@@ -2809,11 +2809,25 @@ export const AppProvider: React.FC<{
         catch (e) {
             console.warn('Audit log write skipped:', e);
         }
+        const currentInvs = latestStateRef.current?.invoices || invoices || [];
+        const nextInvoices = [newInvoice, ...currentInvs.filter((i: any) => i.id !== newInvoice.id)];
         if (latestStateRef.current) {
             latestStateRef.current = {
                 ...latestStateRef.current,
-                invoices: [newInvoice, ...(latestStateRef.current.invoices || invoices)],
+                invoices: nextInvoices,
             };
+        }
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(nextInvoices));
+        } catch {}
+
+        // Immediate cross-tab broadcast and cloud push so QR code scan and public endpoints have the invoice instantly
+        broadcastCrossTabSync();
+        triggerImmediatePush();
+        if (pushToCloudRef.current) {
+            pushToCloudRef.current({ force: true }).catch((err) => {
+                console.warn('Immediate cloud push failed, debounced push will retry:', err);
+            });
         }
         return newInvoice;
     };
@@ -7601,9 +7615,22 @@ export const AppProvider: React.FC<{
             }
             if (data.invoices && Array.isArray(data.invoices)) {
                 const cleanedInvoices = sanitizeSalesInvoices(data.invoices);
-                setInvoices(cleanedInvoices);
-                try { localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(cleanedInvoices)); } catch {}
-                data.invoices = cleanedInvoices;
+                let finalInvoices = cleanedInvoices;
+                if (_isCloudSync) {
+                    // Smart Concurrency Merge: Never delete locally created invoices that have not yet reached the server
+                    const remoteIds = new Set(cleanedInvoices.map((inv: any) => inv.id));
+                    const currentLocal = latestStateRef.current?.invoices || invoices || [];
+                    const pendingLocal = currentLocal.filter((inv: any) => inv?.id && !remoteIds.has(inv.id));
+                    if (pendingLocal.length > 0) {
+                        finalInvoices = [...pendingLocal, ...cleanedInvoices];
+                        setTimeout(() => {
+                            if (pushToCloudRef.current) pushToCloudRef.current({ force: true }).catch(() => {});
+                        }, 150);
+                    }
+                }
+                setInvoices(finalInvoices);
+                try { localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(finalInvoices)); } catch {}
+                data.invoices = finalInvoices;
             }
             if (data.quotations && Array.isArray(data.quotations)) {
                 setQuotations(data.quotations);
@@ -7614,7 +7641,15 @@ export const AppProvider: React.FC<{
                 try { localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(data.purchaseOrders)); } catch {}
             }
             if (data.transactions && Array.isArray(data.transactions)) {
-                const uniqueTx = ensureUniqueTransactions(data.transactions);
+                let uniqueTx = ensureUniqueTransactions(data.transactions);
+                if (_isCloudSync) {
+                    const remoteTxIds = new Set(uniqueTx.map((t: any) => t.id));
+                    const currentLocalTx = latestStateRef.current?.transactions || transactions || [];
+                    const pendingLocalTx = currentLocalTx.filter((t: any) => t?.id && !remoteTxIds.has(t.id));
+                    if (pendingLocalTx.length > 0) {
+                        uniqueTx = ensureUniqueTransactions([...pendingLocalTx, ...uniqueTx]);
+                    }
+                }
                 setTransactions(uniqueTx);
                 try { localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(uniqueTx)); } catch {}
             }

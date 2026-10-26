@@ -136,6 +136,10 @@ app.get('/api/state', requireAuth, async (_req, res) => {
 
 // Public single invoice fetch endpoint (for QR code scan lookup)
 app.get('/api/public/invoice/:id', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
   const queryId = (req.params.id || '').trim().toLowerCase();
   const queryNoHash = queryId.replace(/^#/, '');
 
@@ -156,8 +160,11 @@ app.get('/api/public/invoice/:id', async (req, res) => {
     const foundInvoice = invoices.find(
       (inv: any) =>
         (inv.id && inv.id.toLowerCase() === queryId) ||
+        (inv.id && inv.id.toLowerCase() === queryNoHash) ||
         (inv.invoiceNo && inv.invoiceNo.toLowerCase() === queryId) ||
-        (inv.invoiceNo && inv.invoiceNo.toLowerCase() === queryNoHash)
+        (inv.invoiceNo && inv.invoiceNo.toLowerCase() === queryNoHash) ||
+        (inv.id && inv.id.toLowerCase().replace(/^#/, '') === queryNoHash) ||
+        (inv.invoiceNo && inv.invoiceNo.toLowerCase().replace(/^#/, '') === queryNoHash)
     );
 
     if (foundInvoice) {
@@ -167,8 +174,11 @@ app.get('/api/public/invoice/:id', async (req, res) => {
     const foundQuote = quotations.find(
       (q: any) =>
         (q.id && q.id.toLowerCase() === queryId) ||
+        (q.id && q.id.toLowerCase() === queryNoHash) ||
         (q.quoteNo && q.quoteNo.toLowerCase() === queryId) ||
-        (q.quoteNo && q.quoteNo.toLowerCase() === queryNoHash)
+        (q.quoteNo && q.quoteNo.toLowerCase() === queryNoHash) ||
+        (q.id && q.id.toLowerCase().replace(/^#/, '') === queryNoHash) ||
+        (q.quoteNo && q.quoteNo.toLowerCase().replace(/^#/, '') === queryNoHash)
     );
 
     if (foundQuote) {

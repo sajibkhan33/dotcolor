@@ -116,6 +116,62 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
         : effectivePaid > 0
             ? 'Partial'
             : 'Due';
+
+    // Comprehensive form reset helper
+    const resetForm = () => {
+        setCustomerMode('existing');
+        setSelectedCustomerId('');
+        setExistingCustAddress('');
+        setCustomerSearchQuery('');
+        setIsCustomerSearchOpen(false);
+        setNewCustName('');
+        setNewCustPhone('');
+        setNewCustCompany('');
+        setNewCustAddress('');
+        setPurchaseRequisition('');
+        setReferenceNo('');
+        setInvoiceDate(new Date().toISOString().slice(0, 10));
+        setDeliveryDate('');
+        setWarehouseLocation('Factory');
+        setItems([]);
+        setShowRegionColumn(false);
+        setShowTypeColumn(false);
+        setSelectedProductId('');
+        setItemName('');
+        setItemRegion('');
+        setItemTypeStr('');
+        setIsCustomType(false);
+        setItemCategory('BRANDED PROMOTIONAL GIFTS');
+        setItemUnit('pcs');
+        setItemQty(1);
+        setItemPrice(1000);
+        setItemWidth('');
+        setItemHeight('');
+        setItemNotes('');
+        setDiscountAmount(0);
+        setDiscountType('amount');
+        setVatAmountInput(0);
+        setVatType('percent');
+        setPaidAmount(0);
+        setSelectedPaymentPreset(null);
+        setPaymentMethod('Cash');
+        setProductionStatus('Queued');
+        setNotes('');
+        setJobSpecs('');
+    };
+
+    // Auto-reset whenever modal opens
+    useEffect(() => {
+        if (isOpen) {
+            resetForm();
+        }
+    }, [isOpen]);
+
+    const handleClose = () => {
+        resetForm();
+        onClose();
+    };
+
     if (!isOpen)
         return null;
     // Add Item to List
@@ -253,6 +309,33 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
         const advanceToUse = selectedCust ? Math.min(Number(selectedCust.advanceBalance) || 0, effectivePaid) : 0;
         const channelPaid = Math.max(0, effectivePaid - advanceToUse);
 
+        // Ensure recalculation based on finalItems (even if auto-added)
+        const computedSubtotal = finalItems.reduce((acc, it) => acc + (Number(it.totalPrice) || 0), 0);
+        let computedDiscount = 0;
+        if (discountType === 'percent') {
+            const pct = Math.max(0, Math.min(100, Number(discountAmount) || 0));
+            computedDiscount = Math.round((computedSubtotal * pct) / 100);
+        } else {
+            computedDiscount = Math.min(computedSubtotal, Math.max(0, Number(discountAmount) || 0));
+        }
+        const computedTaxable = Math.max(0, computedSubtotal - computedDiscount);
+        let computedVat = 0;
+        if (vatType === 'percent') {
+            const pct = Math.max(0, Math.min(100, Number(vatAmountInput) || 0));
+            computedVat = Math.round((computedTaxable * pct) / 100);
+        } else {
+            computedVat = Math.max(0, Number(vatAmountInput) || 0);
+        }
+        const computedGrandTotal = computedTaxable + computedVat;
+        const computedPaid = paidAmount === '' ? 0 : Math.min(computedGrandTotal, Math.max(0, Number(paidAmount)));
+        const computedDue = Math.max(0, computedGrandTotal - computedPaid);
+        const computedPaymentStatus = computedPaid >= computedGrandTotal && computedGrandTotal > 0
+            ? 'Paid'
+            : computedPaid > 0
+                ? 'Partial'
+                : 'Due';
+        const finalChannelPaid = Math.max(0, computedPaid - advanceToUse);
+
         const created = addInvoice({
             date: invoiceDate,
             referenceNo: referenceNo.trim() || undefined,
@@ -264,19 +347,19 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
             customerPhone: finalCustPhone,
             customerAddress: finalCustAddress,
             items: finalItems,
-            subtotal,
-            discount: effectiveDiscount,
+            subtotal: computedSubtotal,
+            discount: computedDiscount,
             discountType,
             discountValue: Number(discountAmount) || 0,
             vatType,
             vatValue: Number(vatAmountInput) || 0,
             vatRate: Number(computedVatRate) || 0,
-            vatAmount: effectiveVat,
-            grandTotal,
-            paidAmount: effectivePaid,
-            dueAmount,
+            vatAmount: computedVat,
+            grandTotal: computedGrandTotal,
+            paidAmount: computedPaid,
+            dueAmount: computedDue,
             paymentMethod,
-            paymentStatus,
+            paymentStatus: computedPaymentStatus,
             productionStatus,
             warehouseLocation,
             notes: notes.trim() || undefined,
@@ -284,14 +367,15 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
             showRegionColumn,
             showTypeColumn,
             splitPayments: {
-                cash: paymentMethod.toLowerCase().includes('cash') ? channelPaid : 0,
-                card: paymentMethod.toLowerCase().includes('card') || paymentMethod.toLowerCase().includes('bank') ? channelPaid : 0,
-                bkash: paymentMethod.toLowerCase().includes('bkash') ? channelPaid : 0,
-                nagad: paymentMethod.toLowerCase().includes('nagad') ? channelPaid : 0,
+                cash: paymentMethod.toLowerCase().includes('cash') ? finalChannelPaid : 0,
+                card: paymentMethod.toLowerCase().includes('card') || paymentMethod.toLowerCase().includes('bank') ? finalChannelPaid : 0,
+                bkash: paymentMethod.toLowerCase().includes('bkash') ? finalChannelPaid : 0,
+                nagad: paymentMethod.toLowerCase().includes('nagad') ? finalChannelPaid : 0,
                 ...(advanceToUse > 0 ? { 'Customer Advance': advanceToUse } : {}),
-                due: dueAmount,
+                due: computedDue,
             },
         });
+        resetForm();
         onClose();
         onInvoiceCreated(created.id);
     };
@@ -315,7 +399,7 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
               </p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer">
+          <button type="button" onClick={handleClose} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer">
             <X className="w-5 h-5"/>
           </button>
         </div>
@@ -1136,7 +1220,7 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
             {'Invoice can be printed immediately after saving'}
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-            <button type="button" onClick={onClose} className="px-4 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs text-slate-700 hover:bg-slate-50 cursor-pointer">
+            <button type="button" onClick={handleClose} className="px-4 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs text-slate-700 hover:bg-slate-50 cursor-pointer">
               {'Cancel'}
             </button>
             <button type="button" onClick={handleSubmitInvoice} className="px-6 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-extrabold text-xs shadow-md flex items-center gap-1.5 cursor-pointer transition-all">

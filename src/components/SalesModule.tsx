@@ -3423,11 +3423,17 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
 
 
       {/* DIRECT SALES INVOICE CREATION MODAL */}
-      <CreateSalesInvoiceModal isOpen={showDirectInvoiceModal} onClose={() => setShowDirectInvoiceModal(false)} onInvoiceCreated={(newInvoiceId) => {
+      {showDirectInvoiceModal && (
+        <CreateSalesInvoiceModal
+          isOpen={true}
+          onClose={() => setShowDirectInvoiceModal(false)}
+          onInvoiceCreated={(newInvoiceId) => {
             setShowDirectInvoiceModal(false);
             setActiveSubTab('invoices');
             onOpenInvoiceModal(newInvoiceId);
-        }}/>
+          }}
+        />
+      )}
 
       {/* INVOICE MULTI-CHANNEL PAYMENT DETAILS MODAL */}
       {viewingPaymentDetailsInvoice && (() => {

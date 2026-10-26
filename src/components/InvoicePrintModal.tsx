@@ -264,83 +264,111 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
             (inv.invoiceNo && inv.invoiceNo.toLowerCase() === lowerCleanId) ||
             (inv.invoiceNo && inv.invoiceNo.toLowerCase() === lowerNoHash) ||
             (inv.id && inv.id.toLowerCase() === lowerCleanId));
-    // Fallback direct single invoice fetch from public API (for mobile QR code scans)
+
+    // Instant local storage fallback (for newly created invoice before React state re-render)
+    const localFallbackInvoice = React.useMemo(() => {
+        if (realInvoice || !invoiceId || isQuote) return null;
+        try {
+            const raw = localStorage.getItem('DOT_COLOR_ERP_V1_STATE_INVOICES');
+            if (raw) {
+                const list = JSON.parse(raw);
+                if (Array.isArray(list)) {
+                    return list.find((inv: any) =>
+                        inv.id === cleanId ||
+                        (inv.invoiceNo && inv.invoiceNo.toLowerCase() === lowerCleanId) ||
+                        (inv.invoiceNo && inv.invoiceNo.toLowerCase() === lowerNoHash) ||
+                        (inv.id && inv.id.toLowerCase() === lowerCleanId)
+                    ) || null;
+                }
+            }
+        } catch {}
+        return null;
+    }, [realInvoice, invoiceId, isQuote, cleanId, lowerCleanId, lowerNoHash]);
+
+    // Fallback direct single invoice fetch from public API with automatic retries (for mobile QR code scans)
     useEffect(() => {
-        if (!invoiceId || realInvoice || quote || fetchedInvoice)
+        if (!invoiceId || realInvoice || localFallbackInvoice || quote || fetchedInvoice)
             return;
         let isCancelled = false;
         setIsFetchingInvoice(true);
         const loadSingleInvoice = async () => {
-            try {
-                const queryId = invoiceId.trim().replace(/^#/, '');
-                const res = await fetch(`/api/public/invoice/${encodeURIComponent(queryId)}`);
-                if (!res.ok) {
-                    throw new Error('Invoice not found');
+            const queryId = invoiceId.trim().replace(/^#/, '');
+            const maxRetries = 4;
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                if (isCancelled) return;
+                try {
+                    const res = await fetch(`/api/public/invoice/${encodeURIComponent(queryId)}?t=${Date.now()}`, {
+                        cache: 'no-store'
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.success && data.data && !isCancelled) {
+                            if (data.type === 'quotation') {
+                                const q = data.data;
+                                setFetchedInvoice({
+                                    id: q.id,
+                                    invoiceNo: q.quoteNo,
+                                    referenceNo: q.referenceNo,
+                                    date: q.date,
+                                    customerId: 'quote',
+                                    customerName: q.customerName,
+                                    customerPhone: q.customerPhone,
+                                    customerCompany: q.customerCompany || '',
+                                    customerAddress: q.customerAddress || '',
+                                    items: (q.items || []).map((item: any) => ({
+                                        ...item,
+                                        totalSqft: 0,
+                                        width: 0,
+                                        height: 0,
+                                    })),
+                                    subtotal: q.grandTotal,
+                                    discount: 0,
+                                    discountType: 'amount' as const,
+                                    discountValue: 0,
+                                    vatRate: 0,
+                                    vatAmount: 0,
+                                    grandTotal: q.grandTotal,
+                                    paidAmount: 0,
+                                    dueAmount: q.grandTotal,
+                                    paymentMethod: 'Cash',
+                                    paymentStatus: (q.status as any) || 'Due',
+                                    productionStatus: 'Queued',
+                                    warehouseLocation: 'Office',
+                                    notes: q.notes || '',
+                                    jobSpecs: '',
+                                    deliveryDate: q.validUntil,
+                                    isQuote: true,
+                                    showRegionColumn: q.showRegionColumn,
+                                    showTypeColumn: q.showTypeColumn,
+                                });
+                            } else {
+                                setFetchedInvoice(data.data);
+                            }
+                            setIsFetchingInvoice(false);
+                            return;
+                        }
+                    }
+                } catch (err: any) {
+                    if (!isCancelled) {
+                        console.warn(`[Public Invoice Fetch] Attempt ${attempt} failed:`, err);
+                    }
                 }
-                const data = await res.json();
-                if (data.success && data.data && !isCancelled) {
-                    if (data.type === 'quotation') {
-                        const q = data.data;
-                        setFetchedInvoice({
-                            id: q.id,
-                            invoiceNo: q.quoteNo,
-                            referenceNo: q.referenceNo,
-                            date: q.date,
-                            customerId: 'quote',
-                            customerName: q.customerName,
-                            customerPhone: q.customerPhone,
-                            customerCompany: q.customerCompany || '',
-                            customerAddress: q.customerAddress || '',
-                            items: (q.items || []).map((item: any) => ({
-                                ...item,
-                                totalSqft: 0,
-                                width: 0,
-                                height: 0,
-                            })),
-                            subtotal: q.grandTotal,
-                            discount: 0,
-                            discountType: 'amount' as const,
-                            discountValue: 0,
-                            vatRate: 0,
-                            vatAmount: 0,
-                            grandTotal: q.grandTotal,
-                            paidAmount: 0,
-                            dueAmount: q.grandTotal,
-                            paymentMethod: 'Cash',
-                            paymentStatus: (q.status as any) || 'Due',
-                            productionStatus: 'Queued',
-                            warehouseLocation: 'Office',
-                            notes: q.notes || '',
-                            jobSpecs: '',
-                            deliveryDate: q.validUntil,
-                            isQuote: true,
-                            showRegionColumn: q.showRegionColumn,
-                            showTypeColumn: q.showTypeColumn,
-                        });
-                    }
-                    else {
-                        setFetchedInvoice(data.data);
-                    }
+                if (attempt < maxRetries && !isCancelled) {
+                    // Backoff retry: 500ms, 1000ms, 1500ms
+                    await new Promise((r) => setTimeout(r, attempt * 500));
                 }
             }
-            catch (err: any) {
-                if (!isCancelled) {
-                    console.warn('Could not load invoice directly from public endpoint:', err);
-                }
-            }
-            finally {
-                if (!isCancelled) {
-                    setIsFetchingInvoice(false);
-                }
+            if (!isCancelled) {
+                setIsFetchingInvoice(false);
             }
         };
         loadSingleInvoice();
         return () => {
             isCancelled = true;
         };
-    }, [invoiceId, realInvoice, quote, fetchedInvoice]);
+    }, [invoiceId, realInvoice, localFallbackInvoice, quote, fetchedInvoice]);
     // Adapt quotation or raw invoice into a robust normalized invoice schema for rendering
-    const rawResolvedInvoice: SalesInvoice | null = realInvoice || (quote ? {
+    const rawResolvedInvoice: SalesInvoice | null = realInvoice || localFallbackInvoice || (quote ? {
         id: quote.id,
         invoiceNo: quote.quoteNo,
         referenceNo: quote.referenceNo,

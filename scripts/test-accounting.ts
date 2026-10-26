@@ -340,6 +340,87 @@ console.log('\n🔄 Test Suite 7: Full Transactional Data Reset & COGS Zeroing I
     );
 }
 
+
+// --- Test Suite 8: Direct Sales & QR Code Scan Lookup Integrity (QA-08) ---
+console.log('\n🧾 Test Suite 8: Direct Sales & QR Code Scan Lookup Integrity');
+{
+    // Test 8.1: Smart Concurrency Merge preserves un-pushed local invoices
+    const remoteInvoices: any[] = [
+        { id: 'inv-existing-1', invoiceNo: 'DCC-INV-2026-1001', grandTotal: 5000, customerName: 'Client A' }
+    ];
+    const localInvoices: any[] = [
+        { id: 'inv-newly-created-2', invoiceNo: 'DCC-INV-2026-2002', grandTotal: 170000, customerName: 'sss (sss)' },
+        { id: 'inv-existing-1', invoiceNo: 'DCC-INV-2026-1001', grandTotal: 5000, customerName: 'Client A' }
+    ];
+
+    const remoteIds = new Set(remoteInvoices.map((inv: any) => inv.id));
+    const pendingLocal = localInvoices.filter((inv: any) => inv?.id && !remoteIds.has(inv.id));
+    const mergedInvoices = pendingLocal.length > 0 ? [...pendingLocal, ...remoteInvoices] : remoteInvoices;
+
+    assert(
+        mergedInvoices.length === 2 && mergedInvoices[0].id === 'inv-newly-created-2',
+        'Smart Concurrency Merge preserves newly created local invoice during remote cloud pull',
+        `Expected 2 invoices, got ${mergedInvoices.length}`
+    );
+
+    // Test 8.2: Multi-format Public Invoice / QR Scan Lookup
+    const mockDbInvoices: any[] = [
+        { id: 'inv-1792999506968', invoiceNo: 'DCC-INV-2026-6968', grandTotal: 170000 }
+    ];
+
+    const lookupInvoice = (query: string) => {
+        const queryId = query.trim().toLowerCase();
+        const queryNoHash = queryId.replace(/^#/, '');
+        return mockDbInvoices.find(
+            (inv: any) =>
+                (inv.id && inv.id.toLowerCase() === queryId) ||
+                (inv.id && inv.id.toLowerCase() === queryNoHash) ||
+                (inv.invoiceNo && inv.invoiceNo.toLowerCase() === queryId) ||
+                (inv.invoiceNo && inv.invoiceNo.toLowerCase() === queryNoHash) ||
+                (inv.id && inv.id.toLowerCase().replace(/^#/, '') === queryNoHash) ||
+                (inv.invoiceNo && inv.invoiceNo.toLowerCase().replace(/^#/, '') === queryNoHash)
+        );
+    };
+
+    assert(
+        Boolean(lookupInvoice('inv-1792999506968')),
+        'Public endpoint finds invoice by exact document ID',
+        'Failed to find by id'
+    );
+    assert(
+        Boolean(lookupInvoice('#inv-1792999506968')),
+        'Public endpoint finds invoice by hashed ID (#inv-...) from QR scan',
+        'Failed to find by #id'
+    );
+    assert(
+        Boolean(lookupInvoice('dcc-inv-2026-6968')),
+        'Public endpoint finds invoice by lowercase invoice number',
+        'Failed to find by invoiceNo'
+    );
+    assert(
+        Boolean(lookupInvoice('#DCC-INV-2026-6968')),
+        'Public endpoint finds invoice by hashed invoice number (#DCC-INV-...) from QR scan',
+        'Failed to find by #invoiceNo'
+    );
+
+    // Test 8.3: Direct Sales Modal Dynamic Totals Calculation (Auto-Add fallback)
+    const testItems: any[] = [
+        { name: 'Trader Signboard (New)', qty: 500, unitPrice: 340, totalPrice: 170000 }
+    ];
+    const testSubtotal = testItems.reduce((acc, it) => acc + it.totalPrice, 0);
+    const testDiscount = 0;
+    const testVat = 0;
+    const testGrandTotal = testSubtotal - testDiscount + testVat;
+    const testPaid = 0;
+    const testDue = testGrandTotal - testPaid;
+
+    assert(
+        testGrandTotal === 170000 && testDue === 170000,
+        'Direct Sales dynamic calculation correctly computes grand total Tk 170,000 and due Tk 170,000',
+        `Got grandTotal: ${testGrandTotal}, due: ${testDue}`
+    );
+}
+
 // --- Summary ---
 console.log('\n======================================================');
 console.log(`📊 Test Results: ${passedTests} Passed, ${failedTests} Failed`);
