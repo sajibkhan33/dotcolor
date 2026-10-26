@@ -14,6 +14,9 @@ import {
     calculateTotalCustomerReceivables,
     calculateTotalSupplierPayables,
     calculateSingleAccountBalance,
+    getInvoicePayments,
+    getPurchaseOrderPayments,
+    matchChannelToAccount,
 } from '../src/utils/accountUtils';
 
 import {
@@ -81,6 +84,14 @@ console.log('📦 Test Suite 1: Physical Inventory Valuation');
         finishedVal === 3000,
         'Finished goods account (1070) accurately isolates finished goods stock (3000)',
         `Expected 3000, got ${finishedVal}`
+    );
+
+    const unifiedAccount: any = { code: '1002', name: 'Raw Materials & Inventory', balance: 0 };
+    const unifiedVal = calculateInventoryValuation(products, dummyPOs, unifiedAccount, []);
+    assert(
+        unifiedVal === 8800,
+        'Unified Raw Materials & Inventory account (1002) accurately computes total inventory stock (5800 + 3000 = 8800)',
+        `Expected 8800, got ${unifiedVal}`
     );
 
     // Test PO procurement journal immunity
@@ -418,6 +429,233 @@ console.log('\n🧾 Test Suite 8: Direct Sales & QR Code Scan Lookup Integrity')
         testGrandTotal === 170000 && testDue === 170000,
         'Direct Sales dynamic calculation correctly computes grand total Tk 170,000 and due Tk 170,000',
         `Got grandTotal: ${testGrandTotal}, due: ${testDue}`
+    );
+}
+
+// --- Test Suite 9: Multi-Channel Payment Gateways & Ledger Synchronization Integrity (QA-09) ---
+console.log('\n💳 Test Suite 9: Multi-Channel Payment Gateways & Ledger Synchronization');
+{
+    const chartOfAccounts: any[] = [
+        { id: 'coa-1001', code: '1001', name: 'Cash in Hand', classification: 'Asset', openingBalance: 0 },
+        { id: 'coa-1004', code: '1004', name: 'City Bank PLC', classification: 'Asset', openingBalance: 90 },
+        { id: 'coa-1005', code: '1005', name: 'Southeast Bank', classification: 'Asset', openingBalance: 0 },
+        { id: 'coa-1050', code: '1050', name: 'Accounts Receivable - Customers', classification: 'Asset', openingBalance: 0 },
+    ];
+
+    const paymentMethods: any[] = [
+        { id: 'pm-cash', name: 'Cash', type: 'cash' },
+        { id: 'pm-city', name: 'City Bank PLC', type: 'bank', bankName: 'City Bank PLC' },
+    ];
+
+    // Invoice with split payment across 2 gateways: Cash in Hand (38k) + City Bank PLC (200k)
+    const multiChannelInvoice: any = {
+        id: 'inv-1793002681091',
+        invoiceNo: 'DCC-INV-2026-6544',
+        date: '2026-10-26',
+        grandTotal: 238000,
+        paidAmount: 238000,
+        dueAmount: 0,
+        paymentStatus: 'Paid',
+        splitPayments: {
+            'cash': 38000,
+            'card': 200000,
+            'Cash in Hand': 38000,
+            'City Bank PLC': 200000,
+        },
+    };
+
+    // Only Cash in Hand has an initial transaction recorded in ledger
+    const existingTransactions: any[] = [
+        {
+            id: 'tx-auto-inv-1793002726274-sj36f-426',
+            date: '2026-10-26',
+            type: 'INCOME',
+            amount: 38000,
+            paymentAccount: 'Cash in Hand',
+            accountHead: 'Cash in Hand',
+            refNo: 'DCC-INV-2026-6544',
+            description: 'Sales Invoice Payment: Cash in Hand - DCC-INV-2026-6544',
+        },
+    ];
+
+    // Test 9.1: getInvoicePayments returns both payment channels accurately
+    const payments = getInvoicePayments(multiChannelInvoice, existingTransactions, paymentMethods);
+    assert(
+        payments.length === 2,
+        'getInvoicePayments returns both channels for multi-gateway payment (Cash in Hand + City Bank PLC)',
+        `Expected 2 payment items, got ${payments.length}: ${JSON.stringify(payments)}`
+    );
+
+    const cashPayment = payments.find(p => p.channel === 'Cash in Hand');
+    const cityPayment = payments.find(p => p.channel === 'City Bank PLC');
+    assert(
+        cashPayment?.amount === 38000 && cityPayment?.amount === 200000,
+        'Payment channel amounts match split breakdown (38,000 and 200,000)',
+        `Cash: ${cashPayment?.amount}, City: ${cityPayment?.amount}`
+    );
+
+    // Test 9.2: calculateSingleAccountBalance accurately reconciles City Bank PLC balance
+    const cityAcc = chartOfAccounts.find(a => a.code === '1004')!;
+    const cityBalance = calculateSingleAccountBalance(cityAcc, existingTransactions, [multiChannelInvoice], [], []);
+    assert(
+        cityBalance === 200090,
+        'City Bank PLC dynamically reconciles unrecorded split collection to reflect Tk 200,090',
+        `Expected 200,090, got: ${cityBalance}`
+    );
+
+    // Test 9.3: Cash in Hand balance does not duplicate the transaction amount
+    const cashAcc = chartOfAccounts.find(a => a.code === '1001')!;
+    const cashBalance = calculateSingleAccountBalance(cashAcc, existingTransactions, [multiChannelInvoice], [], []);
+    assert(
+        cashBalance === 38000,
+        'Cash in Hand balance strictly avoids double-counting split payment when transaction exists',
+        `Expected 38,000, got: ${cashBalance}`
+    );
+
+    // Test 9.4: matchChannelToAccount accurately matches exact account name
+    const matched = matchChannelToAccount('City Bank PLC', chartOfAccounts, paymentMethods);
+    assert(
+        matched?.id === 'coa-1004',
+        'matchChannelToAccount maps "City Bank PLC" directly to COA account coa-1004',
+        `Expected coa-1004, got: ${matched?.id}`
+    );
+}
+
+// ============================================================================
+// SECTION 10: Purchase Order Payment Channel Tracking & Breakdown
+// ============================================================================
+console.log('\n--- Section 10: Purchase Order Payment Channel Tracking & Breakdown ---');
+{
+    const samplePO6532: PurchaseOrder = {
+        id: 'po-1793008774480',
+        poNo: 'DCC-PO-2026-6532',
+        poNumber: 'DCC-PO-2026-6532',
+        date: '2026-10-26',
+        supplierId: 'sup-1',
+        supplierName: 'Rofik Store',
+        destination: 'Factory',
+        items: [],
+        totalAmount: 88000,
+        grandTotal: 88000,
+        paidAmount: 88000,
+        dueAmount: 0,
+        status: 'Received',
+        paymentStatus: 'Paid',
+        paymentMethod: 'City Bank PLC',
+    };
+
+    const poTransactions: AccountingTransaction[] = [
+        {
+            id: 'tx-po-city',
+            date: '2026-10-26',
+            type: 'EXPENSE',
+            refNo: 'DCC-PO-2026-6532',
+            amount: 80000,
+            paymentAccount: 'City Bank PLC',
+            description: 'Payment for Purchase Order DCC-PO-2026-6532 (Paid) - Supplier: Rofik Store',
+        },
+        {
+            id: 'tx-po-cash',
+            date: '2026-10-26',
+            type: 'EXPENSE',
+            refNo: 'DCC-PO-2026-6532',
+            amount: 8000,
+            paymentAccount: 'Cash in Hand',
+            description: 'Payment for Purchase Order DCC-PO-2026-6532 (Partial) - Supplier: Rofik Store',
+        },
+    ];
+
+    const poJournals: JournalEntry[] = [
+        {
+            id: 'jnl-po-1',
+            entryNo: 'JNL-2026-1993',
+            date: '2026-10-26',
+            refNo: 'DCC-PO-2026-6532',
+            creditAccountName: 'City Bank PLC',
+            creditAccountId: 'coa-1004',
+            debitAccountName: 'Accounts Payable',
+            debitAccountId: 'coa-2010',
+            amount: 80000,
+            narration: 'Payment for Purchase Order DCC-PO-2026-6532 to Rofik Store via City Bank PLC',
+            source: 'PURCHASE',
+        },
+    ];
+
+    // Test 10.1: Multi-channel PO resolution extracts all payment channels
+    const poPayments = getPurchaseOrderPayments(samplePO6532, poTransactions, poJournals);
+    assert(
+        poPayments.length === 2,
+        'getPurchaseOrderPayments identifies exactly 2 channels for multi-payment PO DCC-PO-2026-6532',
+        `Expected 2 channels, got: ${poPayments.length}`
+    );
+
+    // Test 10.2: Channels and amounts are correctly broken down
+    const cityPay = poPayments.find(p => p.channel === 'City Bank PLC');
+    const cashPay = poPayments.find(p => p.channel === 'Cash in Hand');
+    assert(
+        cityPay?.amount === 80000 && cashPay?.amount === 8000,
+        'PO payments breakdown shows ৳80,000 for City Bank PLC and ৳8,000 for Cash in Hand',
+        `Expected City: 80,000, Cash: 8,000; got: City ${cityPay?.amount}, Cash ${cashPay?.amount}`
+    );
+
+    // Test 10.3: Single channel PO resolution
+    const samplePO9801: PurchaseOrder = {
+        id: 'po-1793007675795',
+        poNo: 'DCC-PO-2026-9801',
+        poNumber: 'DCC-PO-2026-9801',
+        date: '2026-10-26',
+        supplierId: 'sup-2',
+        supplierName: 'Trust Media Dhaka',
+        destination: 'Factory',
+        items: [],
+        totalAmount: 42750,
+        grandTotal: 42750,
+        paidAmount: 42750,
+        dueAmount: 0,
+        status: 'Received',
+        paymentStatus: 'Paid',
+        paymentMethod: 'Cash',
+    };
+    const po9801Tx: AccountingTransaction[] = [
+        {
+            id: 'tx-po-9801',
+            date: '2026-10-26',
+            type: 'EXPENSE',
+            refNo: 'DCC-PO-2026-9801',
+            amount: 42750,
+            paymentAccount: 'Cash in Hand',
+            description: 'Payment for Purchase Order DCC-PO-2026-9801',
+        },
+    ];
+    const po9801Payments = getPurchaseOrderPayments(samplePO9801, po9801Tx, []);
+    assert(
+        po9801Payments.length === 1 && po9801Payments[0].channel === 'Cash in Hand' && po9801Payments[0].amount === 42750,
+        'getPurchaseOrderPayments identifies single channel "Cash in Hand" for PO DCC-PO-2026-9801',
+        `Expected 1 Cash in Hand payment of 42,750, got: ${JSON.stringify(po9801Payments)}`
+    );
+
+    // Test 10.4: Fallback to single payment method when no transactions exist but paidAmount > 0
+    const fallbackPO: PurchaseOrder = {
+        id: 'po-legacy',
+        poNo: 'DCC-PO-2026-1111',
+        date: '2026-10-26',
+        supplierId: 'sup-3',
+        supplierName: 'Legacy Supplier',
+        destination: 'Office',
+        items: [],
+        totalAmount: 15000,
+        grandTotal: 15000,
+        paidAmount: 15000,
+        dueAmount: 0,
+        status: 'Received',
+        paymentStatus: 'Paid',
+        paymentMethod: 'bKash' as any,
+    };
+    const fallbackPayments = getPurchaseOrderPayments(fallbackPO, [], []);
+    assert(
+        fallbackPayments.length === 1 && fallbackPayments[0].channel === 'bKash' && fallbackPayments[0].amount === 15000,
+        'getPurchaseOrderPayments gracefully falls back to po.paymentMethod ("bKash") when no transactions exist',
+        `Expected 1 bKash payment of 15,000, got: ${JSON.stringify(fallbackPayments)}`
     );
 }
 

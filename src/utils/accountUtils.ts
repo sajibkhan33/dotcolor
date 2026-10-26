@@ -23,7 +23,11 @@ export const matchChannelToAccount = (
     let found = chartOfAccounts.find(a => a.id === raw || a.code === raw);
     if (found) return found;
 
-    // 2. Check if channelNameOrId corresponds to a PaymentMethodConfig
+    // 2. Match by exact account name or Bengali name
+    found = chartOfAccounts.find(a => a.name.toLowerCase() === lower || (a.nameBn && a.nameBn.toLowerCase() === lower));
+    if (found) return found;
+
+    // 3. Check if channelNameOrId corresponds to a PaymentMethodConfig
     const pm = paymentMethods?.find(p => p.id === raw || p.name.toLowerCase() === lower);
     if (pm?.linkedAccountId) {
         const byLink = chartOfAccounts.find(a => 
@@ -34,10 +38,6 @@ export const matchChannelToAccount = (
         );
         if (byLink) return byLink;
     }
-
-    // 3. Match by exact account name or Bengali name
-    found = chartOfAccounts.find(a => a.name.toLowerCase() === lower || (a.nameBn && a.nameBn.toLowerCase() === lower));
-    if (found) return found;
 
     // 4. Specific MFS matching (strictly distinguish bKash vs Nagad vs Rocket vs Upay)
     if (lower.includes('bkash') || lower.includes('বিকাশ')) {
@@ -220,14 +220,15 @@ export const calculateSingleAccountBalance = (
 
     // 1. Sum up all matched ledger transactions with safeguard against duplicate invoice payments
     const seenInvoiceChannelSums = new Map<string, number>();
+    const invRecordedForThisAcc = new Map<string, number>();
 
     (transactions || []).forEach((tx) => {
         if (doesTransactionMatchAccount(tx, acc)) {
             if (tx.type === 'INCOME') {
                 const ref = (tx.refNo || '').toLowerCase().trim();
-                if (ref.startsWith('dcc-inv-')) {
+                const amt = Number(tx.amount) || 0;
+                if (ref) {
                     const invoiceKey = `${ref}_${acc.id || acc.code || acc.name}`;
-                    const amt = Number(tx.amount) || 0;
                     const linkedInv = (invoices || []).find(i => (i.invoiceNo || '').toLowerCase().trim() === ref);
                     if (linkedInv) {
                         const currentSum = seenInvoiceChannelSums.get(invoiceKey) || 0;
@@ -236,6 +237,11 @@ export const calculateSingleAccountBalance = (
                             return; // skip duplicate transaction contribution!
                         }
                         seenInvoiceChannelSums.set(invoiceKey, currentSum + amt);
+                    }
+                    invRecordedForThisAcc.set(ref, (invRecordedForThisAcc.get(ref) || 0) + amt);
+                    const numPart = ref.replace(/\D/g, '');
+                    if (numPart && numPart.length >= 4) {
+                        invRecordedForThisAcc.set(numPart, (invRecordedForThisAcc.get(numPart) || 0) + amt);
                     }
                 }
                 balance += tx.amount;
@@ -246,33 +252,21 @@ export const calculateSingleAccountBalance = (
     });
 
     // 2. Reconcile sales invoices with splitPayments or paymentMethod that might not have a ledger tx record
-    const recordedInvoiceRefs = new Set(
-        (transactions || [])
-            .filter((t) => t.type === 'INCOME' && t.refNo)
-            .map((t) => (t.refNo || '').toLowerCase().trim())
-    );
-
-    const isInvRecorded = (invNo: string): boolean => {
-        if (!invNo) return false;
-        const raw = invNo.toLowerCase().trim();
-        if (recordedInvoiceRefs.has(raw)) return true;
-        const numPart = raw.replace(/\D/g, '');
-        if (numPart && numPart.length >= 4) {
-            for (const ref of recordedInvoiceRefs) {
-                const refNum = ref.replace(/\D/g, '');
-                if (refNum && (refNum === numPart || ref.endsWith(numPart) || raw.endsWith(refNum))) {
-                    return true;
+    const getRecordedAmtForThisAcc = (invNo: string): number => {
+        if (!invNo) return 0;
+        const r = invNo.toLowerCase().trim();
+        if (invRecordedForThisAcc.has(r)) return invRecordedForThisAcc.get(r)!;
+        const num = r.replace(/\D/g, '');
+        if (num && num.length >= 4) {
+            if (invRecordedForThisAcc.has(num)) return invRecordedForThisAcc.get(num)!;
+            for (const [k, v] of invRecordedForThisAcc.entries()) {
+                if (k.length >= 4 && (num.endsWith(k) || k.endsWith(num))) {
+                    return v;
                 }
             }
         }
-        return false;
+        return 0;
     };
-
-    const recordedTxRefs = new Set(
-        (transactions || [])
-            .filter((t) => t.refNo)
-            .map((t) => (t.refNo || '').toLowerCase().trim())
-    );
 
     // Build set of invoice numbers / IDs linked to projects to prevent double-counting
     const projectLinkedInvoiceNos = new Set<string>();
@@ -293,15 +287,24 @@ export const calculateSingleAccountBalance = (
             return;
         }
 
-        if (invRef && isInvRecorded(invRef)) {
-            return; // Already accounted for in transactions
-        }
+        const alreadyRecorded = getRecordedAmtForThisAcc(invRef);
 
-        if (inv.splitPayments) {
-            Object.entries(inv.splitPayments).forEach(([key, val]) => {
+        if (inv.splitPayments && Object.keys(inv.splitPayments).length > 0) {
+            const splitEntries = Object.entries(inv.splitPayments).filter(([k, v]) => {
+                return k.toLowerCase() !== 'due' && (Number(v) || 0) > 0;
+            });
+            const hasNamedKeys = splitEntries.some(([k]) => !['cash', 'card', 'bkash', 'nagad'].includes(k.toLowerCase()));
+            const activeEntries = hasNamedKeys
+                ? splitEntries.filter(([k]) => !['cash', 'card', 'bkash', 'nagad'].includes(k.toLowerCase()))
+                : splitEntries;
+
+            let targetAccSplitAmt = 0;
+            let isMatched = false;
+
+            activeEntries.forEach(([key, val]) => {
                 const kLower = key.toLowerCase();
                 const amt = Number(val) || 0;
-                if (amt <= 0 || kLower === 'due') return;
+                if (amt <= 0) return;
 
                 let matchesKey = false;
                 if (kLower === accNameLower || (accCode && kLower.includes(accCode))) {
@@ -319,9 +322,15 @@ export const calculateSingleAccountBalance = (
                 }
 
                 if (matchesKey) {
-                    balance += amt;
+                    targetAccSplitAmt += amt;
+                    isMatched = true;
                 }
             });
+
+            if (isMatched) {
+                const unrecordedAmt = Math.max(0, targetAccSplitAmt - alreadyRecorded);
+                balance += unrecordedAmt;
+            }
         } else if ((inv.paidAmount || 0) > 0) {
             const pmLower = (inv.paymentMethod || '').toLowerCase();
             let matchesPm = false;
@@ -340,12 +349,24 @@ export const calculateSingleAccountBalance = (
             }
 
             if (matchesPm) {
-                balance += Number(inv.paidAmount) || 0;
+                const unrecordedAmt = Math.max(0, Number(inv.paidAmount) - alreadyRecorded);
+                balance += unrecordedAmt;
             }
         }
     });
 
     // 3. Reconcile manual journal entries (source === 'MANUAL' or non-synced journal vouchers)
+    const recordedInvoiceRefs = new Set(
+        (transactions || [])
+            .filter((t) => t.type === 'INCOME' && t.refNo)
+            .map((t) => (t.refNo || '').toLowerCase().trim())
+    );
+    const recordedTxRefs = new Set(
+        (transactions || [])
+            .filter((t) => t.refNo)
+            .map((t) => (t.refNo || '').toLowerCase().trim())
+    );
+
     (journalEntries || []).forEach((j) => {
         // Exclude system auto-generated journals that mirror existing transactions to avoid double-counting
         if (
@@ -912,6 +933,11 @@ export const getInvoicePayments = (
         return raw || 'Cash in Hand';
     };
 
+    const resultList: InvoicePaymentItem[] = [];
+    const seenChannels = new Set<string>();
+    let accumulatedPaid = 0;
+    const maxPaid = Number(inv.paidAmount) || 0;
+
     // 1. Check matching income ledger transactions
     const txMatches = (allTransactions || []).filter(t =>
         t.type === 'INCOME' &&
@@ -921,94 +947,196 @@ export const getInvoicePayments = (
     );
 
     if (txMatches.length > 0) {
-        const seenKeys = new Set<string>();
-        const uniqueTxMatches: typeof txMatches = [];
-        let accumulatedPaid = 0;
-        const maxPaid = Number(inv.paidAmount) || 0;
-
         txMatches.forEach(t => {
             const ch = normChannel(t.paymentAccount || t.accountHead);
             const amt = Number(t.amount) || 0;
-            const key = `${ch.toLowerCase()}_${amt}`;
-            if (seenKeys.has(key)) return; // duplicate channel & amount
+            const normKey = ch.toLowerCase();
+            if (seenChannels.has(normKey)) return; // duplicate channel
             if (maxPaid > 0 && accumulatedPaid + amt > maxPaid && accumulatedPaid > 0) return;
-            seenKeys.add(key);
+            seenChannels.add(normKey);
             accumulatedPaid += amt;
-            uniqueTxMatches.push(t);
+            resultList.push({
+                id: t.id,
+                date: t.date,
+                channel: ch,
+                amount: amt,
+                description: t.description || t.category || 'Payment',
+                category: t.category,
+            });
         });
-
-        return uniqueTxMatches.map(t => ({
-            id: t.id,
-            date: t.date,
-            channel: normChannel(t.paymentAccount || t.accountHead),
-            amount: Number(t.amount) || 0,
-            description: t.description || t.category || 'Payment',
-            category: t.category,
-        }));
     }
 
-    // 2. Check splitPayments on invoice
+    // 2. Check splitPayments on invoice for any channels not already covered by transactions
     if (inv.splitPayments && Object.keys(inv.splitPayments).length > 0) {
-        const list: InvoicePaymentItem[] = [];
-        const seen = new Set<string>();
-
-        const keys = Object.keys(inv.splitPayments).filter(k => {
+        const splitKeys = Object.keys(inv.splitPayments).filter(k => {
             const lk = k.toLowerCase();
             return lk !== 'due' && (Number(inv.splitPayments?.[k]) || 0) > 0;
         });
 
-        // Pass 1: Named accounts
-        keys.forEach(k => {
+        // Pass 1: Named accounts (skip alias keys like 'cash', 'card', 'bkash', 'nagad' if specific names exist)
+        const hasNamedAccounts = splitKeys.some(k => !['cash', 'card', 'bkash', 'nagad'].includes(k.toLowerCase()));
+        const effectiveKeys = hasNamedAccounts
+            ? splitKeys.filter(k => !['cash', 'card', 'bkash', 'nagad'].includes(k.toLowerCase()))
+            : splitKeys;
+
+        effectiveKeys.forEach(k => {
             const amt = Number(inv.splitPayments?.[k]) || 0;
-            const lk = k.toLowerCase();
-            if (['cash', 'card', 'bkash', 'nagad'].includes(lk)) return;
+            if (amt <= 0) return;
+
             const pm = paymentMethods?.find(p => p.id === k);
-            const channelName = pm ? pm.name : k;
-            if (!seen.has(channelName.toLowerCase())) {
-                seen.add(channelName.toLowerCase());
-                list.push({
-                    id: `split-${channelName}`,
+            const rawChannel = pm ? pm.name : (k.charAt(0).toUpperCase() + k.slice(1));
+            const ch = normChannel(rawChannel);
+            const normKey = ch.toLowerCase();
+
+            if (!seenChannels.has(normKey)) {
+                if (maxPaid > 0 && accumulatedPaid + amt > maxPaid && accumulatedPaid > 0) return;
+                seenChannels.add(normKey);
+                accumulatedPaid += amt;
+                resultList.push({
+                    id: `split-${k}`,
                     date: inv.date,
-                    channel: channelName,
+                    channel: ch,
                     amount: amt,
-                    description: `POS Payment via ${channelName}`,
+                    description: `POS Payment via ${ch}`,
                 });
             }
         });
-
-        // Pass 2: Aliases if list is empty
-        if (list.length === 0) {
-            keys.forEach(k => {
-                const amt = Number(inv.splitPayments?.[k]) || 0;
-                const channelName = k.charAt(0).toUpperCase() + k.slice(1);
-                if (!seen.has(channelName.toLowerCase())) {
-                    seen.add(channelName.toLowerCase());
-                    list.push({
-                        id: `split-${channelName}`,
-                        date: inv.date,
-                        channel: channelName,
-                        amount: amt,
-                        description: `POS Payment via ${channelName}`,
-                    });
-                }
-            });
-        }
-
-        if (list.length > 0) return list;
     }
 
-    // 3. Fallback to single paymentMethod if paidAmount > 0
-    if ((inv.paidAmount || 0) > 0) {
+    // 3. Fallback to single paymentMethod if resultList is still empty and paidAmount > 0
+    if (resultList.length === 0 && (inv.paidAmount || 0) > 0) {
+        const ch = normChannel(inv.paymentMethod || 'Cash');
         return [{
             id: `pm-${inv.id}`,
             date: inv.date,
-            channel: inv.paymentMethod || 'Cash',
+            channel: ch,
             amount: inv.paidAmount,
-            description: `Payment via ${inv.paymentMethod || 'Cash'}`,
+            description: `Payment via ${ch}`,
         }];
     }
 
-    return [];
+    return resultList;
+};
+
+export interface PurchaseOrderPaymentItem {
+    id: string;
+    date: string;
+    channel: string;
+    amount: number;
+    description: string;
+    category?: string;
+    refNo?: string;
+}
+
+/**
+ * Extracts all itemized payment records for a given purchase order from accounting transactions,
+ * journal entries, and purchase order payment method configuration.
+ */
+export const getPurchaseOrderPayments = (
+    po: PurchaseOrder,
+    allTransactions: AccountingTransaction[] = [],
+    journalEntries: JournalEntry[] = [],
+    paymentMethods?: PaymentMethodConfig[]
+): PurchaseOrderPaymentItem[] => {
+    if (!po) return [];
+    const poNo = (po.poNo || po.poNumber || '').toLowerCase().trim();
+    const poId = (po.id || '').toLowerCase().trim();
+    if (!poNo && !poId) return [];
+
+    const normChannel = (raw?: string): string => {
+        const l = (raw || '').toLowerCase().trim();
+        if (l === 'cash' || l === 'cash in hand' || l === 'counter cash' || l === 'pm-cash' || l.includes('cash in hand') || (l.includes('cash') && !l.includes('bkash') && !l.includes('nagad'))) {
+            return 'Cash in Hand';
+        }
+        if (l.includes('bkash')) return 'bKash';
+        if (l.includes('nagad')) return 'Nagad';
+        if (l.includes('rocket')) return 'Rocket';
+        if (l.includes('city')) return 'City Bank PLC';
+        if (l.includes('southeast')) return 'Southeast Bank';
+        if (l.includes('brac')) return 'BRAC Bank';
+        if (l.includes('bank') || l.includes('card')) return 'Bank Account';
+        return raw || 'Cash in Hand';
+    };
+
+    const resultList: PurchaseOrderPaymentItem[] = [];
+    const seenTxIds = new Set<string>();
+    let accumulatedPaid = 0;
+    const maxPaid = Number(po.paidAmount) || 0;
+
+    // 1. Check matching expense transactions
+    const txMatches = (allTransactions || []).filter(t => {
+        if (t.type !== 'EXPENSE' || !(Number(t.amount) > 0)) return false;
+        const ref = (t.refNo || '').toLowerCase().trim();
+        const desc = (t.description || '').toLowerCase().trim();
+        const matchesRef = Boolean((poNo && (ref === poNo || ref.includes(poNo) || poNo.includes(ref))) ||
+                                   (poId && ref === poId));
+        const matchesDesc = Boolean((poNo && desc.includes(poNo)) || (poId && desc.includes(poId)));
+        return matchesRef || matchesDesc;
+    });
+
+    if (txMatches.length > 0) {
+        txMatches.forEach(t => {
+            if (seenTxIds.has(t.id)) return;
+            const ch = normChannel(t.paymentAccount || t.accountHead);
+            const amt = Number(t.amount) || 0;
+            if (maxPaid > 0 && accumulatedPaid + amt > maxPaid && accumulatedPaid > 0) return;
+            seenTxIds.add(t.id);
+            accumulatedPaid += amt;
+            resultList.push({
+                id: t.id,
+                date: t.date,
+                channel: ch,
+                amount: amt,
+                description: t.description || t.category || 'Purchase Payment',
+                category: t.category,
+                refNo: t.refNo,
+            });
+        });
+    }
+
+    // 2. Check journal entries if transactions didn't cover the full paidAmount or no transactions found
+    if (resultList.length === 0 || (maxPaid > 0 && accumulatedPaid < maxPaid)) {
+        const jnlMatches = (journalEntries || []).filter(j => {
+            if (Number(j.amount) <= 0) return false;
+            const ref = (j.refNo || '').toLowerCase().trim();
+            const narr = (j.narration || '').toLowerCase().trim();
+            const matchesRef = Boolean((poNo && (ref === poNo || ref.includes(poNo) || poNo.includes(ref))) ||
+                                       (poId && ref === poId));
+            const matchesNarr = Boolean((poNo && narr.includes(poNo)) || (poId && narr.includes(poId)));
+            return matchesRef || matchesNarr;
+        });
+
+        jnlMatches.forEach(j => {
+            const amt = Number(j.amount) || 0;
+            const alreadyInResult = resultList.some(r => Math.abs(r.amount - amt) < 0.01 && r.date === j.date);
+            if (alreadyInResult) return;
+            if (maxPaid > 0 && accumulatedPaid + amt > maxPaid && accumulatedPaid > 0) return;
+            const ch = normChannel(j.creditAccountName);
+            accumulatedPaid += amt;
+            resultList.push({
+                id: j.id,
+                date: j.date,
+                channel: ch,
+                amount: amt,
+                description: j.narration || 'Journal Payment',
+                refNo: j.refNo,
+            });
+        });
+    }
+
+    // 3. Fallback to single paymentMethod if resultList is still empty and paidAmount > 0
+    if (resultList.length === 0 && (po.paidAmount || 0) > 0) {
+        const ch = normChannel(po.paymentMethod || 'Cash in Hand');
+        return [{
+            id: `po-pm-${po.id || po.poNo}`,
+            date: po.date || new Date().toISOString().slice(0, 10),
+            channel: ch,
+            amount: Number(po.paidAmount) || 0,
+            description: `Payment via ${ch}`,
+        }];
+    }
+
+    return resultList;
 };
 
 /**
@@ -1162,20 +1290,34 @@ export const calculateInventoryValuation = (
     account?: ChartOfAccount,
     journalEntries: JournalEntry[] = []
 ): number => {
+    // Helper to resolve effective unit cost: if product has costPrice <= 1 but was received via a PO with unitCost > 0, use PO unitCost
+    const getEffectiveCostPrice = (p: ProductItem): number => {
+        const cp = Number(p.costPrice) || 0;
+        if (cp > 1) return cp;
+        for (const po of purchaseOrders || []) {
+            if (po.status === 'Received' || (po as any).challanStatus === 'Received') {
+                const match = (po.items || []).find((it: any) => it.productId === p.id || (it.name && it.name.trim() === (p.name || '').trim()));
+                const uCost = Number(match?.unitCost ?? (match as any)?.unitPrice ?? (match as any)?.rate) || 0;
+                if (uCost > 0) return uCost;
+            }
+        }
+        return cp;
+    };
+
     const totalStockValuation = (products || []).reduce(
-        (acc, p) => acc + ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0)) * (Number(p.costPrice) || 0),
+        (acc, p) => acc + ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0)) * getEffectiveCostPrice(p),
         0
     );
     const rawStockValuation = (products || [])
         .filter((p) => p.isRawMaterial)
         .reduce(
-            (acc, p) => acc + ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0)) * (Number(p.costPrice) || 0),
+            (acc, p) => acc + ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0)) * getEffectiveCostPrice(p),
             0
         );
     const finishedStockValuation = (products || [])
         .filter((p) => !p.isRawMaterial)
         .reduce(
-            (acc, p) => acc + ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0)) * (Number(p.costPrice) || 0),
+            (acc, p) => acc + ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0)) * getEffectiveCostPrice(p),
             0
         );
 
@@ -1263,7 +1405,17 @@ export const calculateInventoryValuation = (
     }
 
     // For Raw Materials (1060 / raw material) or unified Inventory account:
-    const isRawOnly = (account?.code === '1060' || nameLower.includes('raw material') || nameBn.includes('কাঁচামাল'));
+    // Account 1002 is the unified inventory asset account (covering both Raw Materials and Finished Inventory)
+    const isUnifiedInventory = account?.code === '1002' || (
+        account?.code !== '1060' && 
+        account?.code !== '1070' && 
+        nameLower.includes('inventory') && 
+        (nameLower.includes('raw') || nameLower.includes('&'))
+    );
+    const isRawOnly = account?.code === '1060' || (
+        !isUnifiedInventory && 
+        (nameLower.includes('raw material') || nameBn.includes('কাঁচামাল'))
+    );
 
     // When products exist with tracked physical stock, valuation derives strictly from physical stock.
     // If physical product stock is not yet populated, fallback to total received purchases.

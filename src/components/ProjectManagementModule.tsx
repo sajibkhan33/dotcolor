@@ -170,24 +170,55 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
     }, [expenseRows]);
     const [breakdownSearchTerm, setBreakdownSearchTerm] = useState('');
 
+    const activeProjectForExpense = useMemo(() => {
+        if (!showExpenseModal) return null;
+        return (projects || []).find(p => p.id === showExpenseModal) || null;
+    }, [showExpenseModal, projects]);
+
+    const isSalesRevenueProject = useMemo(() => {
+        if (!activeProjectForExpense) return false;
+        const coaId = activeProjectForExpense.chartOfAccountId;
+        const matchedCoa = (chartOfAccounts || []).find(a => a.id === coaId || a.code === coaId);
+        const code = matchedCoa?.code || activeProjectForExpense.projectAccountCode || '';
+        const name = (matchedCoa?.name || '').toLowerCase();
+        return code === '4001' || name.includes('sales revenue') || (name.includes('বিক্রয় আয়') && !name.includes('প্রজেক্ট'));
+    }, [activeProjectForExpense, chartOfAccounts]);
+
     const availableExpenseAccounts = useMemo(() => {
-        const list = (chartOfAccounts || []).filter(a => a.classification === 'Expense' && a.isActive !== false);
-        if (list.length === 0) {
-            return [
-                { id: 'coa-5206', code: '5206', name: 'Project Expense', nameBn: '' },
-                { id: 'coa-5100', code: '5100', name: 'Conveyance, Courier & Delivery Logistics', nameBn: '' },
-                { id: 'coa-5201', code: '5201', name: 'Staff Salaries, Wages & Overtime', nameBn: '' },
-                { id: 'coa-5001', code: '5001', name: 'Cost of Goods Sold - Raw Materials', nameBn: '' },
-            ];
+        const allExpenseAccounts = (chartOfAccounts || []).filter(a => a.classification === 'Expense' && a.isActive !== false);
+
+        if (isSalesRevenueProject) {
+            // Case 2: Project uses Sales Revenue -> Show general company expenses, strictly EXCLUDE [5206] Project Expense
+            const generalList = allExpenseAccounts.filter(a => {
+                const isProjectExp = a.code === '5206' || a.id === 'coa-5206' || a.name.toLowerCase().includes('project') || (a.nameBn && a.nameBn.includes('প্রজেক্ট'));
+                return !isProjectExp;
+            });
+            if (generalList.length > 0) {
+                return [...generalList].sort((a, b) => a.code.localeCompare(b.code));
+            }
+            return allExpenseAccounts;
         }
-        return [...list].sort((a, b) => {
-            const isPrjA = a.code === '5206' || a.name.toLowerCase().includes('project');
-            const isPrjB = b.code === '5206' || b.name.toLowerCase().includes('project');
-            if (isPrjA && !isPrjB) return -1;
-            if (!isPrjA && isPrjB) return 1;
-            return a.code.localeCompare(b.code);
+
+        // Case 1 (Default): Project uses Project Sales (4002) -> ONLY show [5206] Project Expense
+        const projectSpecificList = allExpenseAccounts.filter(a => {
+            return a.code === '5206' || a.id === 'coa-5206' || a.name.toLowerCase().includes('project') || (a.nameBn && a.nameBn.includes('প্রজেক্ট'));
         });
-    }, [chartOfAccounts]);
+
+        if (projectSpecificList.length > 0) {
+            return projectSpecificList;
+        }
+
+        return [
+            { id: 'coa-5206', code: '5206', name: 'Project Expense', nameBn: 'প্রজেক্ট খরচ' } as any,
+        ];
+    }, [chartOfAccounts, isSalesRevenueProject]);
+
+    const defaultProjectExpAcc = useMemo(() => {
+        if (availableExpenseAccounts.length > 0) {
+            return availableExpenseAccounts[0];
+        }
+        return { code: '5206', name: 'Project Expense', id: 'coa-5206' };
+    }, [availableExpenseAccounts]);
 
     const availablePaymentAccounts = useMemo(() => {
         const list = (chartOfAccounts || []).filter(a => a.classification === 'Asset' && !a.name.toLowerCase().includes('receivable') && (
@@ -545,7 +576,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                 amount: '',
                 note: '',
                 isDropdownOpen: false,
-                linkedAccountId: projectExpAcc.id,
+                linkedAccountId: defaultProjectExpAcc.id,
                 paymentMethod: 'Cash in Hand',
             },
         ]);
@@ -567,8 +598,10 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
             return;
         const batchId = `exp-batch-${Date.now()}`;
         const itemsToSave: Omit<ProjectExpenseItem, 'id'>[] = validRows.map((r) => {
-            const defaultCOA = projectExpAcc;
-            const resolvedAccountId = r.linkedAccountId || defaultCOA.id;
+            const defaultCOA = defaultProjectExpAcc;
+            const resolvedAccountId = (r.linkedAccountId && availableExpenseAccounts.some(a => a.id === r.linkedAccountId))
+                ? r.linkedAccountId
+                : defaultCOA.id;
             const targetCOA = chartOfAccounts.find(a => a.id === resolvedAccountId) || defaultCOA;
             const finalCategory = r.category?.trim() || r.categorySearch?.trim() || targetCOA.name || 'Project Expense';
             const payMethod = r.paymentMethod || 'Cash in Hand';
@@ -1054,6 +1087,17 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
 
                       {canManageProjects && (
                         <button type="button" onClick={() => {
+                          const isSalesRevProj = (() => {
+                              const coaId = project.chartOfAccountId;
+                              const matched = (chartOfAccounts || []).find(a => a.id === coaId || a.code === coaId);
+                              const code = matched?.code || project.projectAccountCode || '';
+                              const name = (matched?.name || '').toLowerCase();
+                              return code === '4001' || name.includes('sales revenue') || (name.includes('বিক্রয় আয়') && !name.includes('প্রজেক্ট'));
+                          })();
+                          const initialCoa = isSalesRevProj
+                              ? ((chartOfAccounts || []).find(a => a.classification === 'Expense' && a.code !== '5206' && !a.name.toLowerCase().includes('project') && a.isActive !== false) || projectExpAcc)
+                              : projectExpAcc;
+
                           setShowExpenseModal(project.id);
                           setExpenseDate(new Date().toISOString().split('T')[0]);
                           setExpenseGeneralNote('');
@@ -1065,7 +1109,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                                   amount: '',
                                   note: '',
                                   isDropdownOpen: false,
-                                  linkedAccountId: projectExpAcc.id,
+                                  linkedAccountId: initialCoa.id,
                                   paymentMethod: 'Cash in Hand',
                               },
                           ]);
@@ -1853,7 +1897,10 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
 
                       {/* Dynamic COA & Payment Account Linking */}
                       {(() => {
-                        const selectedCOAId = eRow.linkedAccountId || projectExpAcc.id;
+                        const defaultCOAId = defaultProjectExpAcc.id;
+                        const selectedCOAId = (eRow.linkedAccountId && availableExpenseAccounts.some(a => a.id === eRow.linkedAccountId))
+                            ? eRow.linkedAccountId
+                            : defaultCOAId;
                         const currentPayment = eRow.paymentMethod || 'Cash in Hand';
 
                         return (
@@ -1864,7 +1911,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                                 <span>🔗 Linked Accounting Accounts</span>
                               </span>
                               <span className="text-[9px] text-amber-800 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                                Default: [5206] Project Expense
+                                Default: [{defaultProjectExpAcc.code}] {defaultProjectExpAcc.name}
                               </span>
                             </div>
 
