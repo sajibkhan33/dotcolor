@@ -447,9 +447,43 @@ export const ChartOfAccountsManager: React.FC = () => {
                         )
                         .reduce((s, t) => s + (Number(t.amount) || 0), 0);
                     const totalOperationalRevenue = totalNonProjectInvoiceSales + totalProjectSales + directIncomes;
-                    const totalOperationalExpenses = (transactions || [])
+
+                    // Resolve Cost of Goods Sold so Retained Earnings matches IFRS Net Operating Profit
+                    const cogsAccObj = (chartOfAccounts || []).find(a => a.classification === 'Expense' && (
+                        a.code === '5001' || a.code === '5010' || a.id === 'coa-5001' || a.id === 'coa-5010' ||
+                        (a.name || '').toLowerCase().includes('cost of goods') ||
+                        (a.name || '').toLowerCase().includes('cogs') ||
+                        ((a.name || '').toLowerCase().includes('raw material') && a.classification === 'Expense')
+                    ));
+                    let liveCogsBal = 0;
+                    if (cogsAccObj) {
+                        let journalCogsDelta = 0;
+                        (journalEntries || []).forEach(j => {
+                            if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC') return;
+                            if (j.refNo && (transactions || []).some(t => t.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim())) return;
+                            const dName = (j.debitAccountName || '').toLowerCase().trim();
+                            const cName = (j.creditAccountName || '').toLowerCase().trim();
+                            const amt = Number(j.amount) || 0;
+                            const isDebit = Boolean(
+                                (cogsAccObj.id && j.debitAccountId === cogsAccObj.id) ||
+                                (cogsAccObj.code && (j.debitAccountId === cogsAccObj.code || (j as any).debitAccountCode === cogsAccObj.code)) ||
+                                dName.includes('cost of goods') || dName.includes('cogs')
+                            );
+                            const isCredit = Boolean(
+                                (cogsAccObj.id && j.creditAccountId === cogsAccObj.id) ||
+                                (cogsAccObj.code && (j.creditAccountId === cogsAccObj.code || (j as any).creditAccountCode === cogsAccObj.code)) ||
+                                cName.includes('cost of goods') || cName.includes('cogs')
+                            );
+                            if (isDebit && !isCredit) journalCogsDelta += amt;
+                            else if (isCredit && !isDebit) journalCogsDelta -= amt;
+                        });
+                        liveCogsBal = Math.max(cogsAccObj.currentBalance || 0, (cogsAccObj.openingBalance || 0) + journalCogsDelta);
+                    }
+
+                    const generalExpensesTotal = (transactions || [])
                         .filter(t => t.type === 'EXPENSE' && !isSupplierPaymentTransaction(t))
                         .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+                    const totalOperationalExpenses = generalExpensesTotal + liveCogsBal;
                     const netOperatingProfit = totalOperationalRevenue - totalOperationalExpenses;
                     liveBal = (acc.openingBalance || 0) + netOperatingProfit + journalEquityDelta;
                 } else {
