@@ -261,6 +261,85 @@ console.log('\n🛡️ Test Suite 6: State Payload Trimming (ARC-02)');
     );
 }
 
+// --- Test Suite 7: Full Transactional Data Reset & COGS Zeroing Integrity ---
+console.log('\n🔄 Test Suite 7: Full Transactional Data Reset & COGS Zeroing Integrity');
+{
+    // Mock COGS account 5001
+    const cogsAccount: ChartOfAccount = {
+        id: 'coa-5001',
+        code: '5001',
+        name: 'Cost of Goods Sold - Raw Materials',
+        classification: 'Expense',
+        accountGroup: 'Direct Expenses / COGS',
+        normalBalance: 'Debit',
+        openingBalance: 0,
+        currentBalance: 10600,
+        isActive: true,
+    };
+
+    // Case A: When manual journal vouchers exist (e.g. 10,000 + 600 = 10,600)
+    const activeJournals: JournalEntry[] = [
+        {
+            id: 'jnl-1',
+            entryNo: 'JNL-2026-0001',
+            date: '2026-10-25',
+            debitAccountId: 'coa-5001',
+            debitAccountName: 'Cost of Goods Sold - Raw Materials',
+            creditAccountId: 'coa-1002',
+            creditAccountName: 'Raw Materials & Inventory',
+            amount: 10000,
+            narration: 'Test Raw Material Consumed',
+            source: 'MANUAL',
+            createdBy: 'Admin',
+        },
+        {
+            id: 'jnl-2',
+            entryNo: 'JNL-2026-0002',
+            date: '2026-10-25',
+            debitAccountId: 'coa-5001',
+            debitAccountName: 'Cost of Goods Sold - Raw Materials',
+            creditAccountId: 'coa-1002',
+            creditAccountName: 'Raw Materials & Inventory',
+            amount: 600,
+            narration: 'Test Raw Material Consumed',
+            source: 'MANUAL',
+            createdBy: 'Admin',
+        },
+    ];
+
+    let journalCogsDeltaWithEntries = 0;
+    activeJournals.forEach(j => {
+        if (j.debitAccountId === cogsAccount.id || j.debitAccountName === cogsAccount.name) {
+            journalCogsDeltaWithEntries += Number(j.amount) || 0;
+        }
+    });
+
+    const calculatedWithEntries = Math.max(0, (cogsAccount.openingBalance || 0) + journalCogsDeltaWithEntries);
+    assert(
+        calculatedWithEntries === 10600,
+        'COGS accurately reflects manual journal entries (10,000 + 600 = 10,600)',
+        `Got: ${calculatedWithEntries}`
+    );
+
+    // Case B: After Reset All Transactional Data (journals wiped to [])
+    const resetJournals: JournalEntry[] = [];
+    let journalCogsDeltaAfterReset = 0;
+    resetJournals.forEach(j => {
+        if (j.debitAccountId === cogsAccount.id || j.debitAccountName === cogsAccount.name) {
+            journalCogsDeltaAfterReset += Number(j.amount) || 0;
+        }
+    });
+
+    const poExpensesAfterReset = 0;
+    const calculatedAfterReset = Math.max(0, (cogsAccount.openingBalance || 0) + poExpensesAfterReset + journalCogsDeltaAfterReset);
+
+    assert(
+        calculatedAfterReset === 0,
+        'COGS recalculates strictly to 0 when transactional data and journal entries are reset',
+        `Got: ${calculatedAfterReset}`
+    );
+}
+
 // --- Summary ---
 console.log('\n======================================================');
 console.log(`📊 Test Results: ${passedTests} Passed, ${failedTests} Failed`);

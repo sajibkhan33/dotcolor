@@ -552,8 +552,6 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
         }
         else if (moduleKey === 'transactions') {
             mappedKey = 'TRANSACTIONS';
-            // Clear journals too for a complete accounting ledger wipe
-            cleanModuleData('JOURNALS');
         }
         else if (moduleKey === 'projects') {
             mappedKey = 'PROJECTS';

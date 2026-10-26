@@ -1223,7 +1223,7 @@ export const AppProvider: React.FC<{
                     else if (isCredit && !isDebit) journalCogsDelta -= (Number(j.amount) || 0);
                 });
 
-                const targetCogsBal = Math.max(currentBase, poExpenses, (acc.openingBalance || 0) + journalCogsDelta);
+                const targetCogsBal = Math.max(0, (acc.openingBalance || 0) + poExpenses + journalCogsDelta);
                 if (acc.currentBalance !== targetCogsBal) {
                     coaNeedsUpdate = true;
                     return { ...acc, currentBalance: targetCogsBal };
@@ -7193,17 +7193,22 @@ export const AppProvider: React.FC<{
                 balancePayable: 0,
                 dueAmount: 0,
             }));
+            const nextJournals = (latestStateRef.current.journalEntries || journalEntries).filter(
+                (je: JournalEntry) => !(je.source === 'PURCHASE' || (je.refNo && (je.refNo.startsWith('DCC-PO-') || je.refNo.startsWith('PO-'))))
+            );
             setSuppliers(zeroDuesSuppliers);
             setPurchaseOrders([]);
+            setJournalEntries(nextJournals);
             try {
                 localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(zeroDuesSuppliers));
                 localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(nextJournals));
             } catch {}
-            latestStateRef.current = { ...latestStateRef.current, purchaseOrders: [], suppliers: zeroDuesSuppliers };
+            latestStateRef.current = { ...latestStateRef.current, purchaseOrders: [], suppliers: zeroDuesSuppliers, journalEntries: nextJournals };
             addAuditLog({
-                staffId: activeStaff.id,
-                staffName: activeStaff.name,
-                staffRole: activeStaff.role,
+                staffId: activeStaff?.id || 'admin',
+                staffName: activeStaff?.name || 'Staff',
+                staffRole: activeStaff?.role || 'Admin',
                 location: 'All',
                 actionType: 'DATA_CLEANED',
                 entityType: 'System',
@@ -7252,29 +7257,65 @@ export const AppProvider: React.FC<{
             });
         }
         else if (moduleKey === 'TRANSACTIONS') {
+            const zeroBalCOA = (latestStateRef.current.chartOfAccounts || chartOfAccounts).map((acc: ChartOfAccount) => ({
+                ...acc,
+                currentBalance: acc.openingBalance || 0,
+            }));
             setTransactions([]);
+            setJournalEntries([]);
+            setChartOfAccounts(zeroBalCOA);
             try {
                 localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(zeroBalCOA));
+                localStorage.setItem(`${STORAGE_KEY}_CHART_OF_ACCOUNTS`, JSON.stringify(zeroBalCOA));
             } catch {}
-            latestStateRef.current = { ...latestStateRef.current, transactions: [] };
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                transactions: [],
+                journalEntries: [],
+                chartOfAccounts: zeroBalCOA,
+            };
             addAuditLog({
-                staffId: activeStaff.id,
-                staffName: activeStaff.name,
-                staffRole: activeStaff.role,
+                staffId: activeStaff?.id || 'admin',
+                staffName: activeStaff?.name || 'Staff',
+                staffRole: activeStaff?.role || 'Admin',
                 location: 'All',
                 actionType: 'DATA_CLEANED',
                 entityType: 'System',
-                details: 'Purged/cleaned operating cash transactions and expense registers.',
-                detailsBn: 'সকল ট্রানজ্যাকশন মুছে ফেলা হয়েছে।',
+                details: 'Purged operating cash transactions, expense registers, journal vouchers, and reset ledger balances.',
+                detailsBn: 'সকল ট্রানজ্যাকশন ও জার্নাল ভাউচার মুছে ফেলা হয়েছে এবং ব্যালেন্স শূন্য করা হয়েছে।',
                 severity: 'critical',
             });
         }
         else if (moduleKey === 'JOURNALS') {
+            const zeroBalCOA = (latestStateRef.current.chartOfAccounts || chartOfAccounts).map((acc: ChartOfAccount) => ({
+                ...acc,
+                currentBalance: acc.openingBalance || 0,
+            }));
             setJournalEntries([]);
+            setChartOfAccounts(zeroBalCOA);
             try {
                 localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(zeroBalCOA));
+                localStorage.setItem(`${STORAGE_KEY}_CHART_OF_ACCOUNTS`, JSON.stringify(zeroBalCOA));
             } catch {}
-            latestStateRef.current = { ...latestStateRef.current, journalEntries: [] };
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                journalEntries: [],
+                chartOfAccounts: zeroBalCOA,
+            };
+            addAuditLog({
+                staffId: activeStaff?.id || 'admin',
+                staffName: activeStaff?.name || 'Staff',
+                staffRole: activeStaff?.role || 'Admin',
+                location: 'All',
+                actionType: 'DATA_CLEANED',
+                entityType: 'System',
+                details: 'Purged all manual and posted journal entries from accounting system and reset ledger balances.',
+                detailsBn: 'সকল জার্নাল ভাউচার মুছে ফেলা হয়েছে এবং ব্যালেন্স রিসেট করা হয়েছে।',
+                severity: 'critical',
+            });
         }
         else if (moduleKey === 'AUDIT_LOGS') {
             setAuditLogs([]);
