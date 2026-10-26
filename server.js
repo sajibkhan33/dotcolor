@@ -234,6 +234,193 @@ app.post("/api/state/reset", requireAuth, async (_req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+app.post("/api/purge-data", requireAuth, async (req, res) => {
+  if (!isConnected) {
+    return res.status(503).json({ success: false, message: "MongoDB is not connected." });
+  }
+  try {
+    const { mode, senderTabId } = req.body;
+    const existing = await ErpState.findOne({ id: "singleton" });
+    if (!existing || !existing.data) {
+      return res.status(404).json({ success: false, message: "No ERP state found to purge." });
+    }
+    const currentRev = existing.revision || existing.data?._rev || 1;
+    const nextRev = currentRev + 1;
+    const data = { ...existing.data };
+    const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+    if (mode === "RESET_ALL_TRANSACTIONS" || mode === "WIPE_ALL_EXCEPT_PRODUCTS") {
+      data.invoices = [];
+      data.quotations = [];
+      data.purchaseOrders = [];
+      data.transactions = [];
+      data.stockMovements = [];
+      data.journalEntries = [];
+      data.projects = [];
+      if (Array.isArray(data.customers)) {
+        data.customers = data.customers.map((c) => ({
+          ...c,
+          totalPurchased: 0,
+          dueAmount: 0,
+          advanceBalance: 0
+        }));
+      }
+      if (Array.isArray(data.suppliers)) {
+        data.suppliers = data.suppliers.map((s) => ({
+          ...s,
+          totalPurchased: 0,
+          balancePayable: 0,
+          dueAmount: 0
+        }));
+      }
+      if (Array.isArray(data.products)) {
+        data.products = data.products.map((p) => ({
+          ...p,
+          stockFactory: 0,
+          stockOffice: 0
+        }));
+      }
+      if (Array.isArray(data.chartOfAccounts)) {
+        data.chartOfAccounts = data.chartOfAccounts.map((acc) => ({
+          ...acc,
+          openingBalance: 0,
+          currentBalance: 0
+        }));
+      }
+    } else if (mode === "SALES" || mode === "SALES_RESET") {
+      data.invoices = [];
+      data.quotations = [];
+      if (Array.isArray(data.customers)) {
+        data.customers = data.customers.map((c) => ({
+          ...c,
+          totalPurchased: 0,
+          dueAmount: 0
+        }));
+      }
+      if (Array.isArray(data.transactions)) {
+        data.transactions = data.transactions.filter((t) => {
+          const isSales = t.category === "Sales Revenue" || t.category === "Customer Payment" || t.category === "Customer Advance Adjustment";
+          const isInv = Boolean(t.refNo && (t.refNo.startsWith("DCC-INV-") || t.refNo.startsWith("inv-")));
+          const isPos = Boolean(t.description && (t.description.startsWith("POS Payment:") || t.description.startsWith("Sales Invoice payment") || t.description.startsWith("Invoice Due Payment:")));
+          return !(isSales || isInv || isPos);
+        });
+      }
+      if (Array.isArray(data.journalEntries)) {
+        data.journalEntries = data.journalEntries.filter((je) => {
+          const isSales = je.source === "SALES";
+          const isInv = Boolean(je.refNo && (je.refNo.startsWith("DCC-INV-") || je.refNo.startsWith("inv-")));
+          return !(isSales || isInv);
+        });
+      }
+      if (Array.isArray(data.stockMovements)) {
+        data.stockMovements = data.stockMovements.filter((m) => {
+          const isInv = Boolean(m.refNo && (m.refNo.startsWith("DCC-INV-") || m.refNo.startsWith("inv-")));
+          const isSalesReason = Boolean(m.reason && (m.reason.toLowerCase().includes("sales invoice") || m.reason.toLowerCase().includes("pos sale")));
+          return !(isInv || isSalesReason);
+        });
+      }
+    } else if (mode === "PURCHASES") {
+      data.purchaseOrders = [];
+      if (Array.isArray(data.suppliers)) {
+        data.suppliers = data.suppliers.map((s) => ({
+          ...s,
+          totalPurchased: 0,
+          balancePayable: 0,
+          dueAmount: 0
+        }));
+      }
+      if (Array.isArray(data.transactions)) {
+        data.transactions = data.transactions.filter((t) => {
+          const isPo = Boolean(t.refNo && (t.refNo.startsWith("DCC-PO-") || t.refNo.startsWith("po-")));
+          return !isPo;
+        });
+      }
+      if (Array.isArray(data.journalEntries)) {
+        data.journalEntries = data.journalEntries.filter((je) => {
+          const isPo = je.source === "PURCHASE" || Boolean(je.refNo && (je.refNo.startsWith("DCC-PO-") || je.refNo.startsWith("po-")));
+          return !isPo;
+        });
+      }
+    } else if (mode === "TRANSACTIONS") {
+      data.transactions = [];
+      data.journalEntries = [];
+      if (Array.isArray(data.chartOfAccounts)) {
+        data.chartOfAccounts = data.chartOfAccounts.map((acc) => ({
+          ...acc,
+          currentBalance: acc.openingBalance || 0
+        }));
+      }
+    } else if (mode === "JOURNALS") {
+      data.journalEntries = [];
+      if (Array.isArray(data.chartOfAccounts)) {
+        data.chartOfAccounts = data.chartOfAccounts.map((acc) => ({
+          ...acc,
+          currentBalance: acc.openingBalance || 0
+        }));
+      }
+    } else if (mode === "PROJECTS") {
+      data.projects = [];
+      if (Array.isArray(data.transactions)) {
+        data.transactions = data.transactions.filter((t) => !(t.category?.toLowerCase().includes("project") || t.accountHead?.toLowerCase().includes("project")));
+      }
+      if (Array.isArray(data.journalEntries)) {
+        data.journalEntries = data.journalEntries.filter((j) => !(j.source === "PROJECT_EXPENSE" || j.source === "PROJECT_SALES"));
+      }
+      if (Array.isArray(data.chartOfAccounts)) {
+        data.chartOfAccounts = data.chartOfAccounts.map((acc) => {
+          const isPrj = acc.code === "5206" || acc.code === "4002" || acc.code === "4051" || acc.code === "4060" || acc.name?.toLowerCase().includes("project");
+          return isPrj ? { ...acc, currentBalance: acc.openingBalance || 0 } : acc;
+        });
+      }
+    } else if (mode === "INVENTORY_STOCK") {
+      data.stockMovements = [];
+      if (Array.isArray(data.products)) {
+        data.products = data.products.map((p) => ({
+          ...p,
+          stockFactory: 0,
+          stockOffice: 0
+        }));
+      }
+    } else if (mode === "AUDIT_LOGS") {
+      data.auditLogs = [];
+    }
+    data.lastPurgedAt = nowIso;
+    data.lastPurgeMode = mode;
+    data._rev = nextRev;
+    if (!Array.isArray(data.auditLogs)) data.auditLogs = [];
+    data.auditLogs.unshift({
+      id: `audit-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      staffId: "admin",
+      staffName: "Admin",
+      staffRole: "Super Admin",
+      location: "All",
+      actionType: "DATA_CLEANED",
+      entityType: "System",
+      details: `Server-side authoritative wipe executed: ${mode}.`,
+      detailsBn: `\u09B8\u09BE\u09B0\u09CD\u09AD\u09BE\u09B0\u09C7 \u09A1\u09C7\u099F\u09BE \u09AA\u09B0\u09BF\u09B7\u09CD\u0995\u09BE\u09B0 \u09B8\u09AE\u09CD\u09AA\u09A8\u09CD\u09A8 \u09B9\u09DF\u09C7\u099B\u09C7: ${mode}\u0964`,
+      timestamp: `${nowIso.slice(0, 10)} ${(/* @__PURE__ */ new Date()).toTimeString().slice(0, 5)}`,
+      severity: "critical"
+    });
+    if (data.auditLogs.length > 500) {
+      data.auditLogs = data.auditLogs.slice(0, 500);
+    }
+    const updated = await ErpState.findOneAndUpdate(
+      { id: "singleton" },
+      { data, revision: nextRev, updatedAt: /* @__PURE__ */ new Date() },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    broadcastStateUpdate(updated.updatedAt, senderTabId, nextRev);
+    return res.json({
+      success: true,
+      revision: nextRev,
+      updatedAt: updated.updatedAt,
+      data: updated.data,
+      message: `Data purge for '${mode}' successfully completed on MongoDB Atlas.`
+    });
+  } catch (error) {
+    console.error("Error during data purge:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 var cloudPrintJobs = [];
 var lastAgentHeartbeat = 0;
 var lastAgentTelemetry = {};

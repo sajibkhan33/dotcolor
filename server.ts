@@ -304,6 +304,215 @@ app.post('/api/state/reset', requireAuth, async (_req, res) => {
   }
 });
 
+// Authoritative Server-Side Data Purge & Wipe Endpoint
+// Directly resets specified collections in MongoDB Atlas and broadcasts immediate wipe across all active devices/tabs
+app.post('/api/purge-data', requireAuth, async (req, res) => {
+  if (!isConnected) {
+    return res.status(503).json({ success: false, message: 'MongoDB is not connected.' });
+  }
+
+  try {
+    const { mode, senderTabId } = req.body;
+    const existing = await ErpState.findOne({ id: 'singleton' });
+    if (!existing || !existing.data) {
+      return res.status(404).json({ success: false, message: 'No ERP state found to purge.' });
+    }
+
+    const currentRev = (existing as any).revision || existing.data?._rev || 1;
+    const nextRev = currentRev + 1;
+    const data = { ...existing.data };
+    const nowIso = new Date().toISOString();
+
+    if (mode === 'RESET_ALL_TRANSACTIONS' || mode === 'WIPE_ALL_EXCEPT_PRODUCTS') {
+      data.invoices = [];
+      data.quotations = [];
+      data.purchaseOrders = [];
+      data.transactions = [];
+      data.stockMovements = [];
+      data.journalEntries = [];
+      data.projects = [];
+
+      if (Array.isArray(data.customers)) {
+        data.customers = data.customers.map((c: any) => ({
+          ...c,
+          totalPurchased: 0,
+          dueAmount: 0,
+          advanceBalance: 0,
+        }));
+      }
+
+      if (Array.isArray(data.suppliers)) {
+        data.suppliers = data.suppliers.map((s: any) => ({
+          ...s,
+          totalPurchased: 0,
+          balancePayable: 0,
+          dueAmount: 0,
+        }));
+      }
+
+      if (Array.isArray(data.products)) {
+        data.products = data.products.map((p: any) => ({
+          ...p,
+          stockFactory: 0,
+          stockOffice: 0,
+        }));
+      }
+
+      if (Array.isArray(data.chartOfAccounts)) {
+        data.chartOfAccounts = data.chartOfAccounts.map((acc: any) => ({
+          ...acc,
+          openingBalance: 0,
+          currentBalance: 0,
+        }));
+      }
+    } else if (mode === 'SALES' || mode === 'SALES_RESET') {
+      data.invoices = [];
+      data.quotations = [];
+      if (Array.isArray(data.customers)) {
+        data.customers = data.customers.map((c: any) => ({
+          ...c,
+          totalPurchased: 0,
+          dueAmount: 0,
+        }));
+      }
+      if (Array.isArray(data.transactions)) {
+        data.transactions = data.transactions.filter((t: any) => {
+          const isSales = t.category === 'Sales Revenue' || t.category === 'Customer Payment' || t.category === 'Customer Advance Adjustment';
+          const isInv = Boolean(t.refNo && (t.refNo.startsWith('DCC-INV-') || t.refNo.startsWith('inv-')));
+          const isPos = Boolean(t.description && (
+            t.description.startsWith('POS Payment:') ||
+            t.description.startsWith('Sales Invoice payment') ||
+            t.description.startsWith('Invoice Due Payment:')
+          ));
+          return !(isSales || isInv || isPos);
+        });
+      }
+      if (Array.isArray(data.journalEntries)) {
+        data.journalEntries = data.journalEntries.filter((je: any) => {
+          const isSales = je.source === 'SALES';
+          const isInv = Boolean(je.refNo && (je.refNo.startsWith('DCC-INV-') || je.refNo.startsWith('inv-')));
+          return !(isSales || isInv);
+        });
+      }
+      if (Array.isArray(data.stockMovements)) {
+        data.stockMovements = data.stockMovements.filter((m: any) => {
+          const isInv = Boolean(m.refNo && (m.refNo.startsWith('DCC-INV-') || m.refNo.startsWith('inv-')));
+          const isSalesReason = Boolean(m.reason && (m.reason.toLowerCase().includes('sales invoice') || m.reason.toLowerCase().includes('pos sale')));
+          return !(isInv || isSalesReason);
+        });
+      }
+    } else if (mode === 'PURCHASES') {
+      data.purchaseOrders = [];
+      if (Array.isArray(data.suppliers)) {
+        data.suppliers = data.suppliers.map((s: any) => ({
+          ...s,
+          totalPurchased: 0,
+          balancePayable: 0,
+          dueAmount: 0,
+        }));
+      }
+      if (Array.isArray(data.transactions)) {
+        data.transactions = data.transactions.filter((t: any) => {
+          const isPo = Boolean(t.refNo && (t.refNo.startsWith('DCC-PO-') || t.refNo.startsWith('po-')));
+          return !isPo;
+        });
+      }
+      if (Array.isArray(data.journalEntries)) {
+        data.journalEntries = data.journalEntries.filter((je: any) => {
+          const isPo = je.source === 'PURCHASE' || Boolean(je.refNo && (je.refNo.startsWith('DCC-PO-') || je.refNo.startsWith('po-')));
+          return !isPo;
+        });
+      }
+    } else if (mode === 'TRANSACTIONS') {
+      data.transactions = [];
+      data.journalEntries = [];
+      if (Array.isArray(data.chartOfAccounts)) {
+        data.chartOfAccounts = data.chartOfAccounts.map((acc: any) => ({
+          ...acc,
+          currentBalance: acc.openingBalance || 0,
+        }));
+      }
+    } else if (mode === 'JOURNALS') {
+      data.journalEntries = [];
+      if (Array.isArray(data.chartOfAccounts)) {
+        data.chartOfAccounts = data.chartOfAccounts.map((acc: any) => ({
+          ...acc,
+          currentBalance: acc.openingBalance || 0,
+        }));
+      }
+    } else if (mode === 'PROJECTS') {
+      data.projects = [];
+      if (Array.isArray(data.transactions)) {
+        data.transactions = data.transactions.filter((t: any) => !(t.category?.toLowerCase().includes('project') || t.accountHead?.toLowerCase().includes('project')));
+      }
+      if (Array.isArray(data.journalEntries)) {
+        data.journalEntries = data.journalEntries.filter((j: any) => !(j.source === 'PROJECT_EXPENSE' || j.source === 'PROJECT_SALES'));
+      }
+      if (Array.isArray(data.chartOfAccounts)) {
+        data.chartOfAccounts = data.chartOfAccounts.map((acc: any) => {
+          const isPrj = acc.code === '5206' || acc.code === '4002' || acc.code === '4051' || acc.code === '4060' || acc.name?.toLowerCase().includes('project');
+          return isPrj ? { ...acc, currentBalance: acc.openingBalance || 0 } : acc;
+        });
+      }
+    } else if (mode === 'INVENTORY_STOCK') {
+      data.stockMovements = [];
+      if (Array.isArray(data.products)) {
+        data.products = data.products.map((p: any) => ({
+          ...p,
+          stockFactory: 0,
+          stockOffice: 0,
+        }));
+      }
+    } else if (mode === 'AUDIT_LOGS') {
+      data.auditLogs = [];
+    }
+
+    // Set authoritative purge metadata
+    data.lastPurgedAt = nowIso;
+    data.lastPurgeMode = mode;
+    data._rev = nextRev;
+
+    // Log the purge directly into server audit logs
+    if (!Array.isArray(data.auditLogs)) data.auditLogs = [];
+    data.auditLogs.unshift({
+      id: `audit-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      staffId: 'admin',
+      staffName: 'Admin',
+      staffRole: 'Super Admin',
+      location: 'All',
+      actionType: 'DATA_CLEANED',
+      entityType: 'System',
+      details: `Server-side authoritative wipe executed: ${mode}.`,
+      detailsBn: `সার্ভারে ডেটা পরিষ্কার সম্পন্ন হয়েছে: ${mode}।`,
+      timestamp: `${nowIso.slice(0, 10)} ${new Date().toTimeString().slice(0, 5)}`,
+      severity: 'critical',
+    });
+    if (data.auditLogs.length > 500) {
+      data.auditLogs = data.auditLogs.slice(0, 500);
+    }
+
+    const updated = await ErpState.findOneAndUpdate(
+      { id: 'singleton' },
+      { data, revision: nextRev, updatedAt: new Date() },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    // Instant real-time broadcast to all connected tabs and devices
+    broadcastStateUpdate(updated.updatedAt, senderTabId, nextRev);
+
+    return res.json({
+      success: true,
+      revision: nextRev,
+      updatedAt: updated.updatedAt,
+      data: updated.data,
+      message: `Data purge for '${mode}' successfully completed on MongoDB Atlas.`,
+    });
+  } catch (error: any) {
+    console.error('Error during data purge:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // --- DotColor Communication Printer Bridge Cloud Queue ---
 interface CloudPrintJob {
   id: string;

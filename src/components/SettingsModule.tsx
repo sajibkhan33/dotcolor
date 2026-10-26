@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { StaffMember, UserRole, StaffRole, PaymentMethodConfig, PaymentMethodType } from '../types';
 import { ALL_SYSTEM_PERMISSIONS, ALL_SYSTEM_PERMISSIONS as SYSTEM_PERMISSIONS } from '../data/accountingAndConfigData';
-import { Users, Shield, KeyRound, Trash2, Plus, Edit2, CheckCircle2, AlertTriangle, AlertCircle, RotateCcw, Building2, Factory, Mail, Phone, Search, Lock, Eye, EyeOff, SlidersHorizontal, FolderSync, FileSpreadsheet, AlertOctagon, CheckSquare, Square, Sparkles, Server, Globe, ExternalLink, Cpu, HardDrive, ShieldCheck, Zap, CreditCard, Landmark, Smartphone, Save, Copy, Check, Star, Banknote, X, Wallet, Database, Printer, Cloud, RefreshCw, Upload, Download, ArrowRight, MapPin, } from 'lucide-react';
+import { Users, Shield, KeyRound, Trash2, Plus, Edit2, CheckCircle2, AlertTriangle, AlertCircle, RotateCcw, Building2, Factory, Mail, Phone, Search, Lock, Eye, EyeOff, SlidersHorizontal, FolderSync, FileSpreadsheet, AlertOctagon, CheckSquare, Square, Sparkles, Server, Globe, ExternalLink, Cpu, HardDrive, ShieldCheck, Zap, CreditCard, Landmark, Smartphone, Save, Copy, Check, Star, Banknote, X, Wallet, Database, Printer, Cloud, RefreshCw, Upload, Download, ArrowRight, MapPin, Loader2, } from 'lucide-react';
 import { getPaymentMethodLiveBalance, getBankAccountsBreakdown } from '../utils/accountUtils';
 import { BrandLogo } from './BrandLogo';
 import { PrinterBridgeModal } from './PrinterBridgeModal';
@@ -103,6 +103,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
     // Data cleanup modal state
     const [cleanConfirmModule, setCleanConfirmModule] = useState<string | null>(null);
     const [cleanFeedback, setCleanFeedback] = useState<string | null>(null);
+    const [isPurging, setIsPurging] = useState<boolean>(false);
     const isSuperUser = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
         (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
         activeStaff?.customRoleId === 'role-superadmin' ||
@@ -539,7 +540,8 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
         setShowRoleModal(false);
     };
     // Module Cleanup
-    const handleExecuteClean = (moduleKey: any) => {
+    const handleExecuteClean = async (moduleKey: any) => {
+        setIsPurging(true);
         let mappedKey = moduleKey;
         if (moduleKey === 'invoices' || moduleKey === 'SALES_RESET' || moduleKey === 'SALES') {
             mappedKey = 'SALES';
@@ -559,18 +561,24 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
         else if (moduleKey === 'WIPE_ALL_EXCEPT_PRODUCTS' || moduleKey === 'RESET_ALL_TRANSACTIONS') {
             mappedKey = 'RESET_ALL_TRANSACTIONS';
         }
-        cleanModuleData(mappedKey);
-        setCleanConfirmModule(null);
-        if (moduleKey === 'WIPE_ALL_EXCEPT_PRODUCTS' || moduleKey === 'RESET_ALL_TRANSACTIONS') {
-            setCleanFeedback('All transactional data (sales, purchases, cash txns, journals, projects, stock, dues & advances) reset successfully.');
+        try {
+            await cleanModuleData(mappedKey);
+            setCleanConfirmModule(null);
+            if (moduleKey === 'WIPE_ALL_EXCEPT_PRODUCTS' || moduleKey === 'RESET_ALL_TRANSACTIONS') {
+                setCleanFeedback('All transactional data (sales, purchases, cash txns, journals, projects, stock, dues & advances) reset successfully across all devices.');
+            }
+            else if (moduleKey === 'invoices' || moduleKey === 'SALES_RESET' || moduleKey === 'SALES') {
+                setCleanFeedback('All sales data (invoices, POS orders, quotes, customer dues & sales revenue) reset successfully across all devices.');
+            }
+            else {
+                setCleanFeedback(`Module '${moduleKey}' data purged successfully across all devices.`);
+            }
+        } catch {
+            setCleanFeedback(`Failed to purge module '${moduleKey}'. Please check connection.`);
+        } finally {
+            setIsPurging(false);
+            setTimeout(() => setCleanFeedback(null), 5000);
         }
-        else if (moduleKey === 'invoices' || moduleKey === 'SALES_RESET' || moduleKey === 'SALES') {
-            setCleanFeedback('All sales data (invoices, POS orders, quotes, customer dues & sales revenue) reset successfully.');
-        }
-        else {
-            setCleanFeedback(`Module '${moduleKey}' data purged successfully.`);
-        }
-        setTimeout(() => setCleanFeedback(null), 5000);
     };
     const handleFactoryReset = () => {
         if (confirm('CRITICAL WARNING: This will reset the entire ERP database to default demo records and clear cached changes. Are you sure?')) {
@@ -2369,18 +2377,37 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
             </div>
 
             <div className="flex gap-2.5 pt-2">
-              <button type="button" onClick={() => setCleanConfirmModule(null)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer transition-all">
+              <button
+                type="button"
+                disabled={isPurging}
+                onClick={() => setCleanConfirmModule(null)}
+                className="flex-1 py-2.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer transition-all disabled:opacity-50"
+              >
                 {'Cancel'}
               </button>
-              <button type="button" onClick={() => handleExecuteClean(cleanConfirmModule)} className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold shadow-sm cursor-pointer flex items-center justify-center gap-1.5 transition-all">
-                <RotateCcw className="w-3.5 h-3.5"/>
-                <span>
-                  {cleanConfirmModule === 'invoices' || cleanConfirmModule === 'SALES_RESET' || cleanConfirmModule === 'SALES'
-                    ? 'Yes, Reset'
-                    : cleanConfirmModule === 'RESET_ALL_TRANSACTIONS' || cleanConfirmModule === 'WIPE_ALL_EXCEPT_PRODUCTS'
-                    ? 'Yes, Reset All'
-                    : 'Yes, Delete'}
-                </span>
+              <button
+                type="button"
+                disabled={isPurging}
+                onClick={() => handleExecuteClean(cleanConfirmModule)}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold shadow-sm cursor-pointer flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+              >
+                {isPurging ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>{'Wiping & Syncing...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-3.5 h-3.5"/>
+                    <span>
+                      {cleanConfirmModule === 'invoices' || cleanConfirmModule === 'SALES_RESET' || cleanConfirmModule === 'SALES'
+                        ? 'Yes, Reset'
+                        : cleanConfirmModule === 'RESET_ALL_TRANSACTIONS' || cleanConfirmModule === 'WIPE_ALL_EXCEPT_PRODUCTS'
+                        ? 'Yes, Reset All'
+                        : 'Yes, Delete'}
+                    </span>
+                  </>
+                )}
               </button>
             </div>
           </div>

@@ -167,9 +167,9 @@ interface AppContextType {
     generateInvoiceForProject: (projectId: string, options?: { title?: string; date?: string; skipLedgerTransaction?: boolean }) => SalesInvoice | null;
     syncProjectInvoice: (projectId: string) => boolean;
     // Utilities & Module Data Cleanup
-    cleanModuleData: (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS' | 'RESET_ALL_TRANSACTIONS') => void;
-    resetSalesData: () => void;
-    resetAllTransactionalData: () => void;
+    cleanModuleData: (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS' | 'RESET_ALL_TRANSACTIONS') => Promise<void>;
+    resetSalesData: () => Promise<void>;
+    resetAllTransactionalData: () => Promise<void>;
     resetToDefaultData: () => void;
     exportDatabase: () => string;
     importDatabase: (jsonString: string, isCloudSync?: boolean) => boolean;
@@ -713,6 +713,9 @@ export const AppProvider: React.FC<{
     const tabIdRef = useRef<string>(`tab_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`);
     const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
     const isFirstMountRef = useRef(true);
+    // Truly un-synced entity tracking to prevent accidental resurrection of deleted/purged remote records
+    const unsyncedInvoiceIdsRef = useRef<Set<string>>(new Set());
+    const unsyncedTransactionIdsRef = useRef<Set<string>>(new Set());
 
     const broadcastCrossTabSync = () => {
         if (isImportingRef.current) return;
@@ -2889,6 +2892,7 @@ export const AppProvider: React.FC<{
         }
         const currentInvs = latestStateRef.current?.invoices || invoices || [];
         const nextInvoices = [newInvoice, ...currentInvs.filter((i: any) => i.id !== newInvoice.id)];
+        unsyncedInvoiceIdsRef.current.add(newInvoice.id);
         if (latestStateRef.current) {
             latestStateRef.current = {
                 ...latestStateRef.current,
@@ -4326,6 +4330,7 @@ export const AppProvider: React.FC<{
         if (!inv)
             return;
         const invoiceNo = inv.invoiceNo;
+        unsyncedInvoiceIdsRef.current.delete(id);
         const nextInvoices = currentInvoices.filter((i: SalesInvoice) => i.id !== id);
         setInvoices(nextInvoices);
         try {
@@ -5131,6 +5136,7 @@ export const AppProvider: React.FC<{
         };
         const currentList = latestStateRef.current.transactions || transactions;
         const nextTxs = ensureUniqueTransactions([newTx, ...currentList]);
+        unsyncedTransactionIdsRef.current.add(newTx.id);
         setTransactions(nextTxs);
         latestStateRef.current = {
             ...latestStateRef.current,
@@ -5181,8 +5187,12 @@ export const AppProvider: React.FC<{
         triggerImmediatePush();
     };
     const deleteTransaction = (id: string) => {
+        unsyncedTransactionIdsRef.current.delete(id);
         const currentList = latestStateRef.current.transactions || transactions;
         const txToDelete = currentList.find(t => t.id === id || (id && t.refNo === id));
+        if (txToDelete?.id) {
+            unsyncedTransactionIdsRef.current.delete(txToDelete.id);
+        }
         const nextTxs = currentList.filter(t => t.id !== id && (!txToDelete || t !== txToDelete));
         setTransactions(nextTxs);
         latestStateRef.current = {
@@ -7231,7 +7241,7 @@ export const AppProvider: React.FC<{
         return { salesSynced, expensesSynced, totalAmount: totalPrjSales + totalPrjExpenses };
     };
     // Module Data Clean & Purge
-    const cleanModuleData = (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS' | 'RESET_ALL_TRANSACTIONS') => {
+    const cleanModuleData = async (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS' | 'RESET_ALL_TRANSACTIONS') => {
         if (moduleKey === 'SALES') {
             // 1. Reset Invoices
             setInvoices([]);
@@ -7615,20 +7625,61 @@ export const AppProvider: React.FC<{
             };
         }
 
+        // Clear unsynced tracking sets to guarantee no ghost resurrection on other devices
+        unsyncedInvoiceIdsRef.current.clear();
+        unsyncedTransactionIdsRef.current.clear();
+
+        // Mark local storage purge timestamp so other tabs/profiles discard old cached data
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_LAST_PURGED_TS`, String(Date.now()));
+        } catch {}
+
         // Instant cloud sync force-push (bypasses conflicts & concurrency lock to guarantee permanent wipe)
         isCloudLoadedRef.current = true;
         isSyncingRef.current = false;
         if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
         broadcastCrossTabSync();
+
+        // 1. Authoritative Server-Side Data Purge Call (Atomic wipe on MongoDB Atlas)
+        try {
+            const res = await fetch('/api/purge-data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': ERP_API_KEY,
+                },
+                body: JSON.stringify({
+                    mode: moduleKey,
+                    senderTabId: tabIdRef.current,
+                }),
+            });
+            if (res.ok) {
+                const resData = await res.json();
+                if (resData.revision) {
+                    serverRevisionRef.current = resData.revision;
+                }
+                if (resData.updatedAt) {
+                    lastServerUpdatedAtRef.current = new Date(resData.updatedAt).getTime();
+                    setLastSyncedAt(new Date(resData.updatedAt).toLocaleTimeString());
+                }
+                setCloudSyncStatus('synced');
+                setIsCloudConnected(true);
+                return;
+            }
+        } catch (err) {
+            console.warn('Direct server purge failed, falling back to force push:', err);
+        }
+
+        // 2. Fallback to client force push if server purge endpoint was unreachable
         if (pushToCloudRef.current) {
-            pushToCloudRef.current({ force: true });
+            await pushToCloudRef.current({ force: true });
         }
     };
-    const resetSalesData = () => {
-        cleanModuleData('SALES');
+    const resetSalesData = async () => {
+        await cleanModuleData('SALES');
     };
-    const resetAllTransactionalData = () => {
-        cleanModuleData('RESET_ALL_TRANSACTIONS');
+    const resetAllTransactionalData = async () => {
+        await cleanModuleData('RESET_ALL_TRANSACTIONS');
     };
     // Utilities
     const resetToDefaultData = () => {
@@ -7731,6 +7782,22 @@ export const AppProvider: React.FC<{
     const importDatabase = (jsonString: string, _isCloudSync: boolean = false): boolean => {
         try {
             const data = JSON.parse(jsonString);
+
+            // Handle server-side purge synchronization: if remote was purged, invalidate any local resurrection queues
+            if (data.lastPurgedAt) {
+                const remotePurgeTs = new Date(data.lastPurgedAt).getTime();
+                let localPurgeTs = 0;
+                try {
+                    localPurgeTs = Number(localStorage.getItem(`${STORAGE_KEY}_LAST_PURGED_TS`)) || 0;
+                } catch {}
+                if (remotePurgeTs > localPurgeTs) {
+                    try {
+                        localStorage.setItem(`${STORAGE_KEY}_LAST_PURGED_TS`, String(remotePurgeTs));
+                    } catch {}
+                    unsyncedInvoiceIdsRef.current.clear();
+                    unsyncedTransactionIdsRef.current.clear();
+                }
+            }
             if (data.profile) {
                 if (data.profile.logoUrl &&
                     (data.profile.logoUrl.startsWith('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALL') ||
@@ -7767,10 +7834,13 @@ export const AppProvider: React.FC<{
                 const cleanedInvoices = sanitizeSalesInvoices(data.invoices);
                 let finalInvoices = cleanedInvoices;
                 if (_isCloudSync) {
-                    // Smart Concurrency Merge: Never delete locally created invoices that have not yet reached the server
+                    // Smart Concurrency Merge: ONLY merge genuinely unsynced invoices created in this offline session.
+                    // Never resurrect deleted or purged remote invoices!
                     const remoteIds = new Set(cleanedInvoices.map((inv: any) => inv.id));
                     const currentLocal = latestStateRef.current?.invoices || invoices || [];
-                    const pendingLocal = currentLocal.filter((inv: any) => inv?.id && !remoteIds.has(inv.id));
+                    const pendingLocal = (unsyncedInvoiceIdsRef.current.size > 0)
+                        ? currentLocal.filter((inv: any) => inv?.id && unsyncedInvoiceIdsRef.current.has(inv.id) && !remoteIds.has(inv.id))
+                        : [];
                     if (pendingLocal.length > 0) {
                         finalInvoices = [...pendingLocal, ...cleanedInvoices];
                         setTimeout(() => {
@@ -7795,7 +7865,9 @@ export const AppProvider: React.FC<{
                 if (_isCloudSync) {
                     const remoteTxIds = new Set(uniqueTx.map((t: any) => t.id));
                     const currentLocalTx = latestStateRef.current?.transactions || transactions || [];
-                    const pendingLocalTx = currentLocalTx.filter((t: any) => t?.id && !remoteTxIds.has(t.id));
+                    const pendingLocalTx = (unsyncedTransactionIdsRef.current.size > 0)
+                        ? currentLocalTx.filter((t: any) => t?.id && unsyncedTransactionIdsRef.current.has(t.id) && !remoteTxIds.has(t.id))
+                        : [];
                     if (pendingLocalTx.length > 0) {
                         uniqueTx = ensureUniqueTransactions([...pendingLocalTx, ...uniqueTx]);
                     }
@@ -7946,6 +8018,8 @@ export const AppProvider: React.FC<{
                 if (data.revision) {
                     serverRevisionRef.current = data.revision;
                 }
+                unsyncedInvoiceIdsRef.current.clear();
+                unsyncedTransactionIdsRef.current.clear();
                 setCloudSyncStatus('synced');
                 setIsCloudConnected(true);
                 if (data.updatedAt) {
