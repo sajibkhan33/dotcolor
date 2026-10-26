@@ -435,7 +435,19 @@ export const AppProvider: React.FC<{
                     return /^(prod-dp-|prod-sm-|prod-bg-|prod-pkg-|prod-rm-|cust-0\d|sup-0\d|inv-100\d|po-500\d|tx-0\d|qt-200\d|sm-0\d$|audit-0\d|jnl-0\d|prj-1791312899418|prj-1791313243039|prj-1791286609909)/.test(id) ||
                         (/^staff-0[2-6]$/.test(id));
                 };
-                const filtered = parsed.filter((item: any) => !isDummy(item));
+
+                // Quarantine records created before the last authoritative purge
+                let purgeTs = 0;
+                try {
+                    purgeTs = Number(localStorage.getItem(`${STORAGE_KEY}_LAST_PURGED_TS`)) || 0;
+                } catch {}
+                const isPurged = (item: any) => {
+                    if (!purgeTs) return false;
+                    const match = String(item?.id || '').match(/(?:inv|tx|po|qt|sm|jnl|prj)-(\d+)/);
+                    return Boolean(match && Number(match[1]) < purgeTs);
+                };
+
+                const filtered = parsed.filter((item: any) => !isDummy(item) && !isPurged(item));
                 if (filtered.length === 0 && Array.isArray(fallback) && fallback.length > 0) {
                     return fallback;
                 }
@@ -7625,6 +7637,9 @@ export const AppProvider: React.FC<{
             };
         }
 
+        // Guard against race conditions: block debounced auto-save from firing while purge is executing
+        isImportingRef.current = true;
+
         // Clear unsynced tracking sets to guarantee no ghost resurrection on other devices
         unsyncedInvoiceIdsRef.current.clear();
         unsyncedTransactionIdsRef.current.clear();
@@ -7664,6 +7679,9 @@ export const AppProvider: React.FC<{
                 }
                 setCloudSyncStatus('synced');
                 setIsCloudConnected(true);
+                setTimeout(() => {
+                    isImportingRef.current = false;
+                }, 1500);
                 return;
             }
         } catch (err) {
@@ -7674,6 +7692,9 @@ export const AppProvider: React.FC<{
         if (pushToCloudRef.current) {
             await pushToCloudRef.current({ force: true });
         }
+        setTimeout(() => {
+            isImportingRef.current = false;
+        }, 1500);
     };
     const resetSalesData = async () => {
         await cleanModuleData('SALES');
@@ -7830,8 +7851,16 @@ export const AppProvider: React.FC<{
                 setSuppliers(cleanedSuppliers);
                 try { localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(cleanedSuppliers)); } catch {}
             }
+            const purgeTs = data.lastPurgedAt ? new Date(data.lastPurgedAt).getTime() : 0;
+
             if (data.invoices && Array.isArray(data.invoices)) {
-                const cleanedInvoices = sanitizeSalesInvoices(data.invoices);
+                let cleanedInvoices = sanitizeSalesInvoices(data.invoices);
+                if (purgeTs > 0) {
+                    cleanedInvoices = cleanedInvoices.filter((inv: any) => {
+                        const m = String(inv.id || '').match(/inv-(\d+)/);
+                        return !(m && Number(m[1]) < purgeTs);
+                    });
+                }
                 let finalInvoices = cleanedInvoices;
                 if (_isCloudSync) {
                     // Smart Concurrency Merge: ONLY merge genuinely unsynced invoices created in this offline session.
@@ -7853,15 +7882,35 @@ export const AppProvider: React.FC<{
                 data.invoices = finalInvoices;
             }
             if (data.quotations && Array.isArray(data.quotations)) {
-                setQuotations(data.quotations);
-                try { localStorage.setItem(`${STORAGE_KEY}_QUOTATIONS`, JSON.stringify(data.quotations)); } catch {}
+                let qts = data.quotations;
+                if (purgeTs > 0) {
+                    qts = qts.filter((q: any) => {
+                        const m = String(q.id || '').match(/qt-(\d+)/);
+                        return !(m && Number(m[1]) < purgeTs);
+                    });
+                }
+                setQuotations(qts);
+                try { localStorage.setItem(`${STORAGE_KEY}_QUOTATIONS`, JSON.stringify(qts)); } catch {}
             }
             if (data.purchaseOrders && Array.isArray(data.purchaseOrders)) {
-                setPurchaseOrders(data.purchaseOrders);
-                try { localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(data.purchaseOrders)); } catch {}
+                let pos = data.purchaseOrders;
+                if (purgeTs > 0) {
+                    pos = pos.filter((po: any) => {
+                        const m = String(po.id || '').match(/po-(\d+)/);
+                        return !(m && Number(m[1]) < purgeTs);
+                    });
+                }
+                setPurchaseOrders(pos);
+                try { localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(pos)); } catch {}
             }
             if (data.transactions && Array.isArray(data.transactions)) {
                 let uniqueTx = ensureUniqueTransactions(data.transactions);
+                if (purgeTs > 0) {
+                    uniqueTx = uniqueTx.filter((tx: any) => {
+                        const m = String(tx.id || '').match(/tx-(\d+)/);
+                        return !(m && Number(m[1]) < purgeTs);
+                    });
+                }
                 if (_isCloudSync) {
                     const remoteTxIds = new Set(uniqueTx.map((t: any) => t.id));
                     const currentLocalTx = latestStateRef.current?.transactions || transactions || [];
@@ -7876,8 +7925,15 @@ export const AppProvider: React.FC<{
                 try { localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(uniqueTx)); } catch {}
             }
             if (data.stockMovements && Array.isArray(data.stockMovements)) {
-                setStockMovements(data.stockMovements);
-                try { localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(data.stockMovements)); } catch {}
+                let sms = data.stockMovements;
+                if (purgeTs > 0) {
+                    sms = sms.filter((sm: any) => {
+                        const m = String(sm.id || '').match(/sm-(\d+)/);
+                        return !(m && Number(m[1]) < purgeTs);
+                    });
+                }
+                setStockMovements(sms);
+                try { localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(sms)); } catch {}
             }
             if (data.auditLogs && Array.isArray(data.auditLogs)) {
                 setAuditLogs(data.auditLogs);
@@ -7913,12 +7969,26 @@ export const AppProvider: React.FC<{
                 try { localStorage.setItem(`${STORAGE_KEY}_CATEGORIES`, JSON.stringify(data.productCategories)); } catch {}
             }
             if (data.journalEntries && Array.isArray(data.journalEntries)) {
-                setJournalEntries(data.journalEntries);
-                try { localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(data.journalEntries)); } catch {}
+                let jns = data.journalEntries;
+                if (purgeTs > 0) {
+                    jns = jns.filter((j: any) => {
+                        const m = String(j.id || '').match(/jnl-(\d+)/);
+                        return !(m && Number(m[1]) < purgeTs);
+                    });
+                }
+                setJournalEntries(jns);
+                try { localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(jns)); } catch {}
             }
             if (data.projects && Array.isArray(data.projects)) {
-                setProjects(data.projects);
-                try { localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(data.projects)); } catch {}
+                let prjs = data.projects;
+                if (purgeTs > 0 && data.lastPurgeMode === 'RESET_ALL_TRANSACTIONS') {
+                    prjs = prjs.filter((p: any) => {
+                        const m = String(p.id || '').match(/prj-(\d+)/);
+                        return !(m && Number(m[1]) < purgeTs);
+                    });
+                }
+                setProjects(prjs);
+                try { localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(prjs)); } catch {}
             }
             if (data.paymentMethods && Array.isArray(data.paymentMethods)) {
                 setPaymentMethods(data.paymentMethods);
