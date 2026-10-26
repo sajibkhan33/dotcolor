@@ -252,6 +252,22 @@ export const calculateSingleAccountBalance = (
             .map((t) => (t.refNo || '').toLowerCase().trim())
     );
 
+    const isInvRecorded = (invNo: string): boolean => {
+        if (!invNo) return false;
+        const raw = invNo.toLowerCase().trim();
+        if (recordedInvoiceRefs.has(raw)) return true;
+        const numPart = raw.replace(/\D/g, '');
+        if (numPart && numPart.length >= 4) {
+            for (const ref of recordedInvoiceRefs) {
+                const refNum = ref.replace(/\D/g, '');
+                if (refNum && (refNum === numPart || ref.endsWith(numPart) || raw.endsWith(refNum))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
     const recordedTxRefs = new Set(
         (transactions || [])
             .filter((t) => t.refNo)
@@ -277,7 +293,7 @@ export const calculateSingleAccountBalance = (
             return;
         }
 
-        if (invRef && recordedInvoiceRefs.has(invRef)) {
+        if (invRef && isInvRecorded(invRef)) {
             return; // Already accounted for in transactions
         }
 
@@ -1098,10 +1114,14 @@ export const isSupplierPaymentTransaction = (t: AccountingTransaction): boolean 
     return (
         cat.includes('supplier due') ||
         cat.includes('po payment') ||
+        cat.includes('procurement') ||
         desc.includes('payment for purchase order') ||
+        desc.includes('payment for po') ||
         desc.includes('payment to supplier') ||
         desc.includes('supplier due payment') ||
-        ref.startsWith('sup-pay-')
+        desc.includes('po payment') ||
+        ref.startsWith('sup-pay-') ||
+        ((ref.includes('po-') || desc.includes('po-')) && (ref.includes('pay') || desc.includes('pay') || cat.includes('procurement')))
     );
 };
 
@@ -1186,6 +1206,12 @@ export const calculateInventoryValuation = (
     (journalEntries || []).forEach((j) => {
         // Exclude project revenue/expense journals
         if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE') return;
+
+        // Purchase order goods receipt / procurement journals do NOT deduct warehouse inventory stock!
+        const refUpper = `${j.refNo || ''} ${(j as any).reference || ''} ${j.narration || ''}`.toUpperCase();
+        if (refUpper.includes('PO-') || refUpper.includes('DCC-PO-') || j.source === 'PURCHASE') {
+            return;
+        }
 
         const dName = (j.debitAccountName || '').toLowerCase().trim();
         const cName = (j.creditAccountName || '').toLowerCase().trim();

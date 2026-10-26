@@ -130,8 +130,8 @@ export const JournalEntriesManager: React.FC = () => {
             je.lines.some((l: any) => (l.accountName || '').toLowerCase().includes(q)));
     });
     const handleOpenAdd = () => {
-        const defaultDebit = chartOfAccounts[0]?.id || '';
-        const defaultCredit = chartOfAccounts[1]?.id || '';
+        const defaultDebit = chartOfAccounts.find(a => a.classification === 'Expense')?.id || chartOfAccounts[0]?.id || '';
+        const defaultCredit = chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1001' || a.code === '1010' || a.name.toLowerCase().includes('cash')))?.id || chartOfAccounts.find(a => a.classification === 'Asset')?.id || chartOfAccounts[1]?.id || '';
         setFormData({
             date: new Date().toISOString().slice(0, 10),
             reference: `JV-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,

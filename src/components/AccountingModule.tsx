@@ -36,8 +36,8 @@ export const AccountingModule: React.FC = () => {
     }, [chartOfAccounts, transactions, invoices]);
 
     const bankInfo = useMemo(() => {
-        return getBankAccountsBreakdown(chartOfAccounts, transactions, invoices);
-    }, [chartOfAccounts, transactions, invoices]);
+        return getBankAccountsBreakdown(chartOfAccounts, transactions, invoices, projects, journalEntries);
+    }, [chartOfAccounts, transactions, invoices, projects, journalEntries]);
 
     const bankBreakdownText = bankInfo.length > 0
         ? bankInfo.map(b => `${b.name.replace(/ PLC| Bank/gi, '')}: ${profile.currencySymbol}${b.balance.toLocaleString()}`).join(' • ')
@@ -630,14 +630,16 @@ export const AccountingModule: React.FC = () => {
                 refNo: expRef,
             });
 
-            const creditAsset = chartOfAccounts.find(a => 
-                a.name.toLowerCase() === selectedAccount.toLowerCase() ||
-                (selectedAccount.toLowerCase().includes('cash') && (a.code === '1001' || a.code === '1010' || a.name.toLowerCase().includes('cash'))) ||
-                (selectedAccount.toLowerCase().includes('bkash') && a.code === '1007') ||
-                (selectedAccount.toLowerCase().includes('nagad') && a.code === '1006') ||
-                (selectedAccount.toLowerCase().includes('city') && a.name.toLowerCase().includes('city')) ||
-                (selectedAccount.toLowerCase().includes('southeast') && a.name.toLowerCase().includes('southeast'))
-            ) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
+            const creditAsset = matchChannelToAccount(selectedAccount, chartOfAccounts, paymentMethods) ||
+                chartOfAccounts.find(a => a.classification === 'Asset' && (
+                    a.name.toLowerCase() === selectedAccount.toLowerCase() ||
+                    (selectedAccount.toLowerCase().includes('cash') && (a.code === '1001' || a.code === '1010' || a.name.toLowerCase().includes('cash'))) ||
+                    (selectedAccount.toLowerCase().includes('bkash') && a.code === '1007') ||
+                    (selectedAccount.toLowerCase().includes('nagad') && a.code === '1006') ||
+                    (selectedAccount.toLowerCase().includes('city') && a.name.toLowerCase().includes('city')) ||
+                    (selectedAccount.toLowerCase().includes('southeast') && a.name.toLowerCase().includes('southeast'))
+                )) ||
+                chartOfAccounts.find(a => a.classification === 'Asset');
 
             if (debitExp && creditAsset && addJournalEntry) {
                 addJournalEntry({

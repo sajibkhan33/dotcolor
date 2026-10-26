@@ -1196,6 +1196,9 @@ export const AppProvider: React.FC<{
                 let journalCogsDelta = 0;
                 (journalEntries || []).forEach(j => {
                     if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE') return;
+                    // Purchase orders are warehouse inventory receipts, not direct operational COGS
+                    const refUpper = `${j.refNo || ''} ${(j as any).reference || ''} ${j.narration || ''}`.toUpperCase();
+                    if (refUpper.includes('PO-') || refUpper.includes('DCC-PO-') || j.source === 'PURCHASE') return;
                     const dName = (j.debitAccountName || '').toLowerCase().trim();
                     const cName = (j.creditAccountName || '').toLowerCase().trim();
                     const isDebit = Boolean(

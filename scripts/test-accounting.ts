@@ -82,6 +82,22 @@ console.log('📦 Test Suite 1: Physical Inventory Valuation');
         'Finished goods account (1070) accurately isolates finished goods stock (3000)',
         `Expected 3000, got ${finishedVal}`
     );
+
+    // Test PO procurement journal immunity
+    const poJournals: any[] = [
+        { id: 'jv-1', refNo: 'PO-7842 Manik Steel', debitAccountName: 'Cost of Goods Sold - Raw Materials', creditAccountName: 'Raw Materials & Inventory', amount: 10000 },
+        { id: 'jv-2', refNo: 'PO-9617 Engr. Saiful Azim', debitAccountName: 'Cost of Goods Sold - Raw Materials', creditAccountName: 'Raw Materials & Inventory', amount: 600 },
+    ];
+    const poRawProducts: any[] = [
+        { id: 'rm-1', name: 'MS Sheet', stockFactory: 1, stockOffice: 0, costPrice: 10000, isRawMaterial: true },
+        { id: 'rm-2', name: 'Welding Rod', stockFactory: 1, stockOffice: 0, costPrice: 600, isRawMaterial: true },
+    ];
+    const poRawVal = calculateInventoryValuation(poRawProducts, [], rawAccount, poJournals);
+    assert(
+        poRawVal === 10600,
+        'Raw Materials inventory valuation is fully protected when PO receipt journal vouchers exist (10,600 not 0)',
+        `Expected 10600, got ${poRawVal}`
+    );
 }
 
 // --- Test Suite 2: Receivables & Payables ---
@@ -143,6 +159,22 @@ console.log('\n📒 Test Suite 3: General Ledger Single Account Balance');
         bal === 18000,
         'Asset account balance correctly calculates: Opening + Income - Expense + Journal Debit',
         `Expected 18000, got ${bal}`
+    );
+
+    // Test invoice short/long ref matching deduplication
+    const cityBankAcc: any = { id: 'coa-city', code: '1004', name: 'City Bank PLC', classification: 'Asset', openingBalance: 0 };
+    const invoicesList: any[] = [
+        { invoiceNo: 'DCC-INV-2026-4307', paidAmount: 99000, splitPayments: { 'Cash in Hand': 80000, 'City Bank PLC': 10000, 'Southeast Bank': 9000 } }
+    ];
+    const txList: any[] = [
+        { id: 'tx-inv', refNo: 'INV-4307', type: 'INCOME', amount: 10000, account: 'City Bank PLC', paymentAccount: 'City Bank PLC' },
+        { id: 'tx-exp', refNo: 'EXP-4477', type: 'EXPENSE', amount: 1000, account: 'City Bank PLC', paymentAccount: 'City Bank PLC' }
+    ];
+    const cityBal = calculateSingleAccountBalance(cityBankAcc, txList, invoicesList, [], []);
+    assert(
+        cityBal === 9000,
+        'City Bank balance accurately reflects 10,000 income minus 1,000 expense (9,000) without invoice duplication',
+        `Expected 9000, got ${cityBal}`
     );
 }
 

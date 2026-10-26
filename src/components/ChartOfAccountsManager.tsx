@@ -335,6 +335,9 @@ export const ChartOfAccountsManager: React.FC = () => {
                 (journalEntries || []).forEach(j => {
                     if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC') return;
                     if (j.refNo && (transactions || []).some(t => t.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim())) return;
+                    // Purchase orders are warehouse inventory receipts, not operational expenses
+                    const refUpper = `${j.refNo || ''} ${(j as any).reference || ''} ${j.narration || ''}`.toUpperCase();
+                    if (refUpper.includes('PO-') || refUpper.includes('DCC-PO-')) return;
                     const dName = (j.debitAccountName || '').toLowerCase().trim();
                     const cName = (j.creditAccountName || '').toLowerCase().trim();
                     const amt = Number(j.amount) || 0;
