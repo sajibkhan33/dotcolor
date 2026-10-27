@@ -45,8 +45,15 @@ export const ChartOfAccountsManager: React.FC = () => {
         const totalSupplierDue = calculateTotalSupplierPayables(suppliers, purchaseOrders);
         const totalCustomerDue = calculateTotalCustomerReceivables(invoices, customers, projects);
         const totalCustomerAdvance = (customers || []).reduce((s, c) => s + (Number(c.advanceBalance) || 0), 0);
-        const totalProjectSales = (projects || []).reduce((s, p) => s + (p.totalSales || 0), 0);
-        const totalProjectExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
+        const isInvLinkedToProject = (inv: SalesInvoice) => {
+            const invNo = (inv.invoiceNo || '').toLowerCase().trim();
+            return Boolean(
+                inv.projectId ||
+                inv.projectCode ||
+                projectLinkedInvoiceIds.has(inv.id) ||
+                (invNo && projectLinkedInvoiceNos.has(invNo))
+            );
+        };
 
         const projectLinkedInvoiceNos = new Set([
             ...(projects || []).map(p => (p.invoiceNo || '').toLowerCase().trim()).filter(Boolean),
@@ -57,15 +64,12 @@ export const ChartOfAccountsManager: React.FC = () => {
             ...(projects || []).map(p => p.invoiceId).filter(Boolean) as string[],
             ...(invoices || []).filter(inv => inv.projectId || inv.projectCode).map(inv => inv.id).filter(Boolean) as string[],
         ]);
-        const isInvLinkedToProject = (inv: SalesInvoice) => {
-            const invNo = (inv.invoiceNo || '').toLowerCase().trim();
-            return Boolean(
-                inv.projectId ||
-                inv.projectCode ||
-                projectLinkedInvoiceIds.has(inv.id) ||
-                (invNo && projectLinkedInvoiceNos.has(invNo))
-            );
-        };
+
+        const projectInvoicesTotal = (invoices || [])
+            .filter(inv => isInvLinkedToProject(inv))
+            .reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
+        const totalProjectSales = Math.max((projects || []).reduce((s, p) => s + (p.totalSales || 0), 0), projectInvoicesTotal);
+        const totalProjectExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
 
         const nonProjectInvoices = (invoices || []).filter(inv => !isInvLinkedToProject(inv));
         const totalNonProjectInvoiceSales = nonProjectInvoices.reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
@@ -208,6 +212,14 @@ export const ChartOfAccountsManager: React.FC = () => {
                     (isProjectRev && (!p.chartOfAccountId || p.chartOfAccountId === 'coa-4051' || p.chartOfAccountId === 'coa-4002' || p.chartOfAccountId === acc.id))
                 );
                 const matchingProjectSales = matchingProjects.reduce((s, p) => s + (p.totalSales || 0), 0);
+                const matchingProjectInvoices = (invoices || []).filter(inv => {
+                    if (!isInvLinkedToProject(inv)) return false;
+                    const invPrj = (projects || []).find(p => p.id === inv.projectId || p.code === inv.projectCode || p.code === inv.projectId);
+                    if (!invPrj) return isProjectRev;
+                    return invPrj.chartOfAccountId === acc.id || isProjectRev;
+                });
+                const matchingProjectInvoiceSales = matchingProjectInvoices.reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
+                const effectiveProjectSales = Math.max(matchingProjectSales, matchingProjectInvoiceSales);
 
                 if (isProjectRev || matchingProjects.length > 0) {
                     // Standalone project revenue transactions that are NOT due collections, NOT unpaid receivable due bookings, and NOT already part of matchingProjects
@@ -222,7 +234,21 @@ export const ChartOfAccountsManager: React.FC = () => {
                         )
                         .reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
-                    liveBal = (acc.openingBalance || 0) + matchingProjectSales + standaloneProjectRevenue;
+                    const allPrjTxRevenue = (transactions || [])
+                        .filter(t => 
+                            t.type === 'INCOME' && 
+                            !isDueReceivableTransaction(t) && 
+                            !isAdvanceDepositTransaction(t) && 
+                            !isAdvanceAdjustmentTransaction(t) && (
+                                isProjectTransaction(t) || 
+                                (t.category && t.category.toLowerCase().includes('project')) ||
+                                (t.accountHead && t.accountHead.toLowerCase().includes('project')) ||
+                                (t.refNo && (t.refNo.toUpperCase().startsWith('PRJ-') || (projects || []).some(p => p.code === t.refNo)))
+                            )
+                        )
+                        .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+                    liveBal = (acc.openingBalance || 0) + Math.max(effectiveProjectSales + standaloneProjectRevenue, allPrjTxRevenue);
                 } else if (isSalesRev) {
                     // Non-project invoice sales
                     const invoiceSalesFromTx = (transactions || [])
@@ -393,7 +419,10 @@ export const ChartOfAccountsManager: React.FC = () => {
                     const baseCogs = (acc.currentBalance === totalProjectExpenses && totalProjectExpenses > 0)
                         ? (acc.openingBalance || 0)
                         : (acc.currentBalance > totalProjectExpenses ? acc.currentBalance - totalProjectExpenses : acc.currentBalance);
-                    liveBal = Math.max(baseCogs, poExpenses, (acc.openingBalance || 0) + journalExpDelta);
+                    const closingStockVal = (products || []).reduce((sum, p) => sum + ((Number(p.costPrice) || 0) * (Number(p.stockOffice || 0) + Number(p.stockFactory || 0))), 0);
+                    const rawPurchases = (purchaseOrders || []).filter(po => (po.status || '').toLowerCase() !== 'cancelled').reduce((s, po) => s + (Number(po.totalAmount) || Number((po as any).total) || 0), 0);
+                    const cogsFromStock = Math.max(0, rawPurchases - closingStockVal);
+                    liveBal = Math.max(baseCogs, cogsFromStock, poExpenses, (acc.openingBalance || 0) + journalExpDelta);
                 } else {
                     const matching = (transactions || [])
                         .filter(t => t.type === 'EXPENSE' && !isPrjTx(t) && (
@@ -406,33 +435,58 @@ export const ChartOfAccountsManager: React.FC = () => {
             } else if (acc.classification === 'Equity') {
                 const isRetainedEarnings = (
                     acc.id === 'coa-3020' ||
-                    acc.code === '3020' ||
-                    acc.code === '3050' ||
-                    acc.code === '3100' ||
-                    nameLower.includes('retained earning') ||
-                    nameBn.includes('সংরক্ষিত আয়')
+                    nameLower.includes('retained') ||
+                    nameBn.includes('সংরক্ষিত')
+                );
+                const isDrawings = (
+                    acc.normalBalance === 'Debit' ||
+                    nameLower.includes('drawing') ||
+                    nameBn.includes('উত্তোলন')
                 );
 
-                let journalEquityDelta = 0;
-                (journalEntries || []).forEach(j => {
-                    if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC') return;
-                    if (j.refNo && (transactions || []).some(t => t.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim())) return;
-                    const isDebit = (
-                        j.debitAccountId === acc.id ||
-                        j.debitAccountId === acc.code ||
-                        (j.debitAccountName && j.debitAccountName.toLowerCase().trim() === nameLower)
-                    );
-                    const isCredit = (
-                        j.creditAccountId === acc.id ||
-                        j.creditAccountId === acc.code ||
-                        (j.creditAccountName && j.creditAccountName.toLowerCase().trim() === nameLower)
-                    );
-                    const amt = Number(j.amount) || 0;
-                    if (isCredit && !isDebit) journalEquityDelta += amt;
-                    else if (isDebit && !isCredit) journalEquityDelta -= amt;
-                });
+                if (isDrawings) {
+                    let journalDrawingsDelta = 0;
+                    (journalEntries || []).forEach(j => {
+                        if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC') return;
+                        const isDebit = (
+                            j.debitAccountId === acc.id ||
+                            j.debitAccountId === acc.code ||
+                            (j.debitAccountName && j.debitAccountName.toLowerCase().trim() === nameLower)
+                        );
+                        const isCredit = (
+                            j.creditAccountId === acc.id ||
+                            j.creditAccountId === acc.code ||
+                            (j.creditAccountName && j.creditAccountName.toLowerCase().trim() === nameLower)
+                        );
+                        const amt = Number(j.amount) || 0;
+                        if (isDebit && !isCredit) journalDrawingsDelta += amt;
+                        else if (isCredit && !isDebit) journalDrawingsDelta -= amt;
+                    });
+                    const txDrawings = (transactions || [])
+                        .filter(t => t.type === 'EXPENSE' && ((t.category || '').toLowerCase().includes('drawing') || (t.description || '').toLowerCase().includes('drawing') || (t.accountHead || '').toLowerCase().includes('drawing')))
+                        .reduce((s, t) => s + t.amount, 0);
+                    liveBal = Math.max(0, (acc.openingBalance || 0) + journalDrawingsDelta + txDrawings);
+                } else {
+                    let journalEquityDelta = 0;
+                    (journalEntries || []).forEach(j => {
+                        if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC') return;
+                        if (j.refNo && (transactions || []).some(t => t.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim())) return;
+                        const isDebit = (
+                            j.debitAccountId === acc.id ||
+                            j.debitAccountId === acc.code ||
+                            (j.debitAccountName && j.debitAccountName.toLowerCase().trim() === nameLower)
+                        );
+                        const isCredit = (
+                            j.creditAccountId === acc.id ||
+                            j.creditAccountId === acc.code ||
+                            (j.creditAccountName && j.creditAccountName.toLowerCase().trim() === nameLower)
+                        );
+                        const amt = Number(j.amount) || 0;
+                        if (isCredit && !isDebit) journalEquityDelta += amt;
+                        else if (isDebit && !isCredit) journalEquityDelta -= amt;
+                    });
 
-                if (isRetainedEarnings) {
+                    if (isRetainedEarnings) {
                     const directIncomes = (transactions || [])
                         .filter(t => t.type === 'INCOME' && 
                             !isInvoiceTransaction(t) && 
@@ -487,9 +541,10 @@ export const ChartOfAccountsManager: React.FC = () => {
                     const netOperatingProfit = totalOperationalRevenue - totalOperationalExpenses;
                     liveBal = (acc.openingBalance || 0) + netOperatingProfit + journalEquityDelta;
                 } else {
-                    liveBal = (acc.openingBalance || 0) + (acc.currentBalance > (acc.openingBalance || 0) ? (acc.currentBalance - (acc.openingBalance || 0)) : 0) + journalEquityDelta;
+                    liveBal = Math.max(0, (acc.openingBalance || 0) + journalEquityDelta);
                 }
             }
+        }
 
             return {
                 ...acc,
@@ -514,8 +569,14 @@ export const ChartOfAccountsManager: React.FC = () => {
                 totalAssets += acc.currentBalance;
             else if (acc.classification === 'Liability')
                 totalLiabilities += acc.currentBalance;
-            else if (acc.classification === 'Equity')
-                totalEquity += acc.currentBalance;
+            else if (acc.classification === 'Equity') {
+                const isContra = acc.normalBalance === 'Debit' || acc.code === '3002' || (acc.name || '').toLowerCase().includes('drawing') || (acc.nameBn || '').includes('উত্তোলন');
+                if (isContra) {
+                    totalEquity -= acc.currentBalance;
+                } else {
+                    totalEquity += acc.currentBalance;
+                }
+            }
             else if (acc.classification === 'Revenue') {
                 totalRevenue += acc.currentBalance;
                 const isPrj = (

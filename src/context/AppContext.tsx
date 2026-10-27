@@ -1054,7 +1054,12 @@ export const AppProvider: React.FC<{
         let revAcc = chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4002' || a.code === '4051' || a.code === '4060' || a.id === 'coa-4002' || a.id === 'coa-4051' || a.name.toLowerCase().includes('project')));
         let expAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5206' || a.id === 'coa-5206' || a.name.toLowerCase().includes('project'))) ||
                        chartOfAccounts.find(a => a.classification === 'Expense' && a.code === '5100' && a.name.toLowerCase().includes('project'));
-        const cogsAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5010' || a.name.toLowerCase().includes('raw') || a.name.toLowerCase().includes('cost')));
+        const cogsAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (
+            a.code === '5010' || a.code === '5001' || a.id === 'coa-5010' || a.id === 'coa-5001' ||
+            a.name.toLowerCase().includes('cost of goods') || a.name.toLowerCase().includes('cogs') ||
+            a.nameBn?.includes('বিক্রিত পণ্যের ব্যয়') ||
+            (a.name.toLowerCase().includes('raw') && a.classification === 'Expense')
+        ));
 
         // Auto-provision 5206 Project Expense if missing from Chart of Accounts
         if (!expAcc) {
@@ -1162,6 +1167,44 @@ export const AppProvider: React.FC<{
             return;
         }
 
+        // Auto-provision 5010 Cost of Goods Sold if missing
+        if (!cogsAcc) {
+            const newCogsAcc: ChartOfAccount = {
+                id: 'coa-5010',
+                code: '5010',
+                name: 'Cost of Goods Sold - Raw Materials & Inks',
+                nameBn: 'বিক্রিত পণ্যের ব্যয় (কাঁচামাল ও কালি)',
+                classification: 'Expense',
+                accountGroup: 'Direct Expenses / COGS',
+                normalBalance: 'Debit',
+                openingBalance: 0,
+                currentBalance: 0,
+                description: 'Direct materials consumed in printing, signage production, and gift branding',
+                isSystem: true,
+                isActive: true,
+            };
+            const withCogs = [...chartOfAccounts, newCogsAcc];
+            setChartOfAccounts(withCogs);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(withCogs));
+            } catch {}
+            latestStateRef.current = { ...latestStateRef.current, chartOfAccounts: withCogs };
+            triggerImmediatePush();
+            return;
+        }
+
+        // If coa-3002 was auto-provisioned, clean it up so user has full control to create it themselves
+        if (chartOfAccounts.some(a => a.id === 'coa-3002')) {
+            const cleaned = chartOfAccounts.filter(a => a.id !== 'coa-3002');
+            setChartOfAccounts(cleaned);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(cleaned));
+            } catch {}
+            latestStateRef.current = { ...latestStateRef.current, chartOfAccounts: cleaned };
+            triggerImmediatePush();
+            return;
+        }
+
         let coaNeedsUpdate = false;
         const updatedCOA = chartOfAccounts.map(acc => {
             // Auto-fix duplicate 5202 code for Client Hospitality, Tea & Snacks to standard 5204
@@ -1238,7 +1281,11 @@ export const AppProvider: React.FC<{
                     else if (isCredit && !isDebit) journalCogsDelta -= (Number(j.amount) || 0);
                 });
 
-                const targetCogsBal = Math.max(0, (acc.openingBalance || 0) + poExpenses + journalCogsDelta);
+                const closingStockVal = (products || []).reduce((sum, p) => sum + ((Number(p.costPrice) || 0) * (Number(p.stockOffice || 0) + Number(p.stockFactory || 0))), 0);
+                const rawPurchases = (purchaseOrders || []).filter(po => (po.status || '').toLowerCase() !== 'cancelled').reduce((s, po) => s + (Number(po.totalAmount) || Number((po as any).total) || 0), 0);
+                const cogsFromStock = Math.max(0, rawPurchases - closingStockVal);
+
+                const targetCogsBal = Math.max(0, (acc.openingBalance || 0) + cogsFromStock + poExpenses + journalCogsDelta);
                 if (acc.currentBalance !== targetCogsBal) {
                     coaNeedsUpdate = true;
                     return { ...acc, currentBalance: targetCogsBal };
@@ -1264,7 +1311,16 @@ export const AppProvider: React.FC<{
                 acc.nameBn?.includes('প্রজেক্ট')
             );
             if (isProjectRev) {
-                const targetRevBal = (acc.openingBalance || 0) + totalPrjSales;
+                const prjTxSales = (transactions || [])
+                    .filter(t => t.type === 'INCOME' && !isDueReceivableTransaction(t) && !isAdvanceDepositTransaction(t) && !isAdvanceAdjustmentTransaction(t) && (
+                        isProjectTransaction(t) || 
+                        (t.category && t.category.toLowerCase().includes('project')) ||
+                        (t.accountHead && t.accountHead.toLowerCase().includes('project')) ||
+                        (t.refNo && (t.refNo.toUpperCase().startsWith('PRJ-') || (projects || []).some(p => p.code === t.refNo)))
+                    ))
+                    .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+                const targetRevBal = (acc.openingBalance || 0) + Math.max(totalPrjSales, prjTxSales);
                 if (acc.currentBalance !== targetRevBal) {
                     coaNeedsUpdate = true;
                     return { ...acc, currentBalance: targetRevBal };
@@ -8375,9 +8431,9 @@ export const AppProvider: React.FC<{
             }
         });
 
-        const mfsData = getMfsAccountsBreakdown(chartOfAccounts, transactions, invoices, projects);
-        const bankData = getBankAccountsBreakdown(chartOfAccounts, transactions, invoices, projects);
-        const cashData = getCashAccountsBreakdown(chartOfAccounts, transactions, invoices, projects);
+        const mfsData = getMfsAccountsBreakdown(chartOfAccounts, transactions, invoices, projects, journalEntries);
+        const bankData = getBankAccountsBreakdown(chartOfAccounts, transactions, invoices, projects, journalEntries);
+        const cashData = getCashAccountsBreakdown(chartOfAccounts, transactions, invoices, projects, journalEntries);
         const dynamicBankTotal = bankData.reduce((acc, b) => acc + b.balance, 0);
 
         return {
@@ -8389,7 +8445,7 @@ export const AppProvider: React.FC<{
             nagad: mfsData.nagad,
             bankBreakdown: bankData,
         };
-    }, [transactions, chartOfAccounts, profile.bankName, invoices, projects]);
+    }, [transactions, chartOfAccounts, profile.bankName, invoices, projects, journalEntries]);
     return (<AppContext.Provider value={{
             profile,
             products,

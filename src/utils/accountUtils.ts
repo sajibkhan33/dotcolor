@@ -423,19 +423,20 @@ export const getPaymentMethodLiveBalance = (
     // 1. If it's a specific cash method, calculate cash
     if (pm.type === 'cash') {
         if (pmName.includes('factory')) {
+            const factoryAcc = (chartOfAccounts || []).find(a => a.classification === 'Asset' && (a.code === '1020' || a.name.toLowerCase().includes('factory')));
+            if (factoryAcc) return calculateSingleAccountBalance(factoryAcc, transactions, invoices, projects, journalEntries);
             return accountBalances?.factoryCash || 0;
         }
-        let cashAmt = 0;
-        let hasDirectTx = false;
-        (transactions || []).forEach((tx) => {
-            const pAcc = (tx.paymentAccount || tx.account || tx.accountHead || tx.paymentMethod || '').toLowerCase().trim();
-            if (pAcc === 'cash' || pAcc === pmName || pAcc.includes('cash counter') || pAcc.includes('in hand')) {
-                hasDirectTx = true;
-                if (tx.type === 'INCOME') cashAmt += tx.amount;
-                else if (tx.type === 'EXPENSE') cashAmt -= tx.amount;
+        const cashAcc = (chartOfAccounts || []).find(a => 
+            a.classification === 'Asset' && 
+            (a.code === '1001' || a.code === '1010' || a.name.toLowerCase().includes('cash in hand') || a.name.toLowerCase() === 'cash' || (a.nameBn && a.nameBn.includes('ক্যাশ')))
+        );
+        if (cashAcc) {
+            const liveCash = calculateSingleAccountBalance(cashAcc, transactions, invoices, projects, journalEntries);
+            if (liveCash > 0 || (transactions || []).length > 0 || (journalEntries || []).length > 0) {
+                return liveCash;
             }
-        });
-        if (hasDirectTx) return Math.max(0, cashAmt);
+        }
         return Math.max(0, (accountBalances?.cash || 0) + (accountBalances?.factoryCash || 0));
     }
 

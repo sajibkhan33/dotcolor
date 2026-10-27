@@ -1,13 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { AccountType, TransactionType } from '../types';
-import { Wallet, Building, Smartphone, TrendingUp, TrendingDown, Plus, ArrowUpRight, ArrowDownLeft, Search, Filter, DollarSign, Calendar, Layers, FileSpreadsheet, Printer, SlidersHorizontal, RefreshCw, BookOpen, Trash2, Edit2, Eye, AlertCircle, Briefcase, FolderKanban, Receipt, CheckCircle2 } from 'lucide-react';
+import { Wallet, Building, Smartphone, TrendingUp, TrendingDown, Plus, ArrowUpRight, ArrowDownLeft, Search, Filter, DollarSign, Calendar, Layers, FileSpreadsheet, Printer, SlidersHorizontal, RefreshCw, BookOpen, Trash2, Edit2, Eye, AlertCircle, Briefcase, FolderKanban, Receipt, CheckCircle2, CreditCard } from 'lucide-react';
 import { exportAccountingToExcel } from '../utils/exportUtils';
 import { ReportPrintModal } from './ReportPrintModal';
 import { ChartOfAccountsManager } from './ChartOfAccountsManager';
 import { ExpenseHeadManager } from './ExpenseHeadManager';
 import { JournalEntriesManager } from './JournalEntriesManager';
-import { getBankAccountsBreakdown, getMfsAccountsBreakdown, getPaymentMethodLiveBalance, calculateSingleAccountBalance, isAdvanceAdjustmentTransaction, isDueReceivableTransaction, resolveExpenseAccount, matchChannelToAccount } from '../utils/accountUtils';
+import { getBankAccountsBreakdown, getMfsAccountsBreakdown, getPaymentMethodLiveBalance, calculateSingleAccountBalance, isAdvanceAdjustmentTransaction, isDueReceivableTransaction, resolveExpenseAccount, matchChannelToAccount, isSupplierPaymentTransaction } from '../utils/accountUtils';
 export const AccountingModule: React.FC = () => {
     const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, invoices = [], paymentMethods = [], customers = [], updateCustomer, addTransaction, updateTransaction, deleteTransaction, projects = [], addProjectExpense, addProject, addProjectSales, collectProjectDue, generateInvoiceForProject, checkPermission, activeStaff, addJournalEntry } = useApp();
 
@@ -32,8 +32,8 @@ export const AccountingModule: React.FC = () => {
     };
 
     const mfsInfo = useMemo(() => {
-        return getMfsAccountsBreakdown(chartOfAccounts, transactions, invoices);
-    }, [chartOfAccounts, transactions, invoices]);
+        return getMfsAccountsBreakdown(chartOfAccounts, transactions, invoices, projects, journalEntries);
+    }, [chartOfAccounts, transactions, invoices, projects, journalEntries]);
 
     const bankInfo = useMemo(() => {
         return getBankAccountsBreakdown(chartOfAccounts, transactions, invoices, projects, journalEntries);
@@ -81,7 +81,7 @@ export const AccountingModule: React.FC = () => {
                     seen.add('ফ্যাক্টরি ক্যাশ');
                     seen.add('factory cash in hand');
                 }
-                const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances, projects);
+                const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances, projects, journalEntries);
                 list.push({
                     id: pm.id,
                     name: pm.name,
@@ -518,7 +518,13 @@ export const AccountingModule: React.FC = () => {
     const totalFunds = accountBalances.cash + accountBalances.bank + accountBalances.mobile;
     // Filtered transactions
     const filteredTransactions = transactions.filter((tx) => {
-        const matchType = filterType === 'ALL' ? true : tx.type === filterType;
+        const matchType = filterType === 'ALL' 
+            ? true 
+            : filterType === 'PAYMENT'
+                ? (tx.type === 'EXPENSE' && isSupplierPaymentTransaction(tx))
+                : filterType === 'EXPENSE'
+                    ? (tx.type === 'EXPENSE' && !isSupplierPaymentTransaction(tx))
+                    : tx.type === filterType;
         const txAcct = (tx.paymentAccount || tx.account || tx.accountHead || tx.paymentMethod || '').toLowerCase();
         const fAcct = filterAccount.toLowerCase();
         const matchAccount = filterAccount === 'ALL' ? true : (
@@ -564,10 +570,46 @@ export const AccountingModule: React.FC = () => {
         .reduce((acc, tx) => acc + tx.amount, 0);
 
     const totalIncome = txIncome + unrecordedInvoiceIncome;
-    const totalExpense = filteredTransactions
-        .filter((tx) => tx.type === 'EXPENSE')
+
+    // Supplier & Product Payments (Procurement Outflow - Assets/Payables settlement until journaled to expense)
+    const totalSupplierPayments = filteredTransactions
+        .filter((tx) => tx.type === 'EXPENSE' && isSupplierPaymentTransaction(tx))
         .reduce((acc, tx) => acc + tx.amount, 0);
-    const netOperatingBalance = totalIncome - totalExpense;
+
+    // Direct Operating Expenses (Office rent, utilities, overheads)
+    const directOperatingExpenses = filteredTransactions
+        .filter((tx) => tx.type === 'EXPENSE' && !isSupplierPaymentTransaction(tx))
+        .reduce((acc, tx) => acc + tx.amount, 0);
+
+    // Journal Voucher adjustments that merged/recognized expenses (e.g. raw materials consumed -> COGS)
+    let journalExpenseDelta = 0;
+    (journalEntries || []).forEach((j) => {
+        if (
+            j.source === 'PROJECT_EXPENSE' || 
+            j.source === 'EXPENSE' || 
+            j.source === 'SALES' || 
+            j.source === 'PURCHASE' || 
+            j.source === 'LEDGER_SYNC'
+        ) return;
+        const jRef = (j.refNo || '').toLowerCase().trim();
+        if (jRef && recordedInvoiceRefs.has(jRef)) return;
+        const matchDate = (!startDate || j.date >= startDate) && (!endDate || j.date <= endDate);
+        if (!matchDate) return;
+
+        const debitAcc = (chartOfAccounts || []).find(a => 
+            a.id === j.debitAccountId || 
+            a.code === j.debitAccountId || 
+            (a.name && a.name.toLowerCase().trim() === (j.debitAccountName || '').toLowerCase().trim())
+        );
+        if (debitAcc && debitAcc.classification === 'Expense') {
+            journalExpenseDelta += Number(j.amount) || 0;
+        }
+    });
+
+    const totalOperatingExpense = directOperatingExpenses + journalExpenseDelta;
+    const totalOutflow = totalSupplierPayments + directOperatingExpenses;
+    const totalExpense = totalOperatingExpense;
+    const netOperatingBalance = totalIncome - totalOutflow;
     const dateRangeLabel = startDate && endDate
         ? `${startDate} to ${endDate}`
         : startDate
@@ -578,7 +620,7 @@ export const AccountingModule: React.FC = () => {
     const handleExcelExport = () => {
         exportAccountingToExcel(filteredTransactions, profile, dateRangeLabel, {
             income: totalIncome,
-            expense: totalExpense,
+            expense: totalOutflow,
             net: netOperatingBalance,
         });
     };
@@ -944,7 +986,7 @@ export const AccountingModule: React.FC = () => {
       </div>
 
       {/* P&L Performance Banner */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs grid grid-cols-1 sm:grid-cols-3 gap-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
             <ArrowDownLeft className="w-5 h-5"/>
@@ -957,6 +999,28 @@ export const AccountingModule: React.FC = () => {
               +{profile.currencySymbol}
               {totalIncome.toLocaleString()}
             </div>
+            <span className="text-[10px] text-slate-400">Sales & Due Collections</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 pt-3 sm:pt-0 sm:pl-4">
+          <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+            <CreditCard className="w-5 h-5"/>
+          </div>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-slate-500 font-semibold">
+                {'Supplier & Product Payments'}
+              </span>
+              <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-1.5 py-0.2 rounded">
+                Payment
+              </span>
+            </div>
+            <div className="text-lg font-black text-blue-600">
+              -{profile.currencySymbol}
+              {totalSupplierPayments.toLocaleString()}
+            </div>
+            <span className="text-[10px] text-slate-400">Awaiting JV Expense Merge</span>
           </div>
         </div>
 
@@ -966,12 +1030,13 @@ export const AccountingModule: React.FC = () => {
           </div>
           <div>
             <span className="text-xs text-slate-500 font-semibold">
-              {'Total Outflow / Expense'}
+              {'Operating Expenses'}
             </span>
             <div className="text-lg font-black text-rose-600">
               -{profile.currencySymbol}
-              {totalExpense.toLocaleString()}
+              {totalOperatingExpense.toLocaleString()}
             </div>
+            <span className="text-[10px] text-slate-400">Office & Direct Expenses</span>
           </div>
         </div>
 
@@ -987,6 +1052,7 @@ export const AccountingModule: React.FC = () => {
               {profile.currencySymbol}
               {netOperatingBalance.toLocaleString()}
             </div>
+            <span className="text-[10px] text-slate-400">Total Outflow: -{profile.currencySymbol}{totalOutflow.toLocaleString()}</span>
           </div>
         </div>
       </div>
@@ -1116,6 +1182,7 @@ export const AccountingModule: React.FC = () => {
               <option value="ALL">{'All Types'}</option>
               <option value="INCOME">Income</option>
               <option value="EXPENSE">Expense</option>
+              <option value="PAYMENT">Supplier / PO Payment</option>
               <option value="TRANSFER">Transfer</option>
             </select>
 
@@ -1197,21 +1264,33 @@ export const AccountingModule: React.FC = () => {
                   </td>
                   <td className="py-3 px-4 font-medium text-slate-700">{tx.paymentAccount || tx.account || tx.accountHead || 'Cash in Hand'}</td>
                   <td className="py-3 px-4 text-center">
-                    <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${tx.type === 'INCOME'
-                    ? 'bg-emerald-100 text-emerald-800'
-                    : tx.type === 'EXPENSE'
-                        ? 'bg-rose-100 text-rose-800'
-                        : 'bg-blue-100 text-blue-800'}`}>
-                      {tx.type}
-                    </span>
+                    {tx.type === 'INCOME' ? (
+                      <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800">
+                        INCOME
+                      </span>
+                    ) : isSupplierPaymentTransaction(tx) ? (
+                      <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-100 text-blue-800" title="Supplier / Product Payment (Awaiting JV Expense Merge)">
+                        PAYMENT
+                      </span>
+                    ) : tx.type === 'EXPENSE' ? (
+                      <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 text-rose-800">
+                        EXPENSE
+                      </span>
+                    ) : (
+                      <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-100 text-blue-800">
+                        {tx.type}
+                      </span>
+                    )}
                   </td>
                   <td className="py-3 px-4 text-right">
                     <span className={`font-black text-sm ${tx.type === 'INCOME'
                     ? 'text-emerald-700'
-                    : tx.type === 'EXPENSE'
-                        ? 'text-rose-600'
-                        : 'text-slate-900'}`}>
-                      {tx.type === 'INCOME' ? '+' : tx.type === 'EXPENSE' ? '-' : ''}
+                    : isSupplierPaymentTransaction(tx)
+                        ? 'text-blue-700'
+                        : tx.type === 'EXPENSE'
+                            ? 'text-rose-600'
+                            : 'text-slate-900'}`}>
+                      {tx.type === 'INCOME' ? '+' : '-'}
                       {profile.currencySymbol}
                       {tx.amount.toLocaleString()}
                     </span>

@@ -161,12 +161,12 @@ export const SupplyChainModule: React.FC = () => {
             (p) => p.name.toLowerCase().trim() === lower || p.id.toLowerCase().trim() === lower
         );
         if (matchedPm) {
-            return getPaymentMethodLiveBalance(matchedPm, chartOfAccounts, transactions, invoices, accountBalances);
+            return getPaymentMethodLiveBalance(matchedPm, chartOfAccounts, transactions, invoices, accountBalances, [], journalEntries);
         }
         // 2. Match directly with Chart of Accounts
         const coaAcc = matchChannelToAccount(accountOrMethodName, chartOfAccounts, activePaymentMethods);
         if (coaAcc) {
-            return calculateSingleAccountBalance(coaAcc, transactions, invoices);
+            return calculateSingleAccountBalance(coaAcc, transactions, invoices, [], journalEntries);
         }
         // 3. Fallbacks based on keyword
         if (lower.includes('bank') || lower.includes('city') || lower.includes('southeast') || lower.includes('brac')) {
@@ -1116,7 +1116,7 @@ export const SupplyChainModule: React.FC = () => {
                     </label>
                     <select value={poPaymentMethod} onChange={(e) => setPoPaymentMethod(e.target.value)} className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold">
                       {activePaymentMethods.map((pm) => {
-                        const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances);
+                        const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances, [], journalEntries);
                         return (
                           <option key={pm.id} value={pm.name}>
                             {pm.type === 'bank' ? '🏦' : pm.type === 'mfs' ? '📱' : '💵'} {pm.name} {pm.accountNumber ? `(${pm.accountNumber})` : ''} — [{profile.currencySymbol}{bal.toLocaleString()}]
@@ -1691,7 +1691,7 @@ export const SupplyChainModule: React.FC = () => {
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-2">
                     {activePaymentMethods.map((pm) => {
                       const isSelected = supplierPayAccount.toLowerCase().trim() === pm.name.toLowerCase().trim();
-                      const liveBal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances);
+                      const liveBal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances, [], journalEntries);
                       const isBank = pm.type === 'bank';
                       const isMfs = pm.type === 'mfs';
                       const isCash = pm.type === 'cash';
@@ -1731,7 +1731,7 @@ export const SupplyChainModule: React.FC = () => {
                   >
                     <optgroup label="Active Payment Methods">
                       {activePaymentMethods.map((pm) => {
-                        const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances);
+                        const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances, [], journalEntries);
                         return (
                           <option key={pm.id} value={pm.name}>
                             {pm.type === 'bank' ? '🏦' : pm.type === 'mfs' ? '📱' : '💵'} {pm.name} {pm.accountNumber ? `(${pm.accountNumber})` : ''} — [{profile.currencySymbol}{bal.toLocaleString()}]
@@ -1921,7 +1921,7 @@ export const SupplyChainModule: React.FC = () => {
                     {activePaymentMethods.map((pm) => {
                       const isSelected = poPayAccount.toLowerCase().trim() === pm.name.toLowerCase().trim() ||
                                          poPayMethod.toLowerCase().trim() === pm.name.toLowerCase().trim();
-                      const liveBal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances);
+                      const liveBal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances, [], journalEntries);
                       const isBank = pm.type === 'bank';
                       const isMfs = pm.type === 'mfs';
                       const isCash = pm.type === 'cash';
@@ -1973,7 +1973,7 @@ export const SupplyChainModule: React.FC = () => {
                       className="w-full px-2.5 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-hidden bg-white"
                     >
                       {activePaymentMethods.map((pm) => {
-                        const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances);
+                        const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances, [], journalEntries);
                         return (
                           <option key={pm.id} value={pm.name}>
                             {pm.type === 'bank' ? '🏦' : pm.type === 'mfs' ? '📱' : '💵'} {pm.name} {pm.accountNumber ? `(${pm.accountNumber})` : ''} — [{profile.currencySymbol}{bal.toLocaleString()}]
@@ -2001,7 +2001,7 @@ export const SupplyChainModule: React.FC = () => {
                     >
                       <optgroup label="Active Payment Methods">
                         {activePaymentMethods.map((pm) => {
-                          const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances);
+                          const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances, [], journalEntries);
                           return (
                             <option key={pm.id} value={pm.name}>
                               {pm.type === 'bank' ? '🏦' : pm.type === 'mfs' ? '📱' : '💵'} {pm.name} — [{profile.currencySymbol}{bal.toLocaleString()}]
@@ -2012,7 +2012,7 @@ export const SupplyChainModule: React.FC = () => {
                       {chartOfAccounts.filter((a) => a.classification === 'Asset').length > 0 && (
                         <optgroup label="Chart of Accounts (Assets)">
                           {chartOfAccounts.filter((a) => a.classification === 'Asset').map((acc) => {
-                            const bal = calculateSingleAccountBalance(acc, transactions, invoices);
+                            const bal = calculateSingleAccountBalance(acc, transactions, invoices, [], journalEntries);
                             return (
                               <option key={acc.id} value={acc.name}>
                                 #{acc.code} {acc.name} — [{profile.currencySymbol}{bal.toLocaleString()}]

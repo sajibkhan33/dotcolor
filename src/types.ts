@@ -64,6 +64,7 @@ export interface CompanyProfile {
   currency: string;
   currencySymbol: string;
   vatTaxNumber?: string;
+  incomeTaxRate?: number; // Corporate Income Tax Rate % for IFRS P&L (default: 0)
   tradeLicense?: string;
   website?: string;
   logoUrl?: string;
