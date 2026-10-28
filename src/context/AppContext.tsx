@@ -297,7 +297,7 @@ const ensureUniqueJournalEntries = (list: JournalEntry[]): JournalEntry[] => {
 };
 export const sanitizeUserRoles = (list: UserRole[]): UserRole[] => {
     if (!Array.isArray(list) || list.length === 0) {
-        return [];
+        return INITIAL_USER_ROLES;
     }
 
     const isSuper = (r: UserRole) =>
@@ -312,7 +312,7 @@ export const sanitizeUserRoles = (list: UserRole[]): UserRole[] => {
     const canonicalSuperAdmin: UserRole = {
         id: 'role-superadmin',
         name: 'Super Admin',
-        nameBn: existingSuper?.nameBn || '',
+        nameBn: existingSuper?.nameBn || 'সুপার এডমিন',
         description: existingSuper?.description?.trim() || 'Full root administrative access to all modules, financial ledgers, system settings and user controls.',
         isSystem: true,
         permissions: ALL_SYSTEM_PERMISSIONS.map((p) => p.code),
@@ -323,6 +323,9 @@ export const sanitizeUserRoles = (list: UserRole[]): UserRole[] => {
         'SALES_VIEW_LIST': 'sales.view',
         'INVENTORY_VIEW_LIST': 'inventory.view',
     };
+
+    const initialRoleMap = new Map<string, UserRole>();
+    (INITIAL_USER_ROLES || []).forEach(r => initialRoleMap.set(r.id, r));
 
     const seenIds = new Set<string>(['role-superadmin']);
     const nonSuperRoles: UserRole[] = [];
@@ -337,10 +340,31 @@ export const sanitizeUserRoles = (list: UserRole[]): UserRole[] => {
                 )
             );
 
+            // For default system roles, ensure all 7 core modules view permissions are present and settings.* is stripped
+            const defaultSysRole = initialRoleMap.get(role.id);
+            if (defaultSysRole && role.isSystem) {
+                const coreViewPerms = ['pos.view', 'sales.view', 'inventory.view', 'supply.view', 'projects.view', 'accounting.view', 'reports.view'];
+                coreViewPerms.forEach(cp => {
+                    if (defaultSysRole.permissions.includes(cp) && !normalizedPerms.includes(cp)) {
+                        normalizedPerms.push(cp);
+                    }
+                });
+                // Only Super Admin gets settings by default
+                normalizedPerms = normalizedPerms.filter(p => !p.startsWith('settings.'));
+            }
+
             nonSuperRoles.push({
                 ...role,
                 permissions: normalizedPerms,
             });
+        }
+    }
+
+    // Ensure any newly added initial roles are included
+    for (const initRole of INITIAL_USER_ROLES) {
+        if (!seenIds.has(initRole.id)) {
+            seenIds.add(initRole.id);
+            nonSuperRoles.push(initRole);
         }
     }
 
@@ -5131,6 +5155,8 @@ export const AppProvider: React.FC<{
         const roleLower = (activeStaff.role || '').toLowerCase().trim();
         const nameLower = (activeStaff.name || '').toLowerCase().trim();
         const customRole = (activeStaff.customRoleId || '').toLowerCase().trim();
+
+        // 1. Super Admin permanent root access to all modules and configurations
         if (roleLower === 'super admin' ||
             roleLower === 'superadmin' ||
             nameLower === 'super admin' ||
@@ -5138,12 +5164,38 @@ export const AppProvider: React.FC<{
             customRole === 'role-superadmin') {
             return true;
         }
+
         const cleanCode = (permissionCode || '').toLowerCase().trim();
         const checkList = [
             cleanCode,
             cleanCode.replace(/_/g, '.'),
             cleanCode.replace(/\./g, '_'),
         ];
+
+        // 2. Direct per-user module access control (if customized by Super Admin)
+        if (Array.isArray(activeStaff.allowedModules) && activeStaff.allowedModules.length > 0) {
+            const modPrefix = cleanCode.split('.')[0];
+            const isModuleAllowed = activeStaff.allowedModules.includes(modPrefix) ||
+                (modPrefix === 'supply' && activeStaff.allowedModules.includes('supplyChain')) ||
+                (modPrefix === 'pos' && activeStaff.allowedModules.includes('posCounter'));
+
+            if (!isModuleAllowed) {
+                return false;
+            }
+            if (cleanCode.endsWith('.view') || cleanCode === modPrefix) {
+                return true;
+            }
+        }
+
+        // 3. Direct per-user custom permissions override
+        if (Array.isArray(activeStaff.customPermissions) && activeStaff.customPermissions.length > 0) {
+            const userPerms = activeStaff.customPermissions.map((p) => (p || '').toLowerCase().trim());
+            if (checkList.some((code) => userPerms.includes(code))) {
+                return true;
+            }
+        }
+
+        // 4. Role-based permissions
         const role = (userRoles || []).find((r) =>
             (activeStaff.customRoleId && r.id === activeStaff.customRoleId) ||
             r.id === activeStaff.role ||
@@ -5155,6 +5207,23 @@ export const AppProvider: React.FC<{
                 return true;
             }
         }
+
+        // 5. Default access for all roles: The 7 checked core modules view is granted by default
+        // (POS, Sales, Inventory, Supply, Projects, Accounting, Reports)
+        // BUT Settings & Admin (settings.*) is STRICTLY denied unless explicitly granted above!
+        const defaultViewCodes = [
+            'pos.view',
+            'sales.view',
+            'inventory.view',
+            'supply.view',
+            'projects.view',
+            'accounting.view',
+            'reports.view',
+        ];
+        if (defaultViewCodes.includes(cleanCode)) {
+            return true;
+        }
+
         return false;
     };
     // Journal Entries

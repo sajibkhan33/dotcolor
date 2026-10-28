@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { AccountingTransaction, ChartOfAccount, Language, CompanyProfile, } from '../../types';
 import { BookOpen, Calendar, Layers, Search, ArrowDownLeft, ArrowUpRight, Wallet, Building, FolderKanban, TrendingUp, TrendingDown, } from 'lucide-react';
-import { isAdvanceAdjustmentTransaction, isDueReceivableTransaction, getCashAccountsBreakdown, getBankAccountsBreakdown } from '../../utils/accountUtils';
+import { isAdvanceAdjustmentTransaction, isDueReceivableTransaction, getCashAccountsBreakdown, getBankAccountsBreakdown, getMfsAccountsBreakdown } from '../../utils/accountUtils';
 interface FinancialReportsProps {
     reportId: string;
     transactions: AccountingTransaction[];
@@ -124,7 +124,7 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({ reportId, tr
             return raw;
         };
 
-        // Real opening cash and bank balances dynamically from chart of accounts opening balances
+        // Real opening cash, bank, and MFS balances dynamically from chart of accounts opening balances
         const openingCash = (chartOfAccounts || []).filter(acc => 
             acc.classification === 'Asset' && 
             (acc.code === '1001' || acc.code === '1010' || acc.name.toLowerCase().includes('cash in hand') || acc.name.toLowerCase() === 'cash') && 
@@ -134,10 +134,17 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({ reportId, tr
 
         const openingBank = (chartOfAccounts || []).filter(acc => 
             acc.classification === 'Asset' && 
-            ((acc.name || '').toLowerCase().includes('bank') || (acc.name || '').toLowerCase().includes('plc') || (acc.name || '').toLowerCase().includes('bkash') || (acc.name || '').toLowerCase().includes('nagad'))
+            ((acc.name || '').toLowerCase().includes('bank') || (acc.name || '').toLowerCase().includes('plc')) &&
+            !acc.name.toLowerCase().includes('bkash') &&
+            !acc.name.toLowerCase().includes('nagad')
         ).reduce((sum, acc) => sum + (Number(acc.openingBalance) || 0), 0);
 
-        const totalOpening = openingCash + openingBank;
+        const openingMfs = (chartOfAccounts || []).filter(acc => 
+            acc.classification === 'Asset' && 
+            ((acc.name || '').toLowerCase().includes('bkash') || (acc.name || '').toLowerCase().includes('nagad'))
+        ).reduce((sum, acc) => sum + (Number(acc.openingBalance) || 0), 0);
+
+        const totalOpening = openingCash + openingBank + openingMfs;
 
         // Process ledger transactions
         (transactions || []).forEach((tx) => {
@@ -146,8 +153,13 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({ reportId, tr
             if (amt <= 0) return;
 
             if ((tx.type === 'CREDIT' || tx.type === 'INCOME') && !isAdvanceAdjustmentTransaction(tx) && !isDueReceivableTransaction(tx)) {
-                const rawHead = tx.paymentAccount || tx.accountHead || 'Sales Revenue';
+                const rawHead = tx.paymentAccount || tx.account || tx.accountHead || 'Sales Revenue';
                 const head = normLiquidHead(rawHead);
+                const headLower = head.toLowerCase();
+                // Exclude internal non-cash accounting adjustments (e.g. Customer Advance adjustment, Accounts Receivable due booking)
+                if (headLower.includes('customer advance') || headLower.includes('advance adjust') || headLower.includes('receivable')) {
+                    return;
+                }
                 receiptsMap.set(head, (receiptsMap.get(head) || 0) + amt);
             } else if (tx.type === 'DEBIT' || tx.type === 'EXPENSE') {
                 const rawHead = tx.accountHead || tx.category || 'General Expenses';
@@ -158,7 +170,10 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({ reportId, tr
 
         // Include non-synced manual journal entries impacting liquid cash/bank (e.g. Owner Capital Injection)
         (journalEntries || []).forEach(j => {
-            if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC') return;
+            if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC' || j.source === 'RECEIPT') return;
+            if (j.refNo && (transactions || []).some(t => t.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim())) return;
+            const refUpper = `${j.refNo || ''} ${(j as any).reference || ''} ${j.narration || ''}`.toUpperCase();
+            if (refUpper.includes('INV-') || refUpper.includes('DCC-INV-') || refUpper.includes('PO-') || refUpper.includes('DCC-PO-') || refUpper.includes('INC-') || refUpper.includes('EXP-') || refUpper.includes('PRJ-')) return;
             const amt = Number(j.amount) || 0;
             if (amt <= 0) return;
             const dName = (j.debitAccountName || '').toLowerCase();
@@ -184,10 +199,12 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({ reportId, tr
 
         const cashData = getCashAccountsBreakdown(chartOfAccounts, transactions, invoices, projects, journalEntries);
         const bankData = getBankAccountsBreakdown(chartOfAccounts, transactions, invoices, projects, journalEntries);
+        const mfsData = getMfsAccountsBreakdown(chartOfAccounts, transactions, invoices, projects, journalEntries);
 
         const closingCash = cashData.total;
         const closingBank = bankData.reduce((acc, b) => acc + b.balance, 0);
-        const totalClosing = closingCash + closingBank;
+        const closingMfs = mfsData.total;
+        const totalClosing = closingCash + closingBank + closingMfs;
 
         const grandTotalReceipts = totalOpening + totalPeriodReceipts;
         const grandTotalPayments = totalPeriodPayments + totalClosing;
@@ -195,6 +212,7 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({ reportId, tr
         return {
             openingCash,
             openingBank,
+            openingMfs,
             totalOpening,
             receiptsList,
             paymentsList,
@@ -202,6 +220,7 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({ reportId, tr
             totalPeriodPayments,
             closingCash,
             closingBank,
+            closingMfs,
             totalClosing,
             grandTotalReceipts,
             grandTotalPayments,
@@ -448,6 +467,12 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({ reportId, tr
                       <span>• {'Bank Balances'}</span>
                       <span className="font-mono font-bold">{currency} {receiptsAndPaymentsData.openingBank.toLocaleString()}</span>
                     </div>
+                    {receiptsAndPaymentsData.openingMfs > 0 && (
+                      <div className="flex justify-between text-slate-700">
+                        <span>• {'Mobile Wallet Balances (bKash/Nagad)'}</span>
+                        <span className="font-mono font-bold">{currency} {receiptsAndPaymentsData.openingMfs.toLocaleString()}</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-2 pt-2">
@@ -507,6 +532,12 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({ reportId, tr
                       <span>• {'Closing Bank Balance'}</span>
                       <span className="font-mono font-bold">{currency} {receiptsAndPaymentsData.closingBank.toLocaleString()}</span>
                     </div>
+                    {receiptsAndPaymentsData.closingMfs > 0 && (
+                      <div className="flex justify-between text-slate-700">
+                        <span>• {'Closing Mobile Wallet (bKash/Nagad)'}</span>
+                        <span className="font-mono font-bold">{currency} {receiptsAndPaymentsData.closingMfs.toLocaleString()}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

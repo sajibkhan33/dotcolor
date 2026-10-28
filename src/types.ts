@@ -493,6 +493,8 @@ export interface StaffMember {
   customRoleId?: string;
   roleTitle?: string;
   password?: string;
+  allowedModules?: string[];
+  customPermissions?: string[];
 }
 
 export type AuditActionType =

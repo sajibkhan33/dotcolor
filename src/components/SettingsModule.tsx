@@ -95,6 +95,8 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
         password: '',
         customRoleId: '',
         isActive: true,
+        useCustomModules: false,
+        allowedModules: ['pos', 'sales', 'inventory', 'supply', 'projects', 'accounting', 'reports'] as string[],
     });
     // Role modal states
     const [showRoleModal, setShowRoleModal] = useState(false);
@@ -373,6 +375,8 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
             password: '1234',
             customRoleId: defaultRole?.id || '',
             isActive: true,
+            useCustomModules: false,
+            allowedModules: ['pos', 'sales', 'inventory', 'supply', 'projects', 'accounting', 'reports'],
         });
         setShowUserPassword(false);
         setEditingStaff(null);
@@ -380,6 +384,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
     };
     const handleOpenEditUser = (staff: StaffMember) => {
         const matchedRole = userRoles.find((r) => r.id === staff.customRoleId || r.name === staff.role);
+        const hasCustomModules = Array.isArray(staff.allowedModules) && staff.allowedModules.length > 0;
         setUserFormData({
             name: staff.name,
             nameBn: staff.nameBn || '',
@@ -391,6 +396,8 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
             password: isPinHashed(staff.password) ? '' : (staff.password || '1234'),
             customRoleId: matchedRole?.id || staff.customRoleId || userRoles[0]?.id || '',
             isActive: staff.isActive !== false,
+            useCustomModules: hasCustomModules,
+            allowedModules: hasCustomModules ? [...(staff.allowedModules || [])] : ['pos', 'sales', 'inventory', 'supply', 'projects', 'accounting', 'reports'],
         });
         setShowUserPassword(false);
         setEditingStaff(staff);
@@ -415,6 +422,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                 email: userFormData.email.trim(),
                 customRoleId: userFormData.customRoleId || undefined,
                 isActive: userFormData.isActive,
+                allowedModules: userFormData.useCustomModules ? userFormData.allowedModules : undefined,
             };
             if (userFormData.password.trim()) {
                 updates.password = userFormData.password.trim();
@@ -433,6 +441,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                 avatarColor: randomColor,
                 customRoleId: userFormData.customRoleId || undefined,
                 isActive: userFormData.isActive,
+                allowedModules: userFormData.useCustomModules ? userFormData.allowedModules : undefined,
             });
         }
         setUserSaveSuccess(`User "${userFormData.name.trim()}" saved and synced to cloud database successfully!`);
@@ -2481,6 +2490,96 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                         </option>))}
                   </select>)}
               </div>
+
+              {/* Super Admin Direct Module Access Control */}
+              {!(editingStaff && isSuperAdminStaff(editingStaff)) && (
+                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs">
+                        <Shield className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Direct Module Access (মডিউল অ্যাক্সেস নিয়ন্ত্রণ)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        {userFormData.useCustomModules 
+                          ? 'Custom module permissions enabled specifically for this user' 
+                          : 'Currently using standard permissions from the assigned Role'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextState = !userFormData.useCustomModules;
+                        setUserFormData({
+                          ...userFormData,
+                          useCustomModules: nextState,
+                          allowedModules: nextState 
+                            ? (userFormData.allowedModules.length > 0 ? userFormData.allowedModules : ['pos', 'sales', 'inventory', 'supply', 'projects', 'accounting', 'reports'])
+                            : ['pos', 'sales', 'inventory', 'supply', 'projects', 'accounting', 'reports']
+                        });
+                      }}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all shadow-2xs cursor-pointer ${
+                        userFormData.useCustomModules 
+                          ? 'bg-amber-600 hover:bg-amber-700 text-white' 
+                          : 'bg-white hover:bg-slate-100 border border-slate-300 text-slate-700'
+                      }`}
+                    >
+                      {userFormData.useCustomModules ? 'Custom Override Active' : 'Customize Modules'}
+                    </button>
+                  </div>
+
+                  {userFormData.useCustomModules && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200/80">
+                      {[
+                        { id: 'pos', name: 'POS Counter', badge: 'Standard' },
+                        { id: 'sales', name: 'Sales & Orders', badge: 'Standard' },
+                        { id: 'inventory', name: 'Inventory', badge: 'Standard' },
+                        { id: 'supply', name: 'Supply & Purchase', badge: 'Standard' },
+                        { id: 'projects', name: 'Projects', badge: 'Standard' },
+                        { id: 'accounting', name: 'Accounting', badge: 'Standard' },
+                        { id: 'reports', name: 'Reports', badge: 'Standard' },
+                        { id: 'settings', name: 'Settings & Admin', badge: 'Super Admin Only', danger: true },
+                      ].map((m) => {
+                        const isChecked = userFormData.allowedModules.includes(m.id);
+                        return (
+                          <label
+                            key={m.id}
+                            className={`flex items-start gap-2 p-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
+                              isChecked
+                                ? m.danger 
+                                  ? 'bg-amber-50 border-amber-300 text-amber-950' 
+                                  : 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                                : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                const nextModules = checked
+                                  ? [...userFormData.allowedModules, m.id]
+                                  : userFormData.allowedModules.filter((id) => id !== m.id);
+                                setUserFormData({
+                                  ...userFormData,
+                                  allowedModules: nextModules,
+                                });
+                              }}
+                              className="rounded text-amber-600 focus:ring-amber-500 mt-0.5"
+                            />
+                            <div className="flex flex-col min-w-0">
+                              <span className="truncate leading-tight">{m.name}</span>
+                              <span className={`text-[9px] font-black mt-0.5 ${m.danger ? 'text-amber-700' : 'text-slate-400'}`}>
+                                {m.badge}
+                              </span>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>

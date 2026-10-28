@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ChartOfAccount, AccountingTransaction, SalesInvoice, PurchaseOrder, Product, Customer, Language, CompanyProfile, } from '../../types';
 import { Scale, TrendingUp, FileText, DollarSign, CheckCircle2, AlertCircle, Building, ArrowDownRight, ArrowUpRight, Edit2, } from 'lucide-react';
-import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, isSupplierPaymentTransaction, calculateInventoryValuation, isProjectTransaction, isDueReceivableTransaction, isAdvanceDepositTransaction, isAdvanceAdjustmentTransaction } from '../../utils/accountUtils';
+import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, isSupplierPaymentTransaction, calculateInventoryValuation, isProjectTransaction, isDueReceivableTransaction, isAdvanceDepositTransaction, isAdvanceAdjustmentTransaction, doesTransactionMatchExpenseAccount } from '../../utils/accountUtils';
 import { useApp } from '../../context/AppContext';
 interface IFRSStatementsProps {
     reportId: string;
@@ -15,7 +15,7 @@ interface IFRSStatementsProps {
     language: Language;
 }
 export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartOfAccounts, transactions, invoices, purchaseOrders, products, customers, profile, language, }) => {
-    const { updateProfile, journalEntries = [], projects = [] } = useApp();
+    const { updateProfile, journalEntries = [], projects = [], suppliers = [], expenseHeads = [] } = useApp();
     const isBn = language === 'bn';
     const currency = profile.currencySymbol || "Tk";
     const configuredTaxRate = profile.incomeTaxRate !== undefined ? profile.incomeTaxRate : 0;
@@ -152,17 +152,42 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
     const netProfitForThePeriod = netProfitBeforeTax - taxProvision;
     const netMarginPct = netSalesRevenue > 0 ? (netProfitForThePeriod / netSalesRevenue) * 100 : 0;
     // -------------------------------------------------------------
+    // -------------------------------------------------------------
     // 16. TRIAL BALANCE
     // -------------------------------------------------------------
     const trialBalanceAccounts = useMemo(() => {
-        const totalReceivables = calculateTotalCustomerReceivables(invoices, customers, []);
-        const totalPayables = calculateTotalSupplierPayables([], purchaseOrders);
+        const totalReceivables = calculateTotalCustomerReceivables(invoices, customers, projects);
+        const totalPayables = calculateTotalSupplierPayables(suppliers, purchaseOrders);
         const totalAdvances = (customers || []).reduce((sum, c) => sum + (c.advanceBalance || 0), 0);
 
         let cogsAssigned = false;
 
+        const isInvLinkedToProject = (inv: SalesInvoice) => {
+            const invNo = (inv.invoiceNo || '').toLowerCase().trim();
+            return Boolean(
+                inv.projectId ||
+                inv.projectCode ||
+                (projects || []).some(p => p.id === inv.projectId || p.code === inv.projectCode || (p.invoiceNo && p.invoiceNo.toLowerCase().trim() === invNo))
+            );
+        };
+
+        const totalNonProjectInvoiceSales = (invoices || [])
+            .filter(inv => !isInvLinkedToProject(inv))
+            .reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
+
+        const projectInvoicesTotal = (invoices || [])
+            .filter(inv => isInvLinkedToProject(inv))
+            .reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
+
+        const totalProjectSales = Math.max(
+            (projects || []).reduce((s, p) => s + (Number(p.totalSales) || 0), 0),
+            projectInvoicesTotal
+        );
+
+        const totalProjectExpenses = (projects || []).reduce((s, p) => s + (Number(p.totalExpenses) || 0), 0);
+
         const accounts = (chartOfAccounts || []).map((acc) => {
-            const nameLower = (acc.name || '').toLowerCase();
+            const nameLower = (acc.name || '').toLowerCase().trim();
             let debit = 0;
             let credit = 0;
 
@@ -172,10 +197,10 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                 } else if (acc.code === '1002' || acc.code === '1060' || acc.code === '1070' || nameLower.includes('inventory') || nameLower.includes('stock')) {
                     debit = closingStockValuation > 0 ? closingStockValuation : (acc.openingBalance || 0);
                 } else {
-                    debit = calculateSingleAccountBalance(acc, transactions, invoices, [], journalEntries);
+                    debit = calculateSingleAccountBalance(acc, transactions, invoices, projects, journalEntries);
                 }
             } else if (acc.classification === 'Liability') {
-                if (acc.code === '2001' || acc.code === '2010' || nameLower.includes('payable')) {
+                if (acc.code === '2001' || acc.code === '2010' || nameLower.includes('payable') || nameLower.includes('supplier')) {
                     credit = totalPayables > 0 ? totalPayables : (acc.openingBalance || 0);
                 } else if (acc.code === '2002' || acc.code === '2020' || nameLower.includes('advance')) {
                     credit = totalAdvances > 0 ? totalAdvances : (acc.openingBalance || 0);
@@ -184,6 +209,8 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                 }
             } else if (acc.classification === 'Equity') {
                 const isDrawings = acc.normalBalance === 'Debit' || nameLower.includes('drawing') || (acc.nameBn || '').includes('উত্তোলন');
+                const isRetained = acc.code === '3003' || acc.code === '3020' || nameLower.includes('retained');
+
                 if (isDrawings) {
                     let journalDrawingsDelta = 0;
                     (journalEntries || []).forEach(j => {
@@ -196,8 +223,12 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                     });
                     const txDrawings = (transactions || [])
                         .filter(t => t.type === 'EXPENSE' && ((t.category || '').toLowerCase().includes('drawing') || (t.description || '').toLowerCase().includes('drawing') || (t.accountHead || '').toLowerCase().includes('drawing')))
-                        .reduce((s, t) => s + t.amount, 0);
+                        .reduce((s, t) => s + (Number(t.amount) || 0), 0);
                     debit = Math.max(0, (acc.openingBalance || 0) + journalDrawingsDelta + txDrawings);
+                } else if (isRetained) {
+                    // In a pre-closing Trial Balance, Retained Earnings is strictly opening/prior retained earnings.
+                    // Current period net profit is already fully accounted for in Revenue credits minus Expense debits.
+                    credit = Math.max(0, acc.openingBalance || 0);
                 } else {
                     let journalEquityDelta = 0;
                     (journalEntries || []).forEach(j => {
@@ -212,12 +243,8 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                     credit = Math.max(0, (acc.openingBalance || 0) + journalEquityDelta);
                 }
             } else if (acc.classification === 'Revenue') {
-                const isPrj = acc.code === '4002' || acc.code === '4051' || acc.code === '4060' || nameLower.includes('project') || (acc.nameBn || '').includes('প্রজেক্ট');
+                const isPrj = acc.code === '4002' || acc.code === '4051' || acc.code === '4060' || nameLower.includes('project');
                 if (isPrj) {
-                    const prjInvSales = (invoices || [])
-                        .filter(i => i.projectId || i.projectCode)
-                        .reduce((s, i) => s + (Number(i.grandTotal) || (Number(i.paidAmount) + Number(i.dueAmount)) || 0), 0);
-                    
                     const prjTxSales = (transactions || [])
                         .filter(t => t.type === 'INCOME' && !isDueReceivableTransaction(t) && !isAdvanceDepositTransaction(t) && !isAdvanceAdjustmentTransaction(t) && (
                             isProjectTransaction(t) || 
@@ -227,26 +254,24 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                         ))
                         .reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
-                    let journalPrjDelta = 0;
-                    (journalEntries || []).forEach(j => {
-                        const isCredit = (j.creditAccountId === acc.id || j.creditAccountId === acc.code || (j.creditAccountName && j.creditAccountName.toLowerCase().trim() === nameLower) || (j.creditAccountName && j.creditAccountName.toLowerCase().includes('project')));
-                        const isDebit = (j.debitAccountId === acc.id || j.debitAccountId === acc.code || (j.debitAccountName && j.debitAccountName.toLowerCase().trim() === nameLower) || (j.debitAccountName && j.debitAccountName.toLowerCase().includes('project')));
-                        const amt = Number(j.amount) || 0;
-                        if (isCredit && !isDebit) journalPrjDelta += amt;
-                        else if (isDebit && !isCredit) journalPrjDelta -= amt;
-                    });
-
-                    credit = Math.max(
-                        (acc.openingBalance || 0) + (acc.currentBalance || 0),
-                        (acc.openingBalance || 0) + prjInvSales,
-                        (acc.openingBalance || 0) + prjTxSales,
-                        (acc.openingBalance || 0) + journalPrjDelta
-                    );
+                    credit = (acc.openingBalance || 0) + Math.max(totalProjectSales, prjTxSales, (acc.currentBalance || 0));
                 } else if (acc.code === '4001' || acc.code === '4010' || nameLower.includes('sales')) {
-                    const nonPrjSales = (invoices || [])
-                        .filter(i => !i.projectId && !i.projectCode)
-                        .reduce((s, i) => s + (Number(i.grandTotal) || (Number(i.paidAmount) + Number(i.dueAmount)) || 0), 0);
-                    credit = (acc.openingBalance || 0) + (nonPrjSales > 0 ? nonPrjSales : (acc.currentBalance || 0));
+                    const directMatchingSales = (transactions || [])
+                        .filter(t => 
+                            t.type === 'INCOME' && 
+                            !isProjectTransaction(t) && 
+                            !isDueReceivableTransaction(t) && 
+                            !isAdvanceDepositTransaction(t) && 
+                            !isAdvanceAdjustmentTransaction(t) && 
+                            !(t.category || '').toLowerCase().includes('project') &&
+                            (
+                                (t.category && (nameLower.includes(t.category.toLowerCase()) || t.category.toLowerCase().includes('sales'))) ||
+                                (t.accountHead && (nameLower.includes(t.accountHead.toLowerCase()) || t.accountHead.toLowerCase().includes('sales')))
+                            )
+                        )
+                        .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+                    credit = (acc.openingBalance || 0) + Math.max(totalNonProjectInvoiceSales, directMatchingSales, (acc.currentBalance || 0));
                 } else {
                     credit = (acc.openingBalance || 0) + (acc.currentBalance || 0);
                 }
@@ -260,11 +285,32 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                     nameLower.includes('cogs') ||
                     (acc.nameBn || '').includes('বিক্রিত পণ্যের ব্যয়')
                 );
+                const isProjectExp = (
+                    acc.code === '5206' ||
+                    acc.id === 'coa-5206' ||
+                    nameLower.includes('project')
+                );
+
                 if (isCogs && !cogsAssigned) {
                     cogsAssigned = true;
                     debit = costOfGoodsSold > 0 ? costOfGoodsSold : ((acc.openingBalance || 0) + (acc.currentBalance || 0));
+                } else if (isProjectExp) {
+                    const projectMatching = (transactions || [])
+                        .filter(t => t.type === 'EXPENSE' && (
+                            isProjectTransaction(t) ||
+                            (t.category && t.category.toLowerCase().includes('project')) ||
+                            (t.accountHead && t.accountHead.toLowerCase().includes('project')) ||
+                            (t.refNo && (t.refNo.startsWith('PRJ-') || (projects || []).some(p => p.code === t.refNo)))
+                        ))
+                        .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+                    debit = (acc.openingBalance || 0) + Math.max(projectMatching, totalProjectExpenses, (acc.currentBalance || 0));
                 } else {
-                    debit = (acc.openingBalance || 0) + (acc.currentBalance || 0);
+                    const matching = (transactions || [])
+                        .filter(t => t.type === 'EXPENSE' && !isProjectTransaction(t) && !isSupplierPaymentTransaction(t) && !(t.refNo && (t.refNo.startsWith('PRJ-') || (projects || []).some(p => p.code === t.refNo))) && (
+                            doesTransactionMatchExpenseAccount(t, acc, expenseHeads, chartOfAccounts, journalEntries)
+                        ))
+                        .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+                    debit = Math.max(acc.currentBalance || 0, (acc.openingBalance || 0) + matching);
                 }
             }
 
@@ -290,13 +336,13 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
         }
 
         return accounts;
-    }, [chartOfAccounts, invoices, purchaseOrders, products, customers, transactions, closingStockValuation, costOfGoodsSold, netSalesRevenue, netProfitForThePeriod, journalEntries, projects]);
+    }, [chartOfAccounts, invoices, purchaseOrders, products, customers, transactions, closingStockValuation, costOfGoodsSold, netSalesRevenue, netProfitForThePeriod, journalEntries, projects, suppliers, expenseHeads]);
     // -------------------------------------------------------------
     // 18. IFRS BALANCE SHEET (STATEMENT OF FINANCIAL POSITION)
     // -------------------------------------------------------------
     const balanceSheetData = useMemo(() => {
-        const totalReceivables = calculateTotalCustomerReceivables(invoices, customers, []);
-        const totalPayables = calculateTotalSupplierPayables([], purchaseOrders);
+        const totalReceivables = calculateTotalCustomerReceivables(invoices, customers, projects);
+        const totalPayables = calculateTotalSupplierPayables(suppliers, purchaseOrders);
         const totalAdvances = (customers || []).reduce((sum, c) => sum + (c.advanceBalance || 0), 0);
 
         // ASSETS
@@ -315,7 +361,7 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                 (acc.name || '').toLowerCase().includes('receivable') ||
                 (acc.name || '').toLowerCase().includes('raw material')
             ))
-            .reduce((s, acc) => s + calculateSingleAccountBalance(acc, transactions, invoices, [], journalEntries), 0);
+            .reduce((s, acc) => s + calculateSingleAccountBalance(acc, transactions, invoices, projects, journalEntries), 0);
 
         const currentAssets = [
             { name: 'Inventories at Cost (Raw Materials & Stock)', amount: closingStockValuation },
@@ -421,14 +467,18 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
             totalEquity,
             totalEquityAndLiabilities: totalEquity + totalLiabilities,
         };
-    }, [chartOfAccounts, invoices, purchaseOrders, customers, transactions, closingStockValuation, netProfitForThePeriod, journalEntries]);
+    }, [chartOfAccounts, invoices, purchaseOrders, customers, transactions, closingStockValuation, netProfitForThePeriod, journalEntries, projects, suppliers]);
     // -------------------------------------------------------------
     // 19. STATEMENT OF CASH FLOWS (IAS 7)
     // -------------------------------------------------------------
     const cashFlowData = useMemo(() => {
         // 1. Operating Activities
-        const customerReceiptsFromTx = (transactions || []).filter(t => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0);
-        const cashReceiptsFromCustomers = Math.max(customerReceiptsFromTx, invoices.reduce((s, inv) => s + (inv.paidAmount || 0), 0));
+        const customerReceiptsFromTx = (transactions || [])
+            .filter(t => (t.type === 'INCOME' || t.type === 'CREDIT') && !isAdvanceAdjustmentTransaction(t) && !isDueReceivableTransaction(t))
+            .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+        const cashReceiptsFromCustomers = customerReceiptsFromTx > 0 
+            ? customerReceiptsFromTx 
+            : invoices.reduce((s, inv) => s + (inv.paidAmount || 0), 0);
 
         const supplierPaymentsFromTx = (transactions || []).filter(t => t.type === 'EXPENSE' && isSupplierPaymentTransaction(t)).reduce((s, t) => s + t.amount, 0);
         const cashPaidToSuppliers = Math.max(supplierPaymentsFromTx, purchaseOrders.reduce((s, po) => s + (po.paidAmount || 0), 0));

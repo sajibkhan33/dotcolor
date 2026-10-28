@@ -299,6 +299,9 @@ export const calculateSingleAccountBalance = (
 
                 // Canonical channel key
                 const normChannel = (lk === 'cash' || lk === 'cash in hand' || lk === 'cashinhand') ? 'cash'
+                    : lk.includes('city') ? 'city bank'
+                    : lk.includes('southeast') ? 'southeast bank'
+                    : lk.includes('brac') ? 'brac bank'
                     : (lk === 'card' || lk === 'bank' || lk.includes('bank')) ? 'bank'
                     : lk === 'bkash' ? 'bkash'
                     : lk === 'nagad' ? 'nagad'
@@ -320,9 +323,9 @@ export const calculateSingleAccountBalance = (
                     matchesKey = true;
                 } else if (isNagad && normChannel === 'nagad') {
                     matchesKey = true;
-                } else if (isCity && normChannel.includes('city')) {
+                } else if (isCity && (normChannel.includes('city') || (normChannel === 'bank' && !channelSplitMap.has('city bank')))) {
                     matchesKey = true;
-                } else if (isSoutheast && normChannel.includes('southeast')) {
+                } else if (isSoutheast && (normChannel.includes('southeast') || (normChannel === 'bank' && !channelSplitMap.has('southeast bank')))) {
                     matchesKey = true;
                 } else if (isCash && normChannel === 'cash') {
                     matchesKey = true;
@@ -1186,23 +1189,27 @@ export const calculateTotalCustomerReceivables = (
         });
     }
 
-    // 1. Authoritative customer receivables are strictly the outstanding due amounts on active sales invoices (excluding project-linked invoices)
+    // 1. Authoritative customer receivables are strictly the outstanding due amounts on active sales invoices (excluding project-linked invoices if the project is present)
     const totalInvoiceDue = (invoices || []).filter(inv => {
         const invNo = (inv.invoiceNo || '').toLowerCase().trim();
-        const isLinkedToProject = Boolean(
-            inv.projectId ||
-            inv.projectCode ||
+        const isLinkedToKnownProject = Boolean(
+            (inv.projectId && (projects || []).some((p: any) => p.id === inv.projectId)) ||
+            (inv.projectCode && (projects || []).some((p: any) => p.code === inv.projectCode)) ||
             projectLinkedInvoiceIds.has(inv.id) ||
             (invNo && projectLinkedInvoiceNos.has(invNo))
         );
-        return !isLinkedToProject;
+        return !isLinkedToKnownProject;
     }).reduce((sum, inv) => sum + (Number(inv.dueAmount) || 0), 0);
 
     // 2. Authoritative customer receivables from Project Sales items
     const totalProjectDue = (projects || []).reduce((sum, p: any) => {
         let pDue = 0;
-        if (p.totalDue !== undefined && typeof p.totalDue === 'number' && p.totalDue > 0) {
+        if (p.totalDue !== undefined && Number(p.totalDue) > 0) {
             pDue = Number(p.totalDue);
+        } else if (p.dueAmount !== undefined && Number(p.dueAmount) > 0) {
+            pDue = Number(p.dueAmount);
+        } else if (p.invoiceDue !== undefined && Number(p.invoiceDue) > 0) {
+            pDue = Number(p.invoiceDue);
         } else if (p.salesItems && p.salesItems.length > 0) {
             p.salesItems.forEach((s: any) => {
                 if (s.dueAmount !== undefined) {
@@ -1218,6 +1225,19 @@ export const calculateTotalCustomerReceivables = (
                     pDue += Math.max(0, dueInitial - pastCollections);
                 }
             });
+        }
+        // Fallback: If pDue is still 0, check if any linked invoice has dueAmount
+        if (pDue === 0) {
+            const linkedInvs = (invoices || []).filter(inv => {
+                const invNo = (inv.invoiceNo || '').toLowerCase().trim();
+                return (
+                    (inv.projectId && inv.projectId === p.id) ||
+                    (inv.projectCode && inv.projectCode === p.code) ||
+                    (inv.id && p.invoiceId && inv.id === p.invoiceId) ||
+                    (invNo && p.invoiceNo && invNo === p.invoiceNo.toLowerCase().trim())
+                );
+            });
+            pDue = linkedInvs.reduce((isum, inv) => isum + (Number(inv.dueAmount) || 0), 0);
         }
         return sum + pDue;
     }, 0);
