@@ -172,12 +172,12 @@ interface AppContextType {
     resetAllTransactionalData: () => Promise<void>;
     resetToDefaultData: () => void;
     exportDatabase: () => string;
-    importDatabase: (jsonString: string, isCloudSync?: boolean) => boolean;
+    importDatabase: (jsonString: string, isCloudSync?: boolean, isRestore?: boolean) => boolean;
     // Cloud & MongoDB Synchronization
     cloudSyncStatus: 'idle' | 'syncing' | 'synced' | 'offline' | 'error';
     isCloudConnected: boolean;
     lastSyncedAt: string | null;
-    syncWithCloud: (options?: { forcePull?: boolean; forcePush?: boolean }) => Promise<void>;
+    syncWithCloud: (options?: { forcePull?: boolean; forcePush?: boolean; isRestore?: boolean }) => Promise<void>;
 }
 const AppContext = createContext<AppContextType | undefined>(undefined);
 const generateUniqueId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${Math.floor(100 + Math.random() * 900)}`;
@@ -721,7 +721,7 @@ export const AppProvider: React.FC<{
     const lastServerUpdatedAtRef = useRef(0);
     const serverRevisionRef = useRef<number>(1);
     const syncTimeoutRef = useRef<any>(null);
-    const pushToCloudRef = useRef<(options?: { force?: boolean }) => Promise<void>>(() => Promise.resolve());
+    const pushToCloudRef = useRef<(options?: { force?: boolean; isRestore?: boolean }) => Promise<void>>(() => Promise.resolve());
     const tabIdRef = useRef<string>(`tab_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`);
     const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
     const isFirstMountRef = useRef(true);
@@ -7856,12 +7856,21 @@ export const AppProvider: React.FC<{
         return JSON.stringify(state, null, 2);
     };
 
-    const importDatabase = (jsonString: string, _isCloudSync: boolean = false): boolean => {
+    const importDatabase = (jsonString: string, _isCloudSync: boolean = false, isRestore: boolean = !_isCloudSync): boolean => {
         try {
             const data = JSON.parse(jsonString);
 
-            // Handle server-side purge synchronization: if remote was purged, invalidate any local resurrection queues
-            if (data.lastPurgedAt) {
+            if (isRestore) {
+                // Admin database backup restore: Clear any active purge quarantine from localStorage
+                try {
+                    localStorage.removeItem(`${STORAGE_KEY}_LAST_PURGED_TS`);
+                } catch {}
+                unsyncedInvoiceIdsRef.current.clear();
+                unsyncedTransactionIdsRef.current.clear();
+                data.lastPurgedAt = null;
+                data.lastPurgeMode = null;
+            } else if (data.lastPurgedAt) {
+                // Handle server-side purge synchronization: if remote was purged, invalidate any local resurrection queues
                 const remotePurgeTs = new Date(data.lastPurgedAt).getTime();
                 let localPurgeTs = 0;
                 try {
@@ -7874,6 +7883,11 @@ export const AppProvider: React.FC<{
                     unsyncedInvoiceIdsRef.current.clear();
                     unsyncedTransactionIdsRef.current.clear();
                 }
+            } else {
+                // If remote state has no purge quarantine, remove local quarantine
+                try {
+                    localStorage.removeItem(`${STORAGE_KEY}_LAST_PURGED_TS`);
+                } catch {}
             }
             if (data.profile) {
                 if (data.profile.logoUrl &&
@@ -7907,7 +7921,7 @@ export const AppProvider: React.FC<{
                 setSuppliers(cleanedSuppliers);
                 try { localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(cleanedSuppliers)); } catch {}
             }
-            const purgeTs = data.lastPurgedAt ? new Date(data.lastPurgedAt).getTime() : 0;
+            const purgeTs = (!isRestore && data.lastPurgedAt) ? new Date(data.lastPurgedAt).getTime() : 0;
 
             if (data.invoices && Array.isArray(data.invoices)) {
                 let cleanedInvoices = sanitizeSalesInvoices(data.invoices);
@@ -8054,6 +8068,8 @@ export const AppProvider: React.FC<{
             latestStateRef.current = {
                 ...latestStateRef.current,
                 ...data,
+                lastPurgedAt: isRestore ? null : (data.lastPurgedAt ?? null),
+                lastPurgeMode: isRestore ? null : (data.lastPurgeMode ?? null),
             };
             return true;
         }
@@ -8105,13 +8121,21 @@ export const AppProvider: React.FC<{
         }
     };
 
-    const pushToCloud = async (options?: { force?: boolean }) => {
+    const pushToCloud = async (options?: { force?: boolean; isRestore?: boolean }) => {
         if (!isCloudLoadedRef.current) return;
-        if (!options?.force && isSyncingRef.current) return;
+        if (!options?.force && !options?.isRestore && isSyncingRef.current) return;
         try {
             isSyncingRef.current = true;
             setCloudSyncStatus('syncing');
             const payload = { ...latestStateRef.current };
+            if (options?.isRestore) {
+                payload.lastPurgedAt = null;
+                payload.lastPurgeMode = null;
+                payload.isRestore = true;
+                try {
+                    localStorage.removeItem(`${STORAGE_KEY}_LAST_PURGED_TS`);
+                } catch {}
+            }
             // ARC-02: Trim and cap audit logs to 500 entries before sending to cloud
             if (Array.isArray(payload.auditLogs) && payload.auditLogs.length > 500) {
                 payload.auditLogs = payload.auditLogs.slice(0, 500);
@@ -8126,11 +8150,12 @@ export const AppProvider: React.FC<{
                     data: payload,
                     clientRev: serverRevisionRef.current,
                     senderTabId: tabIdRef.current,
-                    force: Boolean(options?.force),
+                    force: Boolean(options?.force || options?.isRestore),
+                    isRestore: Boolean(options?.isRestore),
                 }),
             });
             if (res.status === 409) {
-                if (options?.force) {
+                if (options?.force || options?.isRestore) {
                     console.warn('Force push bypassed conflict check.');
                 } else {
                     // CON-03: Optimistic concurrency conflict detected. Pull remote changes immediately to prevent data loss.
@@ -8148,6 +8173,11 @@ export const AppProvider: React.FC<{
                 unsyncedTransactionIdsRef.current.clear();
                 setCloudSyncStatus('synced');
                 setIsCloudConnected(true);
+                if (options?.isRestore) {
+                    try {
+                        localStorage.removeItem(`${STORAGE_KEY}_LAST_PURGED_TS`);
+                    } catch {}
+                }
                 if (data.updatedAt) {
                     const ts = new Date(data.updatedAt).getTime();
                     lastServerUpdatedAtRef.current = ts;
@@ -8167,13 +8197,13 @@ export const AppProvider: React.FC<{
 
     pushToCloudRef.current = pushToCloud;
 
-    const syncWithCloud = async (options?: { forcePull?: boolean; forcePush?: boolean }) => {
+    const syncWithCloud = async (options?: { forcePull?: boolean; forcePush?: boolean; isRestore?: boolean }) => {
         if (options?.forcePull) {
             await pullFromCloud();
             return;
         }
-        if (options?.forcePush) {
-            await pushToCloud({ force: true });
+        if (options?.forcePush || options?.isRestore) {
+            await pushToCloud({ force: true, isRestore: Boolean(options?.isRestore) });
             return;
         }
         // Smart manual sync: check remote metadata first

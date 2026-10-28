@@ -245,22 +245,24 @@ app.post('/api/state', requireAuth, async (req, res) => {
   }
 
   try {
-    const { data, clientRev, senderTabId, force } = req.body;
+    const { data, clientRev, senderTabId, force, isRestore } = req.body;
     if (!data) {
       return res.status(400).json({ success: false, message: 'Data payload is required.' });
     }
+
+    const isRestoreMode = Boolean(isRestore || data?.isRestore);
 
     // ARC-02: State payload trimming - cap auditLogs to latest 500 entries to guard against MongoDB 16MB document limit
     if (Array.isArray(data.auditLogs) && data.auditLogs.length > 500) {
       data.auditLogs = data.auditLogs.slice(-500);
     }
 
-    // CON-03: Optimistic Concurrency Control (bypassed if force === true, e.g. admin data purge / reset)
+    // CON-03: Optimistic Concurrency Control (bypassed if force === true or isRestoreMode === true)
     const existing = await ErpState.findOne({ id: 'singleton' });
     let currentRev = 0;
     if (existing) {
       currentRev = (existing as any).revision || existing.data?._rev || 1;
-      if (!force && typeof clientRev === 'number' && clientRev < currentRev) {
+      if (!force && !isRestoreMode && typeof clientRev === 'number' && clientRev < currentRev) {
         return res.status(409).json({
           success: false,
           conflict: true,
@@ -274,85 +276,94 @@ app.post('/api/state', requireAuth, async (req, res) => {
     const nextRev = Math.max(currentRev, typeof clientRev === 'number' ? clientRev : 0) + 1;
     data._rev = nextRev;
 
-    // ANTI-RESURRECTION QUARANTINE:
-    // If remote state was purged, strictly reject any transactional records created prior to lastPurgedAt.
-    // This blocks background tabs, mobile devices, or stale clients running old code from re-injecting purged records!
-    const effectivePurgeTime = existing?.data?.lastPurgedAt ? new Date(existing.data.lastPurgedAt).getTime() : 0;
-    if (effectivePurgeTime > 0) {
-      data.lastPurgedAt = existing.data.lastPurgedAt;
-      data.lastPurgeMode = existing.data.lastPurgeMode;
+    if (isRestoreMode) {
+      // RESTORE MODE: Admin uploaded & restored a database backup.
+      // Authoritatively clear any past purge quarantine timestamp so all restored records are accepted and preserved!
+      data.lastPurgedAt = null;
+      data.lastPurgeMode = null;
+      delete data.isRestore;
+      console.log(`[RESTORE GUARD] Admin backup restore detected: Purge quarantine reset to null. Preserving all records permanently.`);
+    } else {
+      // ANTI-RESURRECTION QUARANTINE:
+      // If remote state was purged, strictly reject any transactional records created prior to lastPurgedAt.
+      // This blocks background tabs, mobile devices, or stale clients running old code from re-injecting purged records!
+      const effectivePurgeTime = existing?.data?.lastPurgedAt ? new Date(existing.data.lastPurgedAt).getTime() : 0;
+      if (effectivePurgeTime > 0) {
+        data.lastPurgedAt = existing.data.lastPurgedAt;
+        data.lastPurgeMode = existing.data.lastPurgeMode;
 
-      if (Array.isArray(data.invoices)) {
-        data.invoices = data.invoices.filter((inv: any) => {
-          const match = String(inv.id || '').match(/inv-(\d+)/);
-          if (match && Number(match[1]) < effectivePurgeTime) {
-            console.log(`[PURGE GUARD] Blocked stale resurrection of invoice ${inv.id} (${inv.invoiceNo}) created before purge.`);
-            return false;
-          }
-          return true;
-        });
-      }
+        if (Array.isArray(data.invoices)) {
+          data.invoices = data.invoices.filter((inv: any) => {
+            const match = String(inv.id || '').match(/inv-(\d+)/);
+            if (match && Number(match[1]) < effectivePurgeTime) {
+              console.log(`[PURGE GUARD] Blocked stale resurrection of invoice ${inv.id} (${inv.invoiceNo}) created before purge.`);
+              return false;
+            }
+            return true;
+          });
+        }
 
-      if (Array.isArray(data.transactions)) {
-        data.transactions = data.transactions.filter((tx: any) => {
-          const match = String(tx.id || '').match(/tx-(\d+)/);
-          if (match && Number(match[1]) < effectivePurgeTime) {
-            console.log(`[PURGE GUARD] Blocked stale resurrection of transaction ${tx.id} created before purge.`);
-            return false;
-          }
-          return true;
-        });
-      }
+        if (Array.isArray(data.transactions)) {
+          data.transactions = data.transactions.filter((tx: any) => {
+            const match = String(tx.id || '').match(/tx-(\d+)/);
+            if (match && Number(match[1]) < effectivePurgeTime) {
+              console.log(`[PURGE GUARD] Blocked stale resurrection of transaction ${tx.id} created before purge.`);
+              return false;
+            }
+            return true;
+          });
+        }
 
-      if (Array.isArray(data.purchaseOrders)) {
-        data.purchaseOrders = data.purchaseOrders.filter((po: any) => {
-          const match = String(po.id || '').match(/po-(\d+)/);
-          if (match && Number(match[1]) < effectivePurgeTime) {
-            console.log(`[PURGE GUARD] Blocked stale resurrection of purchase order ${po.id} created before purge.`);
-            return false;
-          }
-          return true;
-        });
-      }
+        if (Array.isArray(data.purchaseOrders)) {
+          data.purchaseOrders = data.purchaseOrders.filter((po: any) => {
+            const match = String(po.id || '').match(/po-(\d+)/);
+            if (match && Number(match[1]) < effectivePurgeTime) {
+              console.log(`[PURGE GUARD] Blocked stale resurrection of purchase order ${po.id} created before purge.`);
+              return false;
+            }
+            return true;
+          });
+        }
 
-      if (Array.isArray(data.quotations)) {
-        data.quotations = data.quotations.filter((q: any) => {
-          const match = String(q.id || '').match(/qt-(\d+)/);
-          if (match && Number(match[1]) < effectivePurgeTime) {
-            return false;
-          }
-          return true;
-        });
-      }
+        if (Array.isArray(data.quotations)) {
+          data.quotations = data.quotations.filter((q: any) => {
+            const match = String(q.id || '').match(/qt-(\d+)/);
+            if (match && Number(match[1]) < effectivePurgeTime) {
+              return false;
+            }
+            return true;
+          });
+        }
 
-      if (Array.isArray(data.stockMovements)) {
-        data.stockMovements = data.stockMovements.filter((sm: any) => {
-          const match = String(sm.id || '').match(/sm-(\d+)/);
-          if (match && Number(match[1]) < effectivePurgeTime) {
-            return false;
-          }
-          return true;
-        });
-      }
+        if (Array.isArray(data.stockMovements)) {
+          data.stockMovements = data.stockMovements.filter((sm: any) => {
+            const match = String(sm.id || '').match(/sm-(\d+)/);
+            if (match && Number(match[1]) < effectivePurgeTime) {
+              return false;
+            }
+            return true;
+          });
+        }
 
-      if (Array.isArray(data.journalEntries)) {
-        data.journalEntries = data.journalEntries.filter((je: any) => {
-          const match = String(je.id || '').match(/jnl-(\d+)/);
-          if (match && Number(match[1]) < effectivePurgeTime) {
-            return false;
-          }
-          return true;
-        });
-      }
+        if (Array.isArray(data.journalEntries)) {
+          data.journalEntries = data.journalEntries.filter((je: any) => {
+            const match = String(je.id || '').match(/jnl-(\d+)/);
+            if (match && Number(match[1]) < effectivePurgeTime) {
+              return false;
+            }
+            return true;
+          });
+        }
 
-      if (Array.isArray(data.projects) && existing.data.lastPurgeMode === 'RESET_ALL_TRANSACTIONS') {
-        data.projects = data.projects.filter((p: any) => {
-          const match = String(p.id || '').match(/prj-(\d+)/);
-          if (match && Number(match[1]) < effectivePurgeTime) {
-            return false;
-          }
-          return true;
-        });
+        if (Array.isArray(data.projects) && existing.data.lastPurgeMode === 'RESET_ALL_TRANSACTIONS') {
+          data.projects = data.projects.filter((p: any) => {
+            const match = String(p.id || '').match(/prj-(\d+)/);
+            if (match && Number(match[1]) < effectivePurgeTime) {
+              return false;
+            }
+            return true;
+          });
+        }
       }
     }
 

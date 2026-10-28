@@ -59,12 +59,16 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
         if (!file)
             return;
         const reader = new FileReader();
-        reader.onload = (event) => {
+        reader.onload = async (event) => {
             const content = event.target?.result as string;
-            const ok = importDatabase(content);
+            const ok = importDatabase(content, false, true);
             if (ok) {
                 setImportStatus('success');
-                syncWithCloud?.({ forcePush: true });
+                try {
+                    await syncWithCloud?.({ forcePush: true, isRestore: true });
+                } catch (err) {
+                    console.error('Failed to sync restored database to cloud:', err);
+                }
                 setTimeout(() => setImportStatus(null), 4000);
             }
             else {
@@ -73,6 +77,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
             }
         };
         reader.readAsText(file);
+        e.target.value = '';
     };
     // User modal states
     const [showUserModal, setShowUserModal] = useState(false);
