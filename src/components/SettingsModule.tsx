@@ -1142,9 +1142,14 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                                             : isCheque
                                                 ? 'Bank Cheque'
                                                 : 'Custom';
+                    const cashCoa = (chartOfAccounts || []).find(a => a.classification === 'Asset' && (a.code === '1001' || a.code === '1010' || a.name.toLowerCase().includes('cash')) && !a.name.toLowerCase().includes('bkash') && !a.name.toLowerCase().includes('nagad'));
+                    const resolvedCashCode = cashCoa?.code || '1001';
+                    const resolvedCashName = cashCoa?.name || 'Cash In Hand';
                     const providerName = pm.provider || pm.bankName || (isCash ? 'Cash' : isCheque ? 'Cheque' : isDue ? 'Credit' : 'Direct');
-                    const accountNo = pm.accountNumber || (isCash ? '1010' : isDue ? '1030' : '—');
-                    const ledgerLink = pm.linkedAccountId || (isCash ? '1010 - Cash' : isBank ? '1030 - Bank' : isMfs ? '1040 - Mobile MFS' : isDue ? '1050 - Accounts' : '1030 - Bank');
+                    const accountNo = isCash ? (cashCoa?.code || pm.accountNumber || '1001') : (pm.accountNumber || (isDue ? '1030' : '—'));
+                    const ledgerLink = isCash 
+                        ? `${resolvedCashCode} - ${resolvedCashName}` 
+                        : (pm.linkedAccountId ? `${pm.linkedAccountId}` : (isBank ? '1030 - Bank' : isMfs ? '1040 - Mobile MFS' : isDue ? '1050 - Accounts' : '1030 - Bank'));
                     const liveBal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances, projects, journalEntries);
                     return (<tr key={pm.id} className="hover:bg-slate-50/80 transition-colors">
                             {/* Payment Method */}

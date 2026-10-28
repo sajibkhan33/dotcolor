@@ -290,34 +290,41 @@ export const calculateSingleAccountBalance = (
         const alreadyRecorded = getRecordedAmtForThisAcc(invRef);
 
         if (inv.splitPayments && Object.keys(inv.splitPayments).length > 0) {
-            const splitEntries = Object.entries(inv.splitPayments).filter(([k, v]) => {
-                return k.toLowerCase() !== 'due' && (Number(v) || 0) > 0;
+            // Deduplicate split payment channels so alias keys (e.g. 'bKash' and 'bkash') are NEVER summed together
+            const channelSplitMap = new Map();
+            Object.entries(inv.splitPayments).forEach(([k, v]) => {
+                const lk = k.toLowerCase().trim();
+                const amt = Number(v) || 0;
+                if (lk === 'due' || lk.startsWith('pm-') || amt <= 0) return;
+
+                // Canonical channel key
+                const normChannel = (lk === 'cash' || lk === 'cash in hand' || lk === 'cashinhand') ? 'cash'
+                    : (lk === 'card' || lk === 'bank' || lk.includes('bank')) ? 'bank'
+                    : lk === 'bkash' ? 'bkash'
+                    : lk === 'nagad' ? 'nagad'
+                    : lk === 'rocket' ? 'rocket'
+                    : lk;
+
+                // Take maximum if duplicate alias keys exist for the same channel
+                channelSplitMap.set(normChannel, Math.max(channelSplitMap.get(normChannel) || 0, amt));
             });
-            const hasNamedKeys = splitEntries.some(([k]) => !['cash', 'card', 'bkash', 'nagad'].includes(k.toLowerCase()));
-            const activeEntries = hasNamedKeys
-                ? splitEntries.filter(([k]) => !['cash', 'card', 'bkash', 'nagad'].includes(k.toLowerCase()))
-                : splitEntries;
 
             let targetAccSplitAmt = 0;
             let isMatched = false;
 
-            activeEntries.forEach(([key, val]) => {
-                const kLower = key.toLowerCase();
-                const amt = Number(val) || 0;
-                if (amt <= 0) return;
-
+            channelSplitMap.forEach((amt, normChannel) => {
                 let matchesKey = false;
-                if (kLower === accNameLower || (accCode && kLower.includes(accCode))) {
+                if (normChannel === accNameLower || (accCode && normChannel.includes(accCode))) {
                     matchesKey = true;
-                } else if (isBkash && (kLower.includes('bkash') || kLower === 'pm-bkash')) {
+                } else if (isBkash && normChannel === 'bkash') {
                     matchesKey = true;
-                } else if (isNagad && (kLower.includes('nagad') || kLower === 'pm-nagad')) {
+                } else if (isNagad && normChannel === 'nagad') {
                     matchesKey = true;
-                } else if (isCity && kLower.includes('city')) {
+                } else if (isCity && normChannel.includes('city')) {
                     matchesKey = true;
-                } else if (isSoutheast && kLower.includes('southeast')) {
+                } else if (isSoutheast && normChannel.includes('southeast')) {
                     matchesKey = true;
-                } else if (isCash && (kLower.includes('cash') || kLower === 'pm-cash')) {
+                } else if (isCash && normChannel === 'cash') {
                     matchesKey = true;
                 }
 
