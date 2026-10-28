@@ -424,7 +424,13 @@ export const getPaymentMethodLiveBalance = (
     if (pm.type === 'cash') {
         if (pmName.includes('factory')) {
             const factoryAcc = (chartOfAccounts || []).find(a => a.classification === 'Asset' && (a.code === '1020' || a.name.toLowerCase().includes('factory')));
-            if (factoryAcc) return calculateSingleAccountBalance(factoryAcc, transactions, invoices, projects, journalEntries);
+            if (factoryAcc) {
+                const fBal = calculateSingleAccountBalance(factoryAcc, transactions, invoices, projects, journalEntries);
+                if (fBal > 0) return fBal;
+                if (factoryAcc.currentBalance !== undefined && factoryAcc.currentBalance !== null && Number(factoryAcc.currentBalance) > 0) {
+                    return Number(factoryAcc.currentBalance);
+                }
+            }
             return accountBalances?.factoryCash || 0;
         }
         const cashAcc = (chartOfAccounts || []).find(a => 
@@ -433,9 +439,15 @@ export const getPaymentMethodLiveBalance = (
         );
         if (cashAcc) {
             const liveCash = calculateSingleAccountBalance(cashAcc, transactions, invoices, projects, journalEntries);
-            if (liveCash > 0 || (transactions || []).length > 0 || (journalEntries || []).length > 0) {
+            if (liveCash > 0) {
                 return liveCash;
             }
+            if (cashAcc.currentBalance !== undefined && cashAcc.currentBalance !== null && Number(cashAcc.currentBalance) > 0) {
+                return Number(cashAcc.currentBalance);
+            }
+        }
+        if (accountBalances?.cash && Number(accountBalances.cash) > 0) {
+            return accountBalances.cash;
         }
         return Math.max(0, (accountBalances?.cash || 0) + (accountBalances?.factoryCash || 0));
     }
@@ -482,7 +494,12 @@ export const getPaymentMethodLiveBalance = (
     });
 
     if (matchingAcc) {
-        return calculateSingleAccountBalance(matchingAcc, transactions, invoices, projects, journalEntries);
+        const bal = calculateSingleAccountBalance(matchingAcc, transactions, invoices, projects, journalEntries);
+        if (bal > 0) return bal;
+        if (matchingAcc.currentBalance !== undefined && matchingAcc.currentBalance !== null && Number(matchingAcc.currentBalance) > 0) {
+            return Number(matchingAcc.currentBalance);
+        }
+        return bal;
     }
 
     // 3. Compute directly from transactions specifically matching this payment method

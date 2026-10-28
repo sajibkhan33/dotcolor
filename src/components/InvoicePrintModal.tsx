@@ -464,6 +464,55 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
         };
     }, [rawResolvedInvoice]);
 
+    const itemizedPayments = React.useMemo(() => {
+        if (!invoice) return [];
+        if (!invoice.splitPayments || Object.keys(invoice.splitPayments).length === 0) {
+            return [];
+        }
+
+        const rawSplits = invoice.splitPayments;
+        const entries = Object.entries(rawSplits).filter(([channel, amt]) => {
+            const lk = channel.toLowerCase().trim();
+            return lk !== 'due' && !lk.startsWith('pm-') && (Number(amt) || 0) > 0;
+        });
+
+        if (entries.length === 0) return [];
+
+        // Prioritize proper-named keys if both alias and named exist
+        const hasNamedChannels = entries.some(([k]) => !['cash', 'card', 'bank', 'bkash', 'nagad'].includes(k.toLowerCase().trim()));
+        const effectiveEntries = hasNamedChannels
+            ? entries.filter(([k]) => !['cash', 'card', 'bank', 'bkash', 'nagad'].includes(k.toLowerCase().trim()))
+            : entries;
+
+        const channelMap = new Map();
+
+        effectiveEntries.forEach(([channel, amt]) => {
+            const cl = channel.toLowerCase().replace(/[\s_-]/g, '');
+            const label = (cl === 'cash' || cl === 'cashinhand' || cl === 'countercash') ? 'Paid Cash:'
+                : (cl === 'card' || cl === 'bank' || cl.includes('bank')) ? 'Paid Card / Bank:'
+                : cl === 'bkash' ? 'Paid bKash:'
+                : cl === 'nagad' ? 'Paid Nagad:'
+                : cl === 'rocket' ? 'Paid Rocket:'
+                : cl.includes('advance') ? 'Paid Customer Advance:'
+                : `Paid (${channel}):`;
+
+            const normKey = label.toLowerCase();
+            const numAmt = Number(amt) || 0;
+            if (!channelMap.has(normKey)) {
+                channelMap.set(normKey, { label, amount: numAmt });
+            } else {
+                const existing = channelMap.get(normKey);
+                channelMap.set(normKey, { label, amount: Math.max(existing.amount, numAmt) });
+            }
+        });
+
+        return Array.from(channelMap.entries()).map(([k, v]) => ({
+            key: k,
+            label: v.label,
+            amount: v.amount
+        }));
+    }, [invoice]);
+
     useEffect(() => {
         if (invoice) {
             const hasRegion = Boolean(invoice.showRegionColumn ?? invoice.items?.some((i) => Boolean(i.region)));
@@ -1945,26 +1994,16 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
 
                           {!(invoice as any).isQuote && (
                             <>
-                              {invoice.splitPayments && Object.keys(invoice.splitPayments).length > 0 ? (
+                              {itemizedPayments.length > 0 ? (
                                 <div className="space-y-1 text-[11px] pt-1 border-t-2 border-double border-black text-black">
-                                  {Object.entries(invoice.splitPayments)
-                                    .filter(([channel, amt]) => channel.toLowerCase() !== 'due' && (Number(amt) || 0) > 0)
-                                    .map(([channel, amt]) => {
-                                      const cl = channel.toLowerCase().replace(/[\s_-]/g, '');
-                                      const label = cl === 'cash' || cl === 'cashinhand' ? 'Paid Cash:'
-                                        : cl === 'card' || cl === 'bank' || cl.includes('bank') ? 'Paid Card / Bank:'
-                                        : cl === 'bkash' ? 'Paid bKash:'
-                                        : cl === 'nagad' ? 'Paid Nagad:'
-                                        : `Paid (${channel}):`;
-                                      return (
-                                        <div key={channel} className="flex justify-between text-black">
-                                          <span>{label}</span>
-                                          <span className="font-bold text-black">
-                                            {profile.currencySymbol}{(Number(amt) || 0).toLocaleString()}
-                                          </span>
-                                        </div>
-                                      );
-                                    })}
+                                  {itemizedPayments.map((item) => (
+                                    <div key={item.key} className="flex justify-between text-black">
+                                      <span>{item.label}</span>
+                                      <span className="font-bold text-black">
+                                        {profile.currencySymbol}{item.amount.toLocaleString()}
+                                      </span>
+                                    </div>
+                                  ))}
                                   <div className="flex justify-between text-xs py-1 border-t border-black text-black">
                                     <span className="font-bold text-black">Total Paid:</span>
                                     <span className="font-bold text-black">

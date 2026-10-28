@@ -12,7 +12,7 @@ interface SettingsModuleProps {
     onNavigateTab?: (tab: string) => void;
 }
 export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab }) => {
-    const { staffMembers = [], userRoles = [], activeStaff, setActiveStaff, language, profile, updateProfile, paymentMethods = [], accountBalances, chartOfAccounts = [], transactions = [], invoices = [], products = [], addPaymentMethod, updatePaymentMethod, deletePaymentMethod, togglePaymentMethod, setDefaultPaymentMethod, addAuditLog, addStaffMember, updateStaffMember, deleteStaffMember, addUserRole, updateUserRole, deleteUserRole, cleanModuleData, resetToDefaultData, checkPermission, exportDatabase, importDatabase, syncWithCloud, cloudSyncStatus, isCloudConnected, lastSyncedAt, } = useApp();
+    const { staffMembers = [], userRoles = [], activeStaff, setActiveStaff, language, profile, updateProfile, paymentMethods = [], accountBalances, chartOfAccounts = [], transactions = [], invoices = [], products = [], journalEntries = [], projects = [], addPaymentMethod, updatePaymentMethod, deletePaymentMethod, togglePaymentMethod, setDefaultPaymentMethod, addAuditLog, addStaffMember, updateStaffMember, deleteStaffMember, addUserRole, updateUserRole, deleteUserRole, cleanModuleData, resetToDefaultData, checkPermission, exportDatabase, importDatabase, syncWithCloud, cloudSyncStatus, isCloudConnected, lastSyncedAt, } = useApp();
     const [activeTab, setActiveTab] = useState<'users' | 'roles' | 'payment-gateways' | 'system-tools' | 'data-clean' | 'system'>('users');
     const [searchQuery, setSearchQuery] = useState('');
     const [printerStatus, setPrinterStatus] = useState<HardwareAgentStatus>({ isOnline: false });
@@ -1145,7 +1145,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                     const providerName = pm.provider || pm.bankName || (isCash ? 'Cash' : isCheque ? 'Cheque' : isDue ? 'Credit' : 'Direct');
                     const accountNo = pm.accountNumber || (isCash ? '1010' : isDue ? '1030' : '—');
                     const ledgerLink = pm.linkedAccountId || (isCash ? '1010 - Cash' : isBank ? '1030 - Bank' : isMfs ? '1040 - Mobile MFS' : isDue ? '1050 - Accounts' : '1030 - Bank');
-                    const liveBal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances);
+                    const liveBal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances, projects, journalEntries);
                     return (<tr key={pm.id} className="hover:bg-slate-50/80 transition-colors">
                             {/* Payment Method */}
                             <td className="py-3 px-4 font-bold text-slate-900 whitespace-nowrap">
@@ -1316,7 +1316,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                         <div className="flex items-center justify-between text-[11px]">
                           <span className="text-slate-400 font-medium">{'Live Balance'}:</span>
                           <span className="font-bold text-slate-900 font-mono">
-                            {profile.currencySymbol || "Tk"}{getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances).toLocaleString()}
+                            {profile.currencySymbol || "Tk"}{getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances, projects, journalEntries).toLocaleString()}
                           </span>
                         </div>
 

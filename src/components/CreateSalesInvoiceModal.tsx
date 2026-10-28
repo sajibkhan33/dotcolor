@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { InvoiceItem, PaymentMethod, ProductionStatus, UnitType, PRESET_INVOICE_ITEM_TYPES } from '../types';
+import { getPaymentMethodLiveBalance } from '../utils/accountUtils';
 import { X, FileText, Plus, Trash2, Calendar, User, Phone, Building, CheckCircle2, Percent, Hash, Truck, DollarSign, Search, UserPlus, } from 'lucide-react';
 interface CreateSalesInvoiceModalProps {
     isOpen: boolean;
@@ -8,7 +9,7 @@ interface CreateSalesInvoiceModalProps {
     onInvoiceCreated: (invoiceId: string) => void;
 }
 export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = ({ isOpen, onClose, onInvoiceCreated, }) => {
-    const { customers, products, profile, language, paymentMethods = [], addInvoice, addCustomer, } = useApp();
+    const { customers, products, profile, language, paymentMethods = [], chartOfAccounts = [], transactions = [], invoices = [], accountBalances, journalEntries = [], projects = [], addInvoice, addCustomer, } = useApp();
     const activePaymentMethods = useMemo(() => {
         const list = (paymentMethods || []).filter((p) => p.isEnabled);
         return list.length > 0 ? list : [{ id: 'pm-cash', name: 'Cash', nameBn: "Cash", type: 'cash' as const, isEnabled: true }];
@@ -1181,15 +1182,30 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
           {/* Section 4: Payment Method, Production Status & Notes */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200/80">
             <div>
-              <label className="font-bold text-slate-700 block mb-1">
-                {'Payment Method'}
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-bold text-slate-700">
+                  {'Payment Method'}
+                </label>
+                {(() => {
+                  const selectedPm = activePaymentMethods.find(p => p.name === paymentMethod || p.id === paymentMethod) || activePaymentMethods[0];
+                  if (!selectedPm) return null;
+                  const bal = getPaymentMethodLiveBalance(selectedPm, chartOfAccounts, transactions, invoices, accountBalances, projects, journalEntries);
+                  return (
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-mono">
+                      Live: {profile.currencySymbol}{bal.toLocaleString()}
+                    </span>
+                  );
+                })()}
+              </div>
               <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs">
-                {activePaymentMethods.map((pm) => (<option key={pm.id} value={pm.name}>
-                    {pm.name}
-                    {pm.accountNumber ? ` (${pm.accountNumber})` : ''}
-                    {''}
-                  </option>))}
+                {activePaymentMethods.map((pm) => {
+                  const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances, projects, journalEntries);
+                  return (
+                    <option key={pm.id} value={pm.name}>
+                      {pm.name}{pm.accountNumber ? ` (${pm.accountNumber})` : ''} — [{profile.currencySymbol}{bal.toLocaleString()}]
+                    </option>
+                  );
+                })}
               </select>
             </div>
 

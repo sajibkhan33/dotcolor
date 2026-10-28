@@ -398,18 +398,7 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
             activePaymentMethods.forEach((pm) => {
                 const val = Number(splitAmounts[pm.id]) || 0;
                 if (val > 0) {
-                    const pmLower = pm.name.toLowerCase();
                     splitPaymentsRecord[pm.name] = (splitPaymentsRecord[pm.name] || 0) + val;
-                    splitPaymentsRecord[pm.id] = (splitPaymentsRecord[pm.id] || 0) + val;
-                    if (pm.type === 'cash' || pmLower.includes('cash')) {
-                        splitPaymentsRecord['cash'] = (splitPaymentsRecord['cash'] || 0) + val;
-                    } else if (pmLower.includes('card') || (pm.type === 'bank' && !pmLower.includes('bkash') && !pmLower.includes('nagad'))) {
-                        splitPaymentsRecord['card'] = (splitPaymentsRecord['card'] || 0) + val;
-                    } else if (pmLower.includes('bkash')) {
-                        splitPaymentsRecord['bkash'] = (splitPaymentsRecord['bkash'] || 0) + val;
-                    } else if (pmLower.includes('nagad')) {
-                        splitPaymentsRecord['nagad'] = (splitPaymentsRecord['nagad'] || 0) + val;
-                    }
                 }
                 calculatedTotalPaid += val;
                 if (val > maxPaidVal && val > 0) {

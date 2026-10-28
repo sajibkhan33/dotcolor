@@ -2057,7 +2057,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
         const totalPaidSoFar = Math.max(0, (Number(collectingDueSale.sale.amount) || 0) - collectingDueSale.dueAmount);
 
         const selectedPm = depositPaymentMethods.find(p => p.name === collectDueForm.paymentMethod || p.id === collectDueForm.paymentMethod) || depositPaymentMethods[0];
-        const selectedBal = selectedPm ? getPaymentMethodLiveBalance(selectedPm, chartOfAccounts, transactions, invoices, accountBalances) : 0;
+        const selectedBal = selectedPm ? getPaymentMethodLiveBalance(selectedPm, chartOfAccounts, transactions, invoices, accountBalances, projects, journalEntries) : 0;
 
         return (
           <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
@@ -2339,7 +2339,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                       className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium text-xs bg-white cursor-pointer disabled:bg-slate-100 disabled:text-slate-400"
                     >
                       {depositPaymentMethods.map((pm) => {
-                        const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances);
+                        const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances, projects, journalEntries);
                         return (
                           <option key={pm.id} value={pm.name}>
                             {pm.name} — [{profile.currencySymbol}{bal.toLocaleString()}]
