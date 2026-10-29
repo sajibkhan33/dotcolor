@@ -466,6 +466,7 @@ app.post('/api/purge-data', requireAuth, async (req, res) => {
           ...c,
           totalPurchased: 0,
           dueAmount: 0,
+          advanceBalance: 0,
         }));
       }
       if (Array.isArray(data.transactions)) {
@@ -519,6 +520,12 @@ app.post('/api/purge-data', requireAuth, async (req, res) => {
     } else if (mode === 'TRANSACTIONS') {
       data.transactions = [];
       data.journalEntries = [];
+      if (Array.isArray(data.customers)) {
+        data.customers = data.customers.map((c: any) => ({
+          ...c,
+          advanceBalance: 0,
+        }));
+      }
       if (Array.isArray(data.chartOfAccounts)) {
         data.chartOfAccounts = data.chartOfAccounts.map((acc: any) => ({
           ...acc,

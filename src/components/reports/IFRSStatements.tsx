@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ChartOfAccount, AccountingTransaction, SalesInvoice, PurchaseOrder, Product, Customer, Language, CompanyProfile, } from '../../types';
 import { Scale, TrendingUp, FileText, DollarSign, CheckCircle2, AlertCircle, Building, ArrowDownRight, ArrowUpRight, Edit2, } from 'lucide-react';
-import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, isSupplierPaymentTransaction, calculateInventoryValuation, isProjectTransaction, isDueReceivableTransaction, isAdvanceDepositTransaction, isAdvanceAdjustmentTransaction, doesTransactionMatchExpenseAccount } from '../../utils/accountUtils';
+import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateTotalCustomerAdvances, isSupplierPaymentTransaction, calculateInventoryValuation, isProjectTransaction, isDueReceivableTransaction, isAdvanceDepositTransaction, isAdvanceAdjustmentTransaction, doesTransactionMatchExpenseAccount } from '../../utils/accountUtils';
 import { useApp } from '../../context/AppContext';
 interface IFRSStatementsProps {
     reportId: string;
@@ -158,7 +158,7 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
     const trialBalanceAccounts = useMemo(() => {
         const totalReceivables = calculateTotalCustomerReceivables(invoices, customers, projects);
         const totalPayables = calculateTotalSupplierPayables(suppliers, purchaseOrders);
-        const totalAdvances = (customers || []).reduce((sum, c) => sum + (c.advanceBalance || 0), 0);
+        const totalAdvances = calculateTotalCustomerAdvances(customers, transactions, chartOfAccounts);
 
         let cogsAssigned = false;
 
@@ -203,7 +203,7 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                 if (acc.code === '2001' || acc.code === '2010' || nameLower.includes('payable') || nameLower.includes('supplier')) {
                     credit = totalPayables > 0 ? totalPayables : (acc.openingBalance || 0);
                 } else if (acc.code === '2002' || acc.code === '2020' || nameLower.includes('advance')) {
-                    credit = totalAdvances > 0 ? totalAdvances : (acc.openingBalance || 0);
+                    credit = totalAdvances > 0 ? totalAdvances : (acc.currentBalance || acc.openingBalance || 0);
                 } else {
                     credit = acc.currentBalance || acc.openingBalance || 0;
                 }
@@ -343,7 +343,7 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
     const balanceSheetData = useMemo(() => {
         const totalReceivables = calculateTotalCustomerReceivables(invoices, customers, projects);
         const totalPayables = calculateTotalSupplierPayables(suppliers, purchaseOrders);
-        const totalAdvances = (customers || []).reduce((sum, c) => sum + (c.advanceBalance || 0), 0);
+        const totalAdvances = calculateTotalCustomerAdvances(customers, transactions, chartOfAccounts);
 
         // ASSETS
         const nonCurrentAssets = (chartOfAccounts || [])

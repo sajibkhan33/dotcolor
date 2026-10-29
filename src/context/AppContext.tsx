@@ -462,13 +462,32 @@ export const AppProvider: React.FC<{
 
                 // Quarantine records created before the last authoritative purge
                 let purgeTs = 0;
+                let purgeMode = '';
                 try {
                     purgeTs = Number(localStorage.getItem(`${STORAGE_KEY}_LAST_PURGED_TS`)) || 0;
+                    purgeMode = localStorage.getItem(`${STORAGE_KEY}_LAST_PURGED_MODE`) || '';
                 } catch {}
+
+                const isModulePurged = (idPrefix: string): boolean => {
+                    if (!purgeTs) return false;
+                    if (!purgeMode || purgeMode === 'RESET_ALL_TRANSACTIONS' || purgeMode === 'WIPE_ALL_EXCEPT_PRODUCTS' || purgeMode === 'ALL') return true;
+                    if (idPrefix === 'inv' && (purgeMode === 'SALES' || purgeMode === 'SALES_RESET')) return true;
+                    if (idPrefix === 'qt' && (purgeMode === 'QUOTATIONS' || purgeMode === 'SALES' || purgeMode === 'SALES_RESET')) return true;
+                    if (idPrefix === 'po' && purgeMode === 'PURCHASES') return true;
+                    if (idPrefix === 'tx' && purgeMode === 'TRANSACTIONS') return true;
+                    if (idPrefix === 'sm' && purgeMode === 'INVENTORY_STOCK') return true;
+                    if (idPrefix === 'jnl' && (purgeMode === 'JOURNALS' || purgeMode === 'TRANSACTIONS')) return true;
+                    if (idPrefix === 'prj' && purgeMode === 'PROJECTS') return true;
+                    return false;
+                };
+
                 const isPurged = (item: any) => {
                     if (!purgeTs) return false;
-                    const match = String(item?.id || '').match(/(?:inv|tx|po|qt|sm|jnl|prj)-(\d+)/);
-                    return Boolean(match && Number(match[1]) < purgeTs);
+                    const match = String(item?.id || '').match(/^(inv|tx|po|qt|sm|jnl|prj)-(\d+)/);
+                    if (!match) return false;
+                    const prefix = match[1];
+                    const itemTs = Number(match[2]);
+                    return isModulePurged(prefix) && itemTs < purgeTs;
                 };
 
                 const filtered = parsed.filter((item: any) => !isDummy(item) && !isPurged(item));
@@ -5096,7 +5115,7 @@ export const AppProvider: React.FC<{
             return { success: false, message: 'Super Admin is the permanent system root role and cannot be deleted.' };
         }
 
-        const fallbackRole = userRoles.find((r) => r.id !== id && r.id === 'role-superadmin') || userRoles.find((r) => r.id !== id);
+        const fallbackRole = userRoles.find((r) => r.id !== id && r.id !== 'role-superadmin' && r.name.toLowerCase() !== 'super admin' && r.name.toLowerCase() !== 'superadmin') || userRoles.find((r) => r.id !== id);
         const assignedStaff = staffMembers.filter((s) => s.customRoleId === id || s.role === role.name);
 
         setUserRoles((prev) => prev.filter((r) => r.id !== id));
@@ -7392,12 +7411,13 @@ export const AppProvider: React.FC<{
                 localStorage.setItem(`${STORAGE_KEY}_QUOTATIONS`, JSON.stringify([]));
             } catch {}
 
-            // 3. Reset Customer sales totals & due balances to zero
+            // 3. Reset Customer sales totals, due balances, and advance balances to zero
             const currentCusts = latestStateRef.current.customers || customers;
             const nextCusts = currentCusts.map((c: Customer) => ({
                 ...c,
                 totalPurchased: 0,
                 dueAmount: 0,
+                advanceBalance: 0,
             }));
             setCustomers(nextCusts);
             try {
@@ -7529,7 +7549,8 @@ export const AppProvider: React.FC<{
             });
         }
         else if (moduleKey === 'INVENTORY_STOCK') {
-            const zeroStock = products.map((p) => ({ ...p, stockFactory: 0, stockOffice: 0 }));
+            const currentProds = latestStateRef.current.products || products;
+            const zeroStock = currentProds.map((p: ProductItem) => ({ ...p, stockFactory: 0, stockOffice: 0 }));
             setProducts(zeroStock);
             setStockMovements([]);
             try {
@@ -7568,14 +7589,21 @@ export const AppProvider: React.FC<{
             });
         }
         else if (moduleKey === 'TRANSACTIONS') {
+            const currentCusts = latestStateRef.current.customers || customers;
+            const zeroAdvanceCusts = (currentCusts || []).map((c: Customer) => ({
+                ...c,
+                advanceBalance: 0,
+            }));
             const zeroBalCOA = (latestStateRef.current.chartOfAccounts || chartOfAccounts).map((acc: ChartOfAccount) => ({
                 ...acc,
                 currentBalance: acc.openingBalance || 0,
             }));
+            setCustomers(zeroAdvanceCusts);
             setTransactions([]);
             setJournalEntries([]);
             setChartOfAccounts(zeroBalCOA);
             try {
+                localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(zeroAdvanceCusts));
                 localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify([]));
                 localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify([]));
                 localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(zeroBalCOA));
@@ -7583,6 +7611,7 @@ export const AppProvider: React.FC<{
             } catch {}
             latestStateRef.current = {
                 ...latestStateRef.current,
+                customers: zeroAdvanceCusts,
                 transactions: [],
                 journalEntries: [],
                 chartOfAccounts: zeroBalCOA,
@@ -7772,6 +7801,7 @@ export const AppProvider: React.FC<{
         // Mark local storage purge timestamp so other tabs/profiles discard old cached data
         try {
             localStorage.setItem(`${STORAGE_KEY}_LAST_PURGED_TS`, String(Date.now()));
+            localStorage.setItem(`${STORAGE_KEY}_LAST_PURGED_MODE`, moduleKey);
         } catch {}
 
         // Instant cloud sync force-push (bypasses conflicts & concurrency lock to guarantee permanent wipe)
@@ -7991,10 +8021,19 @@ export const AppProvider: React.FC<{
                 try { localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(cleanedSuppliers)); } catch {}
             }
             const purgeTs = (!isRestore && data.lastPurgedAt) ? new Date(data.lastPurgedAt).getTime() : 0;
+            const purgeMode = data.lastPurgeMode || '';
+            const isGlobalPurge = !purgeMode || purgeMode === 'RESET_ALL_TRANSACTIONS' || purgeMode === 'WIPE_ALL_EXCEPT_PRODUCTS' || purgeMode === 'ALL';
+            const isSalesPurge = isGlobalPurge || purgeMode === 'SALES' || purgeMode === 'SALES_RESET';
+            const isQuotesPurge = isGlobalPurge || isSalesPurge || purgeMode === 'QUOTATIONS';
+            const isPurchasesPurge = isGlobalPurge || purgeMode === 'PURCHASES';
+            const isTxPurge = isGlobalPurge || purgeMode === 'TRANSACTIONS';
+            const isStockMovementsPurge = isGlobalPurge || purgeMode === 'INVENTORY_STOCK';
+            const isJournalsPurge = isGlobalPurge || isTxPurge || purgeMode === 'JOURNALS';
+            const isProjectsPurge = isGlobalPurge || purgeMode === 'PROJECTS';
 
             if (data.invoices && Array.isArray(data.invoices)) {
                 let cleanedInvoices = sanitizeSalesInvoices(data.invoices);
-                if (purgeTs > 0) {
+                if (purgeTs > 0 && isSalesPurge) {
                     cleanedInvoices = cleanedInvoices.filter((inv: any) => {
                         const m = String(inv.id || '').match(/inv-(\d+)/);
                         return !(m && Number(m[1]) < purgeTs);
@@ -8022,7 +8061,7 @@ export const AppProvider: React.FC<{
             }
             if (data.quotations && Array.isArray(data.quotations)) {
                 let qts = data.quotations;
-                if (purgeTs > 0) {
+                if (purgeTs > 0 && isQuotesPurge) {
                     qts = qts.filter((q: any) => {
                         const m = String(q.id || '').match(/qt-(\d+)/);
                         return !(m && Number(m[1]) < purgeTs);
@@ -8033,7 +8072,7 @@ export const AppProvider: React.FC<{
             }
             if (data.purchaseOrders && Array.isArray(data.purchaseOrders)) {
                 let pos = data.purchaseOrders;
-                if (purgeTs > 0) {
+                if (purgeTs > 0 && isPurchasesPurge) {
                     pos = pos.filter((po: any) => {
                         const m = String(po.id || '').match(/po-(\d+)/);
                         return !(m && Number(m[1]) < purgeTs);
@@ -8044,7 +8083,7 @@ export const AppProvider: React.FC<{
             }
             if (data.transactions && Array.isArray(data.transactions)) {
                 let uniqueTx = ensureUniqueTransactions(data.transactions);
-                if (purgeTs > 0) {
+                if (purgeTs > 0 && isTxPurge) {
                     uniqueTx = uniqueTx.filter((tx: any) => {
                         const m = String(tx.id || '').match(/tx-(\d+)/);
                         return !(m && Number(m[1]) < purgeTs);
@@ -8065,7 +8104,7 @@ export const AppProvider: React.FC<{
             }
             if (data.stockMovements && Array.isArray(data.stockMovements)) {
                 let sms = data.stockMovements;
-                if (purgeTs > 0) {
+                if (purgeTs > 0 && isStockMovementsPurge) {
                     sms = sms.filter((sm: any) => {
                         const m = String(sm.id || '').match(/sm-(\d+)/);
                         return !(m && Number(m[1]) < purgeTs);
@@ -8109,7 +8148,7 @@ export const AppProvider: React.FC<{
             }
             if (data.journalEntries && Array.isArray(data.journalEntries)) {
                 let jns = data.journalEntries;
-                if (purgeTs > 0) {
+                if (purgeTs > 0 && isJournalsPurge) {
                     jns = jns.filter((j: any) => {
                         const m = String(j.id || '').match(/jnl-(\d+)/);
                         return !(m && Number(m[1]) < purgeTs);
@@ -8120,7 +8159,7 @@ export const AppProvider: React.FC<{
             }
             if (data.projects && Array.isArray(data.projects)) {
                 let prjs = data.projects;
-                if (purgeTs > 0 && data.lastPurgeMode === 'RESET_ALL_TRANSACTIONS') {
+                if (purgeTs > 0 && isProjectsPurge) {
                     prjs = prjs.filter((p: any) => {
                         const m = String(p.id || '').match(/prj-(\d+)/);
                         return !(m && Number(m[1]) < purgeTs);

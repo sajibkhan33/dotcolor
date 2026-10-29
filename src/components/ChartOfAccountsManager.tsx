@@ -177,7 +177,10 @@ export const ChartOfAccountsManager: React.FC = () => {
 
                     const netMatchingAdvance = Math.max(0, (acc.openingBalance || 0) + matchingAdvance - matchingAdvanceAdjusted);
 
-                    if (acc.id === primaryAdvanceAccId || advanceAccounts.length <= 1) {
+                    // When all transactions are purged or no advance deposits exist in ledger, reset to opening balance
+                    if ((transactions || []).length === 0 && matchingAdvance === 0) {
+                        liveBal = acc.openingBalance || 0;
+                    } else if (acc.id === primaryAdvanceAccId || advanceAccounts.length <= 1) {
                         liveBal = totalCustomerAdvance > 0 
                             ? totalCustomerAdvance 
                             : netMatchingAdvance;

@@ -828,6 +828,52 @@ export const isAdvanceDepositTransaction = (tx: Partial<AccountingTransaction>):
 };
 
 /**
+ * Calculates the total Customer Advances & Prepayment Deposits Held liability
+ * across customer directory balances, ledger advance transactions, and chart of accounts.
+ */
+export const calculateTotalCustomerAdvances = (
+    customers: any[] = [],
+    transactions: AccountingTransaction[] = [],
+    chartOfAccounts: ChartOfAccount[] = []
+): number => {
+    const totalFromCustomers = (customers || []).reduce((sum, c) => sum + (Number(c.advanceBalance) || 0), 0);
+
+    const matchingAdvanceDeposits = (transactions || []).filter(t => t.type === 'INCOME' && !isInvoiceTransaction(t) && (
+        isAdvanceDepositTransaction(t) ||
+        (t.category && (t.category.toLowerCase().includes('advance') || t.category.toLowerCase().includes('অগ্রিম') || t.category.toLowerCase().includes('customer advance'))) ||
+        (t.description && (t.description.toLowerCase().includes('advance') || t.description.toLowerCase().includes('অগ্রিম')))
+    )).reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+    const matchingAdvanceAdjusted = (transactions || [])
+        .filter(t => (
+            isAdvanceAdjustmentTransaction(t) ||
+            (t.category && (t.category.toLowerCase().includes('advance adjust') || t.category.toLowerCase().includes('অগ্রিম সমন্বয়') || t.category.toLowerCase().includes('advance adjustment'))) ||
+            (t.description && (t.description.toLowerCase().includes('advance adjust') || t.description.toLowerCase().includes('adjusted from advance') || t.description.toLowerCase().includes('advance adjustment')))
+        ))
+        .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+    const advanceAcc = (chartOfAccounts || []).find(a => 
+        a.classification === 'Liability' && (
+            a.code === '2002' || a.code === '2020' || a.id === 'coa-2020' ||
+            (a.name || '').toLowerCase().includes('advance') ||
+            (a.nameBn || '').includes('অগ্রিম')
+        )
+    );
+    const openingBal = advanceAcc ? (Number(advanceAcc.openingBalance) || 0) : 0;
+    const netMatchingAdvance = Math.max(0, openingBal + matchingAdvanceDeposits - matchingAdvanceAdjusted);
+
+    if (totalFromCustomers > 0) {
+        return Math.max(totalFromCustomers, netMatchingAdvance);
+    }
+    if ((transactions || []).length === 0 && matchingAdvanceDeposits === 0) {
+        return openingBal;
+    }
+    return netMatchingAdvance > 0 
+        ? netMatchingAdvance 
+        : (advanceAcc?.currentBalance !== undefined && advanceAcc.currentBalance > 0 ? advanceAcc.currentBalance : openingBal);
+};
+
+/**
  * Checks whether an accounting transaction is a project due collection
  * (cash/bank receipt settling an existing project receivable, NOT new project sales revenue).
  */

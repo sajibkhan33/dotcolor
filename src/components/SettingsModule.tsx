@@ -43,7 +43,25 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
 
     const lowStockCount = (products || []).filter((p) => (p.stockFactory || 0) + (p.stockOffice || 0) <= (p.minStockAlert || 5)).length;
 
+    const isSuperUser = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+        activeStaff?.customRoleId === 'role-superadmin' ||
+        (activeStaff?.name || '').toLowerCase().includes('super admin');
+    const canManageUsers = isSuperUser || checkPermission('settings.manage_users') ||
+        checkPermission('SETTINGS_MANAGE_USERS');
+    const canManageRoles = isSuperUser || checkPermission('settings.manage_roles') ||
+        checkPermission('SETTINGS_MANAGE_ROLES');
+    const canCleanData = isSuperUser || checkPermission('settings.clean_data') ||
+        checkPermission('SETTINGS_CLEAN_DATA');
+    const canManagePayments = isSuperUser || checkPermission('settings.manage_payments');
+    const canBackupRestore = isSuperUser || checkPermission('settings.backup_restore') ||
+        checkPermission('SETTINGS_BACKUP_RESTORE');
+
     const handleExport = () => {
+        if (!canBackupRestore) {
+            alert('Access Denied: You do not have permission to backup or download the database.');
+            return;
+        }
         const dataStr = exportDatabase();
         const blob = new Blob([dataStr], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -55,6 +73,10 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
     };
 
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!canBackupRestore) {
+            alert('Access Denied: You do not have permission to restore the database.');
+            return;
+        }
         const file = e.target.files?.[0];
         if (!file)
             return;
@@ -111,17 +133,6 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
     const [cleanConfirmModule, setCleanConfirmModule] = useState<string | null>(null);
     const [cleanFeedback, setCleanFeedback] = useState<string | null>(null);
     const [isPurging, setIsPurging] = useState<boolean>(false);
-    const isSuperUser = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
-        (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
-        activeStaff?.customRoleId === 'role-superadmin' ||
-        (activeStaff?.name || '').toLowerCase().includes('super admin');
-    const canManageUsers = isSuperUser || checkPermission('settings.manage_users') ||
-        checkPermission('SETTINGS_MANAGE_USERS');
-    const canManageRoles = isSuperUser || checkPermission('settings.manage_roles') ||
-        checkPermission('SETTINGS_MANAGE_ROLES');
-    const canCleanData = isSuperUser || checkPermission('settings.clean_data') ||
-        checkPermission('SETTINGS_CLEAN_DATA');
-    const canManagePayments = isSuperUser || checkPermission('settings.manage_payments');
     const [paymentFormData, setPaymentFormData] = useState({
         bankName: profile.bankName || '',
         bankAccount: profile.bankAccount || '',
@@ -324,6 +335,10 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
     };
     const handleSavePaymentSettings = (e: React.FormEvent) => {
         e.preventDefault();
+        if (!canManagePayments) {
+            alert('Access Denied: You do not have permission to modify payment gateways or banking.');
+            return;
+        }
         updateProfile(paymentFormData);
         addAuditLog({
             staffId: activeStaff.id,
@@ -362,6 +377,10 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
     };
     // User Handlers
     const handleOpenAddUser = () => {
+        if (!canManageUsers) {
+            alert('Access Denied: You do not have permission to add new users.');
+            return;
+        }
         const regularRoles = userRoles.filter((r) => r.name !== 'Super Admin' && r.name.toLowerCase() !== 'superadmin');
         const defaultRole = regularRoles.find((r) => r.name === 'Sales Executive') || regularRoles[0] || userRoles[0];
         setUserFormData({
@@ -383,6 +402,10 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
         setShowUserModal(true);
     };
     const handleOpenEditUser = (staff: StaffMember) => {
+        if (!canManageUsers) {
+            alert('Access Denied: You do not have permission to edit user details or permissions.');
+            return;
+        }
         const matchedRole = userRoles.find((r) => r.id === staff.customRoleId || r.name === staff.role);
         const hasCustomModules = Array.isArray(staff.allowedModules) && staff.allowedModules.length > 0;
         setUserFormData({
@@ -405,6 +428,10 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
     };
     const handleUserFormSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        if (!canManageUsers) {
+            alert('Access Denied: You do not have permission to manage users.');
+            return;
+        }
         if (!userFormData.name.trim())
             return;
         const colors = ['bg-blue-600', 'bg-emerald-600', 'bg-amber-600', 'bg-purple-600', 'bg-rose-600', 'bg-indigo-600'];
@@ -449,6 +476,10 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
         setShowUserModal(false);
     };
     const handleDeleteUser = (id: string) => {
+        if (!canManageUsers) {
+            alert('Access Denied: You do not have permission to delete users.');
+            return;
+        }
         const target = staffMembers.find((s) => s.id === id);
         if (!target)
             return;
@@ -470,6 +501,10 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
     };
     // Role Handlers
     const handleOpenAddRole = () => {
+        if (!canManageRoles) {
+            alert('Access Denied: You do not have permission to create custom roles.');
+            return;
+        }
         setRoleFormData({
             name: '',
             nameBn: '',
@@ -486,6 +521,10 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
         return (rName === 'super admin' || rName === 'superadmin' || role.id === 'role-superadmin');
     };
     const handleOpenEditRole = (role: UserRole) => {
+        if (!canManageRoles) {
+            alert('Access Denied: You do not have permission to modify roles or permissions.');
+            return;
+        }
         if (isSuperAdminRole(role)) {
             alert('Super Admin automatically has full unrestricted access and cannot be modified.');
             return;
@@ -526,6 +565,10 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
     };
     const handleRoleFormSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        if (!canManageRoles) {
+            alert('Access Denied: You do not have permission to save roles or permissions.');
+            return;
+        }
         const trimmedName = roleFormData.name.trim();
         if (!trimmedName)
             return;
@@ -555,6 +598,10 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
     };
     // Module Cleanup
     const handleExecuteClean = async (moduleKey: any) => {
+        if (!canCleanData) {
+            alert('Access Denied: You do not have permission to clean or purge module data.');
+            return;
+        }
         setIsPurging(true);
         let mappedKey = moduleKey;
         if (moduleKey === 'invoices' || moduleKey === 'SALES_RESET' || moduleKey === 'SALES') {
@@ -595,6 +642,10 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
         }
     };
     const handleFactoryReset = () => {
+        if (!canBackupRestore && !canCleanData) {
+            alert('Access Denied: You do not have permission to reset system data.');
+            return;
+        }
         if (confirm('CRITICAL WARNING: This will reset the entire ERP database to default demo records and clear cached changes. Are you sure?')) {
             resetToDefaultData();
             setCleanFeedback('System successfully restored to default baseline.');
@@ -648,15 +699,17 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
           </span>
         </button>
 
-        <button type="button" id="tab-settings-roles" onClick={() => setActiveTab('roles')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all ${activeTab === 'roles'
-            ? 'bg-slate-900 text-white shadow-xs'
-            : 'bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200'}`}>
-          <KeyRound className="w-4 h-4"/>
-          <span>{'Roles & Permissions'}</span>
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-slate-100 text-slate-700">
-            {userRoles.length}
-          </span>
-        </button>
+        {canManageRoles && (
+          <button type="button" id="tab-settings-roles" onClick={() => setActiveTab('roles')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all ${activeTab === 'roles'
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200'}`}>
+            <KeyRound className="w-4 h-4"/>
+            <span>{'Roles & Permissions'}</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-slate-100 text-slate-700">
+              {userRoles.length}
+            </span>
+          </button>
+        )}
 
         {canManagePayments && (<button type="button" id="tab-settings-payments" onClick={() => setActiveTab('payment-gateways')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer ${activeTab === 'payment-gateways'
                 ? 'bg-emerald-700 text-white shadow-xs'
@@ -808,10 +861,12 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                                   <Mail className="w-3 h-3 text-slate-400"/>
                                   <span className="truncate max-w-[150px]">{staff.email}</span>
                                 </div>)}
-                              <div className="flex items-center gap-1 font-mono text-[10px] text-amber-800">
-                                <Lock className="w-3 h-3 text-amber-500"/>
-                                <span>PIN: {isPinHashed(staff.password) ? '•••••• (Protected)' : (staff.password || '1234')}</span>
-                              </div>
+                              {canManageUsers && (
+                                <div className="flex items-center gap-1 font-mono text-[10px] text-amber-800">
+                                  <Lock className="w-3 h-3 text-amber-500"/>
+                                  <span>PIN: {isPinHashed(staff.password) ? '•••••• (Protected)' : (staff.password || '1234')}</span>
+                                </div>
+                              )}
                             </div>
                           </td>
 
@@ -827,22 +882,28 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                             {isCurrent ? (<span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
                                 <CheckCircle2 className="w-3 h-3 text-emerald-600"/>
                                 <span>Active Now</span>
-                              </span>) : (<button type="button" onClick={() => setActiveStaff(staff)} className="text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200 transition-colors cursor-pointer">
+                              </span>) : canManageUsers ? (<button type="button" onClick={() => setActiveStaff(staff)} className="text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200 transition-colors cursor-pointer">
                                 {'Switch To'}
-                              </button>)}
+                              </button>) : (<span className="text-[11px] text-slate-400">—</span>)}
                           </td>
 
                           <td className="py-3.5 px-4 text-right align-middle">
                             <div className="flex items-center justify-end gap-1.5">
-                              <button type="button" onClick={() => handleOpenEditUser(staff)} className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors" title={'Edit'}>
-                                <Edit2 className="w-3.5 h-3.5"/>
-                              </button>
-                              {!isCurrent && !isSuperAdminStaff(staff) && (<button type="button" onClick={() => handleDeleteUser(staff.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 transition-colors cursor-pointer" title={'Delete'}>
-                                  <Trash2 className="w-3.5 h-3.5"/>
-                                </button>)}
-                              {isSuperAdminStaff(staff) && (<span className="text-[9.5px] font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-200 select-none" title={'Permanent System Root Account (Cannot be deleted)'}>
-                                  Fixed
-                                </span>)}
+                              {canManageUsers ? (
+                                <>
+                                  <button type="button" onClick={() => handleOpenEditUser(staff)} className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors cursor-pointer" title={'Edit'}>
+                                    <Edit2 className="w-3.5 h-3.5"/>
+                                  </button>
+                                  {!isCurrent && !isSuperAdminStaff(staff) && (<button type="button" onClick={() => handleDeleteUser(staff.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 transition-colors cursor-pointer" title={'Delete'}>
+                                      <Trash2 className="w-3.5 h-3.5"/>
+                                    </button>)}
+                                  {isSuperAdminStaff(staff) && (<span className="text-[9.5px] font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-200 select-none" title={'Permanent System Root Account (Cannot be deleted)'}>
+                                      Fixed
+                                    </span>)}
+                                </>
+                              ) : (
+                                <span className="text-[11px] font-medium text-slate-400 italic">Read-Only</span>
+                              )}
                             </div>
                           </td>
                         </tr>);
@@ -854,7 +915,15 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
         </div>)}
 
       {/* TAB 2: ROLES & RBAC PERMISSIONS */}
-      {activeTab === 'roles' && (<div className="space-y-4">
+      {activeTab === 'roles' && (
+        !canManageRoles ? (
+          <div className="p-8 bg-white rounded-2xl border border-rose-200 text-center space-y-2">
+            <Shield className="w-8 h-8 text-rose-600 mx-auto" />
+            <h3 className="font-bold text-slate-900">Access Denied</h3>
+            <p className="text-xs text-slate-500">You do not have permission to view or configure Roles & Permissions.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
             <div>
               <h3 className="font-bold text-slate-900 text-sm">
@@ -895,7 +964,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                       <div className="flex items-center gap-1">
                         {isSuper ? (<span className="text-[9.5px] font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-200 select-none" title={'Super Admin permissions are permanent and cannot be modified'}>
                             Fixed / Locked
-                          </span>) : (<>
+                          </span>) : canManageRoles ? (<>
                             <button type="button" onClick={() => handleOpenEditRole(role)} className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer" title={'Edit Permissions'}>
                               <Edit2 className="w-4 h-4"/>
                             </button>
@@ -913,7 +982,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                             }} className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg cursor-pointer" title={'Delete Role'}>
                                 <Trash2 className="w-4 h-4"/>
                               </button>
-                          </>)}
+                          </>) : null}
                       </div>
                     </div>
 
@@ -947,14 +1016,16 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                     {isSuper ? (<span className="text-indigo-600 font-bold text-[11px] flex items-center gap-1">
                         <ShieldCheck className="w-3.5 h-3.5 text-indigo-600"/>
                         <span>{'All Privileges Permanently Active'}</span>
-                      </span>) : (<button type="button" onClick={() => handleOpenEditRole(role)} className="text-blue-600 font-bold hover:underline cursor-pointer">
+                      </span>) : canManageRoles ? (<button type="button" onClick={() => handleOpenEditRole(role)} className="text-blue-600 font-bold hover:underline cursor-pointer">
                         {'Modify Permissions ➔'}
-                      </button>)}
+                      </button>) : (
+                        <span className="text-slate-400 font-semibold text-[11px]">Read-Only</span>
+                      )}
                   </div>
                 </div>);
             })}
           </div>
-        </div>)}
+        </div>))}
 
       {/* TAB: PAYMENT GATEWAYS & METHODS */}
       {activeTab === 'payment-gateways' && canManagePayments && (<div className="space-y-6">
@@ -2076,21 +2147,23 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                 {'Manage local ERP data backups, cloud synchronization, POS 80mm thermal receipt bridge, central warehouse locations, and company contact credentials.'}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={handleExport}
-                className="flex items-center gap-2 px-4 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer"
-              >
-                <Download className="w-4 h-4" />
-                <span>{'Download Backup (.JSON)'}</span>
-              </button>
-              <label className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl font-bold text-xs border border-white/20 transition-all cursor-pointer">
-                <Upload className="w-4 h-4" />
-                <span>{'Upload & Restore'}</span>
-                <input type="file" accept=".json" onChange={handleFileUpload} className="hidden" />
-              </label>
-            </div>
+            {canBackupRestore && (
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleExport}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>{'Download Backup (.JSON)'}</span>
+                </button>
+                <label className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl font-bold text-xs border border-white/20 transition-all cursor-pointer">
+                  <Upload className="w-4 h-4" />
+                  <span>{'Upload & Restore'}</span>
+                  <input type="file" accept=".json" onChange={handleFileUpload} className="hidden" />
+                </label>
+              </div>
+            )}
           </div>
 
           {/* Quick Metrics & Hardware Status Grid (4 Cards) */}
@@ -2223,19 +2296,27 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleExport}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>{'Download Backup (.JSON)'}</span>
-                </button>
-                <label className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer">
-                  <Upload className="w-4 h-4" />
-                  <span>{'Upload & Restore'}</span>
-                  <input type="file" accept=".json" onChange={handleFileUpload} className="hidden" />
-                </label>
+                {canBackupRestore ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleExport}
+                      className="flex items-center gap-2 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>{'Download Backup (.JSON)'}</span>
+                    </button>
+                    <label className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer">
+                      <Upload className="w-4 h-4" />
+                      <span>{'Upload & Restore'}</span>
+                      <input type="file" accept=".json" onChange={handleFileUpload} className="hidden" />
+                    </label>
+                  </>
+                ) : (
+                  <span className="text-xs font-semibold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+                    Backup & Restore Restricted
+                  </span>
+                )}
               </div>
             </div>
 
@@ -2280,14 +2361,16 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                 <p className="text-[11px] text-slate-500 leading-relaxed">
                   {'Reset the database back to clean baseline defaults if you wish to start afresh or test cleanly.'}
                 </p>
-                <button
-                  type="button"
-                  onClick={handleFactoryReset}
-                  className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg font-bold text-[11px] border border-rose-200 transition-colors cursor-pointer"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>{'Reset to Demo Data'}</span>
-                </button>
+                {(canBackupRestore || canCleanData) && (
+                  <button
+                    type="button"
+                    onClick={handleFactoryReset}
+                    className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg font-bold text-[11px] border border-rose-200 transition-colors cursor-pointer"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>{'Reset to Demo Data'}</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
