@@ -225,7 +225,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                 const effectiveProjectSales = Math.max(matchingProjectSales, matchingProjectInvoiceSales);
 
                 if (isProjectRev || matchingProjects.length > 0) {
-                    // Standalone project revenue transactions that are NOT due collections, NOT unpaid receivable due bookings, and NOT already part of matchingProjects
+                    // Standalone project revenue transactions that are NOT due collections, NOT unpaid receivable due bookings, and NOT already part of matchingProjects or matchingProjectInvoices
                     const standaloneProjectRevenue = (transactions || [])
                         .filter(t => 
                             t.type === 'INCOME' && 
@@ -233,7 +233,8 @@ export const ChartOfAccountsManager: React.FC = () => {
                             !isDueReceivableTransaction(t) && 
                             !isAdvanceAdjustmentTransaction(t) && 
                             (t.accountHead === acc.name || (t.category && t.category.toLowerCase().includes('project revenue'))) && 
-                            !matchingProjects.some(p => (p.code && t.refNo && p.code.toLowerCase() === t.refNo.toLowerCase()) || (t.description && p.code && t.description.toLowerCase().includes(p.code.toLowerCase())))
+                            !matchingProjects.some(p => (p.code && t.refNo && p.code.toLowerCase() === t.refNo.toLowerCase()) || (t.description && p.code && t.description.toLowerCase().includes(p.code.toLowerCase()))) &&
+                            !matchingProjectInvoices.some(inv => (inv.invoiceNo && t.refNo && inv.invoiceNo.toLowerCase() === t.refNo.toLowerCase()) || (t.description && inv.invoiceNo && t.description.toLowerCase().includes(inv.invoiceNo.toLowerCase())))
                         )
                         .reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
@@ -251,7 +252,11 @@ export const ChartOfAccountsManager: React.FC = () => {
                         )
                         .reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
-                    liveBal = (acc.openingBalance || 0) + Math.max(effectiveProjectSales + standaloneProjectRevenue, allPrjTxRevenue);
+                    const effectiveProjectRev = (matchingProjects.length > 0 || matchingProjectInvoices.length > 0)
+                        ? (effectiveProjectSales + standaloneProjectRevenue)
+                        : allPrjTxRevenue;
+
+                    liveBal = (acc.openingBalance || 0) + effectiveProjectRev;
                 } else if (isSalesRev) {
                     // Non-project invoice sales
                     const invoiceSalesFromTx = (transactions || [])

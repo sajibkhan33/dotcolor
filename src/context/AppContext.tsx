@@ -185,6 +185,7 @@ const ensureUniqueTransactions = (list: AccountingTransaction[]): AccountingTran
     const seenIds = new Set<string>();
     const seenInvoiceKeys = new Set<string>();
     const seenPrjExpKeys = new Set<string>();
+    const seenPrjIncomeKeys = new Set<string>();
     const result: AccountingTransaction[] = [];
 
     const normalizeAcc = (name?: string): string => {
@@ -216,6 +217,15 @@ const ensureUniqueTransactions = (list: AccountingTransaction[]): AccountingTran
                 continue; // Skip duplicate invoice income transaction
             }
             seenInvoiceKeys.add(invoiceKey);
+        }
+
+        // Deduplicate duplicate project income entries (same project code & normalized payment account & amount)
+        if (tx.type === 'INCOME' && refUpper.startsWith('PRJ-')) {
+            const prjIncomeKey = `${refUpper}_${normAcc}_${Number(tx.amount) || 0}`;
+            if (seenPrjIncomeKeys.has(prjIncomeKey)) {
+                continue; // Skip duplicate project income transaction
+            }
+            seenPrjIncomeKeys.add(prjIncomeKey);
         }
 
         // Deduplicate duplicate project expense entries (same project code, category, amount, date, description)

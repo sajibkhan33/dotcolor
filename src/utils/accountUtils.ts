@@ -218,8 +218,9 @@ export const calculateSingleAccountBalance = (
     const isBrac = accNameLower.includes('brac');
     const isCash = (accNameLower.includes('cash') || accCode === '1001' || accCode === '1010' || (acc.nameBn && acc.nameBn.includes('ক্যাশ'))) && !isBkash && !isNagad;
 
-    // 1. Sum up all matched ledger transactions with safeguard against duplicate invoice payments
+    // 1. Sum up all matched ledger transactions with safeguard against duplicate invoice payments and duplicate project collections
     const seenInvoiceChannelSums = new Map<string, number>();
+    const seenProjectChannelSums = new Map<string, number>();
     const invRecordedForThisAcc = new Map<string, number>();
 
     (transactions || []).forEach((tx) => {
@@ -244,6 +245,63 @@ export const calculateSingleAccountBalance = (
                         invRecordedForThisAcc.set(numPart, (invRecordedForThisAcc.get(numPart) || 0) + amt);
                     }
                 }
+
+                // Project duplicate safeguard:
+                // Check if transaction matches a project (by refNo, description, projectId, or projectCode)
+                const matchedProject = (projects || []).find((p: any) => {
+                    const pCode = (p.code || '').toLowerCase().trim();
+                    const pInv = (p.invoiceNo || '').toLowerCase().trim();
+                    const pId = (p.id || '').toLowerCase().trim();
+                    const tRef = (tx.refNo || '').toLowerCase().trim();
+                    const tDesc = (tx.description || '').toLowerCase();
+                    return (
+                        (pCode && (tRef === pCode || tDesc.includes(pCode))) ||
+                        (pInv && (tRef === pInv || tDesc.includes(pInv))) ||
+                        (pId && (tx.projectId === p.id || tDesc.includes(pId))) ||
+                        (p.code && tx.projectCode === p.code)
+                    );
+                });
+
+                if (matchedProject) {
+                    const projKey = `${matchedProject.id || matchedProject.code}_${acc.id || acc.code || acc.name}`;
+                    const currentProjAccSum = seenProjectChannelSums.get(projKey) || 0;
+                    
+                    // Determine allowed maximum collection for this payment account channel for this project
+                    let maxAllowedForChannel = Number(matchedProject.totalCollected) || Number(matchedProject.totalSales) || 0;
+                    
+                    const accNameLower = (acc.name || '').toLowerCase().trim();
+                    const isAccCash = accNameLower.includes('cash') || acc.code === '1001' || acc.code === '1010';
+                    const isAccBank = accNameLower.includes('bank') || accNameLower.includes('city') || accNameLower.includes('southeast') || accNameLower.includes('brac');
+                    const isAccNagad = accNameLower.includes('nagad');
+                    const isAccBkash = accNameLower.includes('bkash');
+
+                    let specificChannelBudget: number | null = null;
+                    (matchedProject.salesItems || []).forEach((si: any) => {
+                        (si.paymentBreakdown || []).forEach((pb: any) => {
+                            const m = (pb.method || '').toLowerCase();
+                            const matchesChannel = (isAccCash && (m.includes('cash') || m === 'pm-cash')) ||
+                                (isAccNagad && (m.includes('nagad') || m === 'pm-nagad')) ||
+                                (isAccBkash && (m.includes('bkash') || m === 'pm-bkash')) ||
+                                (isAccBank && (m.includes('bank') || m.includes('city') || m.includes('southeast') || m.includes('brac') || m.includes('card')));
+                            if (matchesChannel) {
+                                specificChannelBudget = (specificChannelBudget || 0) + (Number(pb.amount) || 0);
+                            }
+                        });
+                    });
+
+                    if (specificChannelBudget !== null) {
+                        maxAllowedForChannel = specificChannelBudget;
+                    }
+
+                    const allowedContribution = Math.min(amt, Math.max(0, maxAllowedForChannel - currentProjAccSum));
+                    if (allowedContribution <= 0) {
+                        return; // skip duplicate project transaction contribution!
+                    }
+                    seenProjectChannelSums.set(projKey, currentProjAccSum + allowedContribution);
+                    balance += allowedContribution;
+                    return;
+                }
+
                 balance += tx.amount;
             } else if (tx.type === 'EXPENSE') {
                 balance -= tx.amount;

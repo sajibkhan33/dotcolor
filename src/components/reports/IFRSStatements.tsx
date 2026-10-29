@@ -51,6 +51,18 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                 if (isAdvanceAdjustmentTransaction(t)) return false;
                 // Exclude invoice-matching transactions
                 if (t.refNo && invoices.some(i => i.invoiceNo && i.invoiceNo.toLowerCase().trim() === t.refNo.toLowerCase().trim())) return false;
+                // Exclude transactions matching any project that already has a linked invoice in invoices
+                if (isProjectTransaction(t) || (t.category && t.category.toLowerCase().includes('project'))) {
+                    const tRef = (t.refNo || '').toLowerCase().trim();
+                    const tDesc = (t.description || '').toLowerCase();
+                    const isLinkedToInvoicedProject = (projects || []).some(p => {
+                        const hasLinkedInv = Boolean(p.invoiceNo || p.invoiceId || invoices.some(i => i.projectId === p.id || i.projectCode === p.code));
+                        if (!hasLinkedInv) return false;
+                        const pCode = (p.code || '').toLowerCase().trim();
+                        return (pCode && (tRef === pCode || tDesc.includes(pCode))) || (p.id && (t.projectId === p.id || tDesc.includes(p.id.toLowerCase())));
+                    });
+                    if (isLinkedToInvoicedProject) return false;
+                }
                 const desc = (t.description || '').toLowerCase();
                 if (desc.includes('due collection') || desc.includes('customer due') || desc.includes('invoice #')) return false;
                 return true;
@@ -58,7 +70,7 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
             .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
         return invoiceTotal + directIncomeTotal;
-    }, [invoices, transactions]);
+    }, [invoices, transactions, projects]);
     const salesDiscounts = useMemo(() => {
         return invoices.reduce((sum, inv) => sum + (inv.discount || 0), 0);
     }, [invoices]);
@@ -245,16 +257,32 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
             } else if (acc.classification === 'Revenue') {
                 const isPrj = acc.code === '4002' || acc.code === '4051' || acc.code === '4060' || nameLower.includes('project');
                 if (isPrj) {
-                    const prjTxSales = (transactions || [])
+                    const standalonePrjTxSales = (transactions || [])
                         .filter(t => t.type === 'INCOME' && !isDueReceivableTransaction(t) && !isAdvanceDepositTransaction(t) && !isAdvanceAdjustmentTransaction(t) && (
                             isProjectTransaction(t) || 
                             (t.category && t.category.toLowerCase().includes('project')) ||
                             (t.accountHead && t.accountHead.toLowerCase().includes('project')) ||
-                            (t.refNo && (t.refNo.toUpperCase().startsWith('PRJ-') || (projects || []).some(p => p.code === t.refNo)))
+                            (t.refNo && t.refNo.toUpperCase().startsWith('PRJ-'))
+                        ) && !(projects || []).some(p => 
+                            (p.code && t.refNo && p.code.toLowerCase() === t.refNo.toLowerCase()) || 
+                            (p.code && t.description && t.description.toLowerCase().includes(p.code.toLowerCase())) ||
+                            (p.invoiceNo && t.refNo && p.invoiceNo.toLowerCase() === t.refNo.toLowerCase()) ||
+                            (p.invoiceNo && t.description && t.description.toLowerCase().includes(p.invoiceNo.toLowerCase()))
                         ))
                         .reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
-                    credit = (acc.openingBalance || 0) + Math.max(totalProjectSales, prjTxSales, (acc.currentBalance || 0));
+                    const effectivePrjRevenue = (projects && projects.length > 0)
+                        ? (totalProjectSales + standalonePrjTxSales)
+                        : (transactions || [])
+                            .filter(t => t.type === 'INCOME' && !isDueReceivableTransaction(t) && !isAdvanceDepositTransaction(t) && !isAdvanceAdjustmentTransaction(t) && (
+                                isProjectTransaction(t) || 
+                                (t.category && t.category.toLowerCase().includes('project')) ||
+                                (t.accountHead && t.accountHead.toLowerCase().includes('project')) ||
+                                (t.refNo && (t.refNo.toUpperCase().startsWith('PRJ-') || (projects || []).some(p => p.code === t.refNo)))
+                            ))
+                            .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+                    credit = (acc.openingBalance || 0) + effectivePrjRevenue;
                 } else if (acc.code === '4001' || acc.code === '4010' || nameLower.includes('sales')) {
                     const directMatchingSales = (transactions || [])
                         .filter(t => 
