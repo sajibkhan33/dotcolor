@@ -42,24 +42,34 @@ export const InventoryReports: React.FC<InventoryReportsProps> = ({ reportId, pr
     // -------------------------------------------------------------
     const movementReportData = useMemo(() => {
         return products.map((prod) => {
+            const isMatch = (itemProdId?: string, itemName?: string) => {
+                if (itemProdId && itemProdId === prod.id) return true;
+                if (itemName && prod.name) {
+                    const n1 = itemName.toLowerCase().trim();
+                    const n2 = prod.name.toLowerCase().trim();
+                    if (n1 === n2 || n1.includes(n2) || n2.includes(n1)) return true;
+                }
+                return false;
+            };
+
             // Calculate IN quantity from stockMovements or Purchase Orders marked received
             const inMovements = stockMovements
-                .filter((sm) => sm.productId === prod.id && (sm.type === 'IN'))
+                .filter((sm) => sm.type === 'IN' && isMatch(sm.productId, sm.productName))
                 .reduce((sum, sm) => sum + sm.qty, 0);
             // Calculate OUT quantity from stockMovements or Sales Invoices
             const outMovements = stockMovements
-                .filter((sm) => sm.productId === prod.id && (sm.type === 'OUT'))
+                .filter((sm) => sm.type === 'OUT' && isMatch(sm.productId, sm.productName))
                 .reduce((sum, sm) => sum + sm.qty, 0);
             // In case stockMovements were empty or partial, fallback to aggregating from invoices & received POs
             const poIn = purchaseOrders
                 .filter((po) => po.status === 'Received')
                 .flatMap((po) => po.items)
-                .filter((it) => it.productId === prod.id)
-                .reduce((s, it) => s + it.qty, 0);
+                .filter((it) => isMatch(it.productId, it.name))
+                .reduce((s, it) => s + (it.receivedQty !== undefined ? it.receivedQty : it.qty), 0);
             const invOut = invoices
                 .flatMap((inv) => inv.items)
-                .filter((it) => it.productId === prod.id)
-                .reduce((s, it) => s + it.qty, 0);
+                .filter((it) => isMatch(it.productId, it.name))
+                .reduce((s, it) => s + (Number(it.qty) || 0), 0);
             const totalIn = Math.max(inMovements, poIn);
             const totalOut = Math.max(outMovements, invOut);
             const currentClosing = (prod.stockOffice || 0) + (prod.stockFactory || 0);
