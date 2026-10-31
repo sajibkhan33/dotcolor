@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ChartOfAccount, AccountingTransaction, SalesInvoice, PurchaseOrder, Product, Customer, Language, CompanyProfile, } from '../../types';
 import { Scale, TrendingUp, FileText, DollarSign, CheckCircle2, AlertCircle, Building, ArrowDownRight, ArrowUpRight, Edit2, } from 'lucide-react';
-import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateTotalCustomerAdvances, isSupplierPaymentTransaction, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isDueReceivableTransaction, isAdvanceDepositTransaction, isAdvanceAdjustmentTransaction, doesTransactionMatchExpenseAccount } from '../../utils/accountUtils';
+import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateTotalCustomerAdvances, isSupplierPaymentTransaction, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, isAdvanceDepositTransaction, isAdvanceAdjustmentTransaction, doesTransactionMatchExpenseAccount } from '../../utils/accountUtils';
 import { useApp } from '../../context/AppContext';
 interface IFRSStatementsProps {
     reportId: string;
@@ -252,13 +252,14 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                         if (isCredit && !isDebit) journalEquityDelta += amt;
                         else if (isDebit && !isCredit) journalEquityDelta -= amt;
                     });
-                    credit = Math.max(0, (acc.openingBalance || 0) + journalEquityDelta);
+                    const baseCap = (journalEquityDelta > 0) ? (acc.openingBalance || 0) : (acc.openingBalance || acc.currentBalance || 0);
+                    credit = Math.max(0, baseCap + journalEquityDelta);
                 }
             } else if (acc.classification === 'Revenue') {
                 const isPrj = acc.code === '4002' || acc.code === '4051' || acc.code === '4060' || nameLower.includes('project');
                 if (isPrj) {
                     const standalonePrjTxSales = (transactions || [])
-                        .filter(t => t.type === 'INCOME' && !isDueReceivableTransaction(t) && !isAdvanceDepositTransaction(t) && !isAdvanceAdjustmentTransaction(t) && (
+                        .filter(t => t.type === 'INCOME' && !isDueReceivableTransaction(t) && !isAdvanceDepositTransaction(t) && !isAdvanceAdjustmentTransaction(t) && !isProjectDueCollectionTransaction(t) && (
                             isProjectTransaction(t) || 
                             (t.category && t.category.toLowerCase().includes('project')) ||
                             (t.accountHead && t.accountHead.toLowerCase().includes('project')) ||
@@ -274,7 +275,7 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                     const effectivePrjRevenue = (projects && projects.length > 0)
                         ? (totalProjectSales + standalonePrjTxSales)
                         : (transactions || [])
-                            .filter(t => t.type === 'INCOME' && !isDueReceivableTransaction(t) && !isAdvanceDepositTransaction(t) && !isAdvanceAdjustmentTransaction(t) && (
+                            .filter(t => t.type === 'INCOME' && !isDueReceivableTransaction(t) && !isAdvanceDepositTransaction(t) && !isAdvanceAdjustmentTransaction(t) && !isProjectDueCollectionTransaction(t) && (
                                 isProjectTransaction(t) || 
                                 (t.category && t.category.toLowerCase().includes('project')) ||
                                 (t.accountHead && t.accountHead.toLowerCase().includes('project')) ||
@@ -534,7 +535,10 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                     txCapitalDelta += Number(t.amount) || 0;
                 }
             });
-            ownerCapital += Math.max(0, (capitalAcc.openingBalance || 0) + journalCapitalDelta + txCapitalDelta);
+            const baseCapital = (journalCapitalDelta > 0 || txCapitalDelta > 0)
+                ? (capitalAcc.openingBalance || 0)
+                : (capitalAcc.openingBalance || capitalAcc.currentBalance || 0);
+            ownerCapital += Math.max(0, baseCapital + journalCapitalDelta + txCapitalDelta);
         });
 
         const currentPeriodEarnings = netProfitForThePeriod;

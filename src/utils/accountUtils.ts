@@ -222,12 +222,24 @@ export const calculateSingleAccountBalance = (
     const seenInvoiceChannelSums = new Map<string, number>();
     const seenProjectChannelSums = new Map<string, number>();
     const invRecordedForThisAcc = new Map<string, number>();
+    const seenProjectItemDescriptions = new Set<string>();
 
     (transactions || []).forEach((tx) => {
         if (doesTransactionMatchAccount(tx, acc)) {
             if (tx.type === 'INCOME') {
                 const ref = (tx.refNo || '').toLowerCase().trim();
                 const amt = Number(tx.amount) || 0;
+                const descNorm = (tx.description || '').toLowerCase().trim();
+
+                // Skip identical duplicate project transaction entries with same amount, description and account
+                if (descNorm && descNorm.includes('project')) {
+                    const txKey = `${tx.type}_${amt}_${descNorm}_${acc.id || accCode || accNameLower}`;
+                    if (seenProjectItemDescriptions.has(txKey)) {
+                        return; // skip duplicate transaction contribution!
+                    }
+                    seenProjectItemDescriptions.add(txKey);
+                }
+
                 if (ref) {
                     const invoiceKey = `${ref}_${acc.id || acc.code || acc.name}`;
                     const linkedInv = (invoices || []).find(i => (i.invoiceNo || '').toLowerCase().trim() === ref);
@@ -296,6 +308,36 @@ export const calculateSingleAccountBalance = (
                                 specificChannelBudget = (specificChannelBudget || 0) + (Number(pb.amount) || 0);
                             }
                         });
+
+                        (si.collections || []).forEach((col: any) => {
+                            const m = (col.paymentMethod || '').toLowerCase();
+                            const matchesChannel = 
+                                (isAccCity && m.includes('city')) ||
+                                (isAccSoutheast && m.includes('southeast')) ||
+                                (isAccBrac && m.includes('brac')) ||
+                                (isAccNagad && (m.includes('nagad') || m === 'pm-nagad')) ||
+                                (isAccBkash && (m.includes('bkash') || m === 'pm-bkash')) ||
+                                (isAccCash && (m.includes('cash') || m === 'pm-cash')) ||
+                                (!isAccCity && !isAccSoutheast && !isAccBrac && !isAccNagad && !isAccBkash && !isAccCash && (m.includes('bank') || m.includes('card')));
+                            if (matchesChannel) {
+                                specificChannelBudget = (specificChannelBudget || 0) + (Number(col.amount) || 0);
+                            }
+                        });
+                    });
+
+                    (matchedProject.collections || []).forEach((col: any) => {
+                        const m = (col.paymentMethod || '').toLowerCase();
+                        const matchesChannel = 
+                            (isAccCity && m.includes('city')) ||
+                            (isAccSoutheast && m.includes('southeast')) ||
+                            (isAccBrac && m.includes('brac')) ||
+                            (isAccNagad && (m.includes('nagad') || m === 'pm-nagad')) ||
+                            (isAccBkash && (m.includes('bkash') || m === 'pm-bkash')) ||
+                            (isAccCash && (m.includes('cash') || m === 'pm-cash')) ||
+                            (!isAccCity && !isAccSoutheast && !isAccBrac && !isAccNagad && !isAccBkash && !isAccCash && (m.includes('bank') || m.includes('card')));
+                        if (matchesChannel) {
+                            specificChannelBudget = (specificChannelBudget || 0) + (Number(col.amount) || 0);
+                        }
                     });
 
                     if (specificChannelBudget !== null) {
@@ -381,6 +423,11 @@ export const calculateSingleAccountBalance = (
                 channelSplitMap.set(normChannel, Math.max(channelSplitMap.get(normChannel) || 0, amt));
             });
 
+            const hasSpecificBank = Array.from(channelSplitMap.keys()).some(k => 
+                k.includes('city') || k.includes('southeast') || k.includes('brac')
+            );
+            const invPmLower = (inv.paymentMethod || '').toLowerCase();
+
             let targetAccSplitAmt = 0;
             let isMatched = false;
 
@@ -392,9 +439,11 @@ export const calculateSingleAccountBalance = (
                     matchesKey = true;
                 } else if (isNagad && normChannel === 'nagad') {
                     matchesKey = true;
-                } else if (isCity && (normChannel.includes('city') || (normChannel === 'bank' && !channelSplitMap.has('city bank')))) {
+                } else if (isCity && (normChannel.includes('city') || (!hasSpecificBank && normChannel === 'bank' && (invPmLower.includes('city') || !invPmLower.includes('bank'))))) {
                     matchesKey = true;
-                } else if (isSoutheast && (normChannel.includes('southeast') || (normChannel === 'bank' && !channelSplitMap.has('southeast bank')))) {
+                } else if (isSoutheast && (normChannel.includes('southeast') || (!hasSpecificBank && normChannel === 'bank' && (invPmLower.includes('southeast') || !invPmLower.includes('bank'))))) {
+                    matchesKey = true;
+                } else if (isBrac && (normChannel.includes('brac') || (!hasSpecificBank && normChannel === 'bank' && (invPmLower.includes('brac') || !invPmLower.includes('bank'))))) {
                     matchesKey = true;
                 } else if (isCash && normChannel === 'cash') {
                     matchesKey = true;
@@ -463,6 +512,34 @@ export const calculateSingleAccountBalance = (
                     channelMilestoneTotal += (Number(pb.amount) || 0);
                 }
             });
+
+            (si.collections || []).forEach((col: any) => {
+                const m = (col.paymentMethod || '').toLowerCase();
+                const matchesChannel = 
+                    (isCity && m.includes('city')) ||
+                    (isSoutheast && m.includes('southeast')) ||
+                    (isBrac && m.includes('brac')) ||
+                    (isNagad && (m.includes('nagad') || m === 'pm-nagad')) ||
+                    (isBkash && (m.includes('bkash') || m === 'pm-bkash')) ||
+                    (isCash && (m.includes('cash') || m === 'pm-cash'));
+                if (matchesChannel) {
+                    channelMilestoneTotal += (Number(col.amount) || 0);
+                }
+            });
+        });
+
+        (proj.collections || []).forEach((col: any) => {
+            const m = (col.paymentMethod || '').toLowerCase();
+            const matchesChannel = 
+                (isCity && m.includes('city')) ||
+                (isSoutheast && m.includes('southeast')) ||
+                (isBrac && m.includes('brac')) ||
+                (isNagad && (m.includes('nagad') || m === 'pm-nagad')) ||
+                (isBkash && (m.includes('bkash') || m === 'pm-bkash')) ||
+                (isCash && (m.includes('cash') || m === 'pm-cash'));
+            if (matchesChannel) {
+                channelMilestoneTotal += (Number(col.amount) || 0);
+            }
         });
 
         if (channelMilestoneTotal > currentRecorded) {
