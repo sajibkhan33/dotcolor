@@ -299,6 +299,38 @@ export const AccountingModule: React.FC = () => {
                 }
             });
 
+        // 3. Active Owner's Drawings (Equity reductions)
+        (chartOfAccounts || [])
+            .filter((a) => a.classification === 'Equity' && a.isActive && (a.normalBalance === 'Debit' || a.name.toLowerCase().includes('drawing') || a.nameBn?.includes('উত্তোলন')))
+            .forEach((a) => {
+                const key = a.name.trim().toLowerCase();
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    list.push({
+                        id: `coa-${a.id}`,
+                        name: a.name,
+                        nameBn: a.nameBn,
+                        group: "Owner's Drawings (Equity)",
+                    });
+                }
+            });
+
+        // 4. Active Liabilities (e.g. Loan Repayments, Wages Payable 2003)
+        (chartOfAccounts || [])
+            .filter((a) => a.classification === 'Liability' && a.isActive && (a.code === '2003' || a.name.toLowerCase().includes('loan') || a.name.toLowerCase().includes('payable') || a.nameBn?.includes('ঋণ') || a.nameBn?.includes('বেতন')))
+            .forEach((a) => {
+                const key = a.name.trim().toLowerCase();
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    list.push({
+                        id: `coa-${a.id}`,
+                        name: a.name,
+                        nameBn: a.nameBn,
+                        group: 'Liability Repayment & Settlement',
+                    });
+                }
+            });
+
         return list;
     }, [expenseHeads, chartOfAccounts]);
 
@@ -344,6 +376,38 @@ export const AccountingModule: React.FC = () => {
                         name: a.name,
                         nameBn: a.nameBn,
                         group: 'Customer Advance',
+                    });
+                }
+            });
+
+        // 3. Active Capital & Equity heads (for owner investment / capital injection)
+        (chartOfAccounts || [])
+            .filter((a) => a.classification === 'Equity' && a.isActive && a.normalBalance === 'Credit' && a.id !== 'coa-3020' && !a.name.toLowerCase().includes('retained'))
+            .forEach((a) => {
+                const key = a.name.toLowerCase().trim();
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    list.push({
+                        id: a.id,
+                        name: a.name,
+                        nameBn: a.nameBn,
+                        group: "Owner's Equity & Capital",
+                    });
+                }
+            });
+
+        // 4. Active Loans & Borrowings (Liability)
+        (chartOfAccounts || [])
+            .filter((a) => a.classification === 'Liability' && a.isActive && (a.accountGroup === 'Long-term Liabilities' || a.name.toLowerCase().includes('loan') || a.nameBn?.includes('ঋণ')))
+            .forEach((a) => {
+                const key = a.name.toLowerCase().trim();
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    list.push({
+                        id: a.id,
+                        name: a.name,
+                        nameBn: a.nameBn,
+                        group: 'Loans & Borrowings (Liability)',
                     });
                 }
             });
@@ -566,8 +630,32 @@ export const AccountingModule: React.FC = () => {
         })
         .reduce((acc, inv) => acc + (Number(inv.paidAmount) || 0), 0);
 
+    const isCapitalOrLoanIncome = (tx: any) => {
+        const cat = (tx.category || '').toLowerCase().trim();
+        const head = (tx.accountHead || '').toLowerCase().trim();
+        return (chartOfAccounts || []).some(a => 
+            (a.classification === 'Equity' && a.normalBalance === 'Credit' && a.id !== 'coa-3020' && !a.name.toLowerCase().includes('retained')) &&
+            (a.name.toLowerCase() === cat || (a.nameBn && a.nameBn.toLowerCase() === cat) || a.name.toLowerCase() === head)
+        ) || (chartOfAccounts || []).some(a => 
+            (a.classification === 'Liability' && (a.accountGroup === 'Long-term Liabilities' || a.name.toLowerCase().includes('loan'))) &&
+            (a.name.toLowerCase() === cat || (a.nameBn && a.nameBn.toLowerCase() === cat) || a.name.toLowerCase() === head)
+        );
+    };
+
+    const isDrawingOrLiabilityExpense = (tx: any) => {
+        const cat = (tx.category || '').toLowerCase().trim();
+        const head = (tx.accountHead || '').toLowerCase().trim();
+        return (chartOfAccounts || []).some(a => 
+            (a.classification === 'Equity' && (a.normalBalance === 'Debit' || a.name.toLowerCase().includes('drawing') || (a.nameBn || '').includes('উত্তোলন'))) &&
+            (a.name.toLowerCase() === cat || (a.nameBn && a.nameBn.toLowerCase() === cat) || a.name.toLowerCase() === head)
+        ) || (chartOfAccounts || []).some(a => 
+            (a.classification === 'Liability' && !a.name.toLowerCase().includes('supplier') && !a.name.toLowerCase().includes('advance')) &&
+            (a.name.toLowerCase() === cat || (a.nameBn && a.nameBn.toLowerCase() === cat) || a.name.toLowerCase() === head)
+        );
+    };
+
     const txIncome = filteredTransactions
-        .filter((tx) => tx.type === 'INCOME' && !isAdvanceAdjustmentTransaction(tx) && !isDueReceivableTransaction(tx))
+        .filter((tx) => tx.type === 'INCOME' && !isAdvanceAdjustmentTransaction(tx) && !isDueReceivableTransaction(tx) && !isCapitalOrLoanIncome(tx))
         .reduce((acc, tx) => acc + tx.amount, 0);
 
     const totalIncome = txIncome + unrecordedInvoiceIncome;
@@ -577,9 +665,9 @@ export const AccountingModule: React.FC = () => {
         .filter((tx) => tx.type === 'EXPENSE' && isSupplierPaymentTransaction(tx))
         .reduce((acc, tx) => acc + tx.amount, 0);
 
-    // Direct Operating Expenses (Office rent, utilities, overheads)
+    // Direct Operating Expenses (Office rent, utilities, overheads - excludes Owner Drawings & Loans)
     const directOperatingExpenses = filteredTransactions
-        .filter((tx) => tx.type === 'EXPENSE' && !isSupplierPaymentTransaction(tx))
+        .filter((tx) => tx.type === 'EXPENSE' && !isSupplierPaymentTransaction(tx) && !isDrawingOrLiabilityExpense(tx))
         .reduce((acc, tx) => acc + tx.amount, 0);
 
     // Journal Voucher adjustments that merged/recognized expenses (e.g. raw materials consumed -> COGS)
@@ -658,7 +746,16 @@ export const AccountingModule: React.FC = () => {
             });
         } else {
             const expRef = `EXP-${Date.now().toString().slice(-4)}`;
-            const debitExp = resolveExpenseAccount(expenseCategory, expenseTitle, chartOfAccounts, expenseHeads, true);
+            const matchedCoa = (chartOfAccounts || []).find(a => 
+                a.name.toLowerCase() === expenseCategory.toLowerCase() ||
+                (a.nameBn && a.nameBn.toLowerCase() === expenseCategory.toLowerCase()) ||
+                a.id === expenseCategory ||
+                `coa-${a.id}` === expenseCategory
+            );
+            const isDrawing = Boolean(matchedCoa && matchedCoa.classification === 'Equity');
+            const isLiability = Boolean(matchedCoa && matchedCoa.classification === 'Liability');
+
+            const debitExp = matchedCoa || resolveExpenseAccount(expenseCategory, expenseTitle, chartOfAccounts, expenseHeads, true);
 
             addTransaction({
                 date: new Date().toISOString().slice(0, 10),
@@ -694,7 +791,7 @@ export const AccountingModule: React.FC = () => {
                     creditAccountName: creditAsset.name,
                     amount: expenseAmount,
                     narration: expenseTitle + (expenseNote ? ` • ${expenseNote}` : ''),
-                    source: 'EXPENSE',
+                    source: isDrawing ? 'OWNER_DRAWING' : isLiability ? 'LIABILITY_PAYMENT' : 'EXPENSE',
                     createdBy: activeStaff?.name || 'Managing Director',
                 });
             }
@@ -830,8 +927,20 @@ export const AccountingModule: React.FC = () => {
                 (selectedAccount.toLowerCase().includes('nagad') && a.code === '1006')
             ) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
 
-            const isAdv = incomeCategory.toLowerCase().includes('advance') || incomeCategory.includes('অগ্রিম');
-            const creditHead = chartOfAccounts.find(a => {
+            const matchedCoa = chartOfAccounts.find(a => 
+                a.name.toLowerCase() === incomeCategory.toLowerCase() ||
+                (a.nameBn && a.nameBn.toLowerCase() === incomeCategory.toLowerCase()) ||
+                a.id === incomeCategory
+            );
+
+            const isAdv = Boolean(
+                (matchedCoa && matchedCoa.classification === 'Liability') ||
+                incomeCategory.toLowerCase().includes('advance') || 
+                incomeCategory.includes('অগ্রিম')
+            );
+            const isEquity = Boolean(matchedCoa && matchedCoa.classification === 'Equity');
+
+            const creditHead = matchedCoa || chartOfAccounts.find(a => {
                 if (isAdv) {
                     return a.classification === 'Liability' && (a.code === '2002' || a.code === '2020' || a.name.toLowerCase().includes('advance'));
                 }
@@ -839,7 +948,7 @@ export const AccountingModule: React.FC = () => {
                     a.name.toLowerCase() === incomeCategory.toLowerCase() ||
                     (incomeCategory.toLowerCase().includes('sales') && (a.code === '4001' || a.code === '4010'))
                 );
-            }) || chartOfAccounts.find(a => a.classification === (isAdv ? 'Liability' : 'Revenue')) || chartOfAccounts[0];
+            }) || chartOfAccounts.find(a => a.classification === (isEquity ? 'Equity' : isAdv ? 'Liability' : 'Revenue')) || chartOfAccounts[0];
 
             if (debitAsset && creditHead && addJournalEntry) {
                 addJournalEntry({
@@ -851,7 +960,7 @@ export const AccountingModule: React.FC = () => {
                     creditAccountName: creditHead.name,
                     amount: numAmount,
                     narration: incomeTitle,
-                    source: isAdv ? 'CUSTOMER_PAYMENT' : 'SALES',
+                    source: isEquity ? 'OWNER_CAPITAL' : isAdv ? 'CUSTOMER_PAYMENT' : 'SALES',
                     createdBy: activeStaff?.name || 'Managing Director',
                 });
             }

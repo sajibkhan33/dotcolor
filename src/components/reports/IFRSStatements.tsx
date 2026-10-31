@@ -399,19 +399,49 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
 
         // ASSETS
         const nonCurrentAssets = (chartOfAccounts || [])
-            .filter((acc) => acc.classification === 'Asset' && (acc.accountGroup === 'Fixed Assets' || acc.code.startsWith('11') || acc.code.startsWith('12') || acc.code.startsWith('15')))
-            .map((acc) => ({ name: acc.name, amount: acc.openingBalance || acc.currentBalance || 0 }));
+            .filter((acc) => acc.classification === 'Asset' && (
+                acc.accountGroup === 'Fixed Assets' || 
+                acc.accountGroup === 'Non-Current Assets' || 
+                acc.code.startsWith('11') || acc.code.startsWith('12') || acc.code.startsWith('15') || acc.code.startsWith('16') ||
+                (acc.name || '').toLowerCase().includes('furniture') ||
+                (acc.name || '').toLowerCase().includes('equipment') ||
+                (acc.name || '').toLowerCase().includes('vehicle') ||
+                (acc.name || '').toLowerCase().includes('machinery') ||
+                (acc.nameBn || '').includes('যন্ত্রপাতি') ||
+                (acc.nameBn || '').includes('আসবাবপত্র')
+            ))
+            .map((acc) => {
+                const nameLower = (acc.name || '').toLowerCase().trim();
+                let journalAssetDelta = 0;
+                (journalEntries || []).forEach(j => {
+                    if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC') return;
+                    if (j.refNo && (transactions || []).some(t => t.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim())) return;
+                    const isDebit = (j.debitAccountId === acc.id || j.debitAccountId === acc.code || (j.debitAccountName && j.debitAccountName.toLowerCase().trim() === nameLower));
+                    const isCredit = (j.creditAccountId === acc.id || j.creditAccountId === acc.code || (j.creditAccountName && j.creditAccountName.toLowerCase().trim() === nameLower));
+                    const amt = Number(j.amount) || 0;
+                    if (isDebit && !isCredit) journalAssetDelta += amt;
+                    else if (isCredit && !isDebit) journalAssetDelta -= amt;
+                });
+                return { name: acc.name, amount: Math.max(0, (acc.openingBalance || acc.currentBalance || 0) + journalAssetDelta) };
+            });
 
         const totalNonCurrentAssets = nonCurrentAssets.reduce((s, a) => s + a.amount, 0);
 
         const liquidCashAndBank = (chartOfAccounts || [])
             .filter((acc) => acc.classification === 'Asset' && !(
                 acc.accountGroup === 'Fixed Assets' || 
-                acc.code.startsWith('11') || acc.code.startsWith('12') || acc.code.startsWith('15') || 
+                acc.accountGroup === 'Non-Current Assets' ||
+                acc.code.startsWith('11') || acc.code.startsWith('12') || acc.code.startsWith('15') || acc.code.startsWith('16') ||
                 acc.code === '1002' || acc.code === '1003' || acc.code === '1050' || acc.code === '1060' || acc.code === '1070' ||
                 (acc.name || '').toLowerCase().includes('inventory') ||
                 (acc.name || '').toLowerCase().includes('receivable') ||
-                (acc.name || '').toLowerCase().includes('raw material')
+                (acc.name || '').toLowerCase().includes('raw material') ||
+                (acc.name || '').toLowerCase().includes('furniture') ||
+                (acc.name || '').toLowerCase().includes('equipment') ||
+                (acc.name || '').toLowerCase().includes('vehicle') ||
+                (acc.name || '').toLowerCase().includes('machinery') ||
+                (acc.nameBn || '').includes('যন্ত্রপাতি') ||
+                (acc.nameBn || '').includes('আসবাবপত্র')
             ))
             .reduce((s, acc) => s + calculateSingleAccountBalance(acc, transactions, invoices, projects, journalEntries), 0);
 
@@ -440,24 +470,53 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                 acc.accountGroup === 'Long-term Liabilities' || 
                 acc.code.startsWith('25') || 
                 acc.code === '2001' || acc.code === '2010' ||
-                acc.code === '2002' || acc.code === '2020' ||
-                (acc.name || '').toLowerCase().includes('payable') ||
-                (acc.name || '').toLowerCase().includes('supplier') ||
-                (acc.name || '').toLowerCase().includes('advance')
+                acc.code === '2002' || acc.code === '2020'
             ))
             .forEach((acc) => {
-                const bal = acc.openingBalance || acc.currentBalance || 0;
+                const nameLower = (acc.name || '').toLowerCase().trim();
+                // Exclude if it's the primary supplier payable or primary customer advance
+                if (nameLower.includes('supplier payable') || (nameLower.includes('customer') && nameLower.includes('advance'))) return;
+
+                let journalLiabilityDelta = 0;
+                (journalEntries || []).forEach(j => {
+                    if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC') return;
+                    if (j.refNo && (transactions || []).some(t => t.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim())) return;
+                    const isDebit = (j.debitAccountId === acc.id || j.debitAccountId === acc.code || (j.debitAccountName && j.debitAccountName.toLowerCase().trim() === nameLower));
+                    const isCredit = (j.creditAccountId === acc.id || j.creditAccountId === acc.code || (j.creditAccountName && j.creditAccountName.toLowerCase().trim() === nameLower));
+                    const amt = Number(j.amount) || 0;
+                    if (isCredit && !isDebit) journalLiabilityDelta += amt;
+                    else if (isDebit && !isCredit) journalLiabilityDelta -= amt;
+                });
+
+                let txLiabilityDelta = 0;
+                (transactions || []).forEach(t => {
+                    const tAcc = (t.account || t.paymentAccount || t.accountHead || t.category || '').toLowerCase().trim();
+                    const isMatched = tAcc === nameLower || tAcc === (acc.code || '').toLowerCase() || tAcc === (acc.id || '').toLowerCase();
+                    if (isMatched) {
+                        if (t.type === 'INCOME') txLiabilityDelta += Number(t.amount) || 0;
+                        else if (t.type === 'EXPENSE') txLiabilityDelta -= Number(t.amount) || 0;
+                    }
+                });
+
+                const bal = Math.max(0, (acc.openingBalance || 0) + journalLiabilityDelta + txLiabilityDelta);
                 if (bal > 0) currentLiabilities.push({ name: acc.name, amount: bal });
             });
 
         const totalCurrentLiabilities = currentLiabilities.reduce((s, l) => s + l.amount, 0);
         const totalLiabilities = totalNonCurrentLiabilities + totalCurrentLiabilities;
 
-        // EQUITY
-        const capitalAcc = (chartOfAccounts || []).find((a) => a.code === '3001' || a.code === '3010' || a.name.toLowerCase().includes('capital'));
-        let journalCapitalDelta = 0;
-        if (capitalAcc) {
+        // EQUITY - Supports multiple capital accounts dynamically
+        const capitalAccounts = (chartOfAccounts || []).filter((a) => 
+            a.classification === 'Equity' && 
+            a.normalBalance === 'Credit' && 
+            a.id !== 'coa-3020' && 
+            !a.name.toLowerCase().includes('retained') && 
+            !(a.nameBn || '').includes('সংরক্ষিত')
+        );
+        let ownerCapital = 0;
+        capitalAccounts.forEach(capitalAcc => {
             const capNameLower = (capitalAcc.name || '').toLowerCase().trim();
+            let journalCapitalDelta = 0;
             (journalEntries || []).forEach(j => {
                 if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC') return;
                 if (j.refNo && (transactions || []).some(t => t.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim())) return;
@@ -467,22 +526,31 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                 if (isCredit && !isDebit) journalCapitalDelta += amt;
                 else if (isDebit && !isCredit) journalCapitalDelta -= amt;
             });
-        }
-        const ownerCapital = capitalAcc 
-            ? Math.max(0, (capitalAcc.openingBalance || 0) + journalCapitalDelta) 
-            : 0;
+            let txCapitalDelta = 0;
+            (transactions || []).forEach(t => {
+                const tAcc = (t.account || t.paymentAccount || t.accountHead || t.category || '').toLowerCase().trim();
+                const isMatched = tAcc === capNameLower || tAcc === (capitalAcc.code || '').toLowerCase() || tAcc === (capitalAcc.id || '').toLowerCase();
+                if (isMatched && t.type === 'INCOME') {
+                    txCapitalDelta += Number(t.amount) || 0;
+                }
+            });
+            ownerCapital += Math.max(0, (capitalAcc.openingBalance || 0) + journalCapitalDelta + txCapitalDelta);
+        });
 
         const currentPeriodEarnings = netProfitForThePeriod;
         const retainedAcc = (chartOfAccounts || []).find((a) => a.classification === 'Equity' && (a.id === 'coa-3020' || a.name.toLowerCase().includes('retained') || (a.nameBn || '').includes('সংরক্ষিত')));
         const openingRetained = Number(retainedAcc?.openingBalance) || 0;
-        // Prior accumulated retained earnings (opening balance from previous fiscal years)
         const retainedEarnings = openingRetained;
 
-        // Owner's Drawings (Contra-Equity reduction)
-        const drawingAcc = (chartOfAccounts || []).find((a) => a.classification === 'Equity' && (a.normalBalance === 'Debit' || a.name.toLowerCase().includes('drawing') || (a.nameBn || '').includes('উত্তোলন')));
-        let journalDrawingsDelta = 0;
-        if (drawingAcc) {
+        // Owner's Drawings (Contra-Equity reduction across all drawing accounts)
+        const drawingAccounts = (chartOfAccounts || []).filter((a) => 
+            a.classification === 'Equity' && 
+            (a.normalBalance === 'Debit' || a.name.toLowerCase().includes('drawing') || (a.nameBn || '').includes('উত্তোলন'))
+        );
+        let ownerDrawings = 0;
+        drawingAccounts.forEach(drawingAcc => {
             const drawNameLower = (drawingAcc.name || '').toLowerCase().trim();
+            let journalDrawingsDelta = 0;
             (journalEntries || []).forEach(j => {
                 if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC') return;
                 const isDebit = (j.debitAccountId === drawingAcc.id || j.debitAccountId === drawingAcc.code || (j.debitAccountName && j.debitAccountName.toLowerCase().trim() === drawNameLower));
@@ -491,13 +559,11 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                 if (isDebit && !isCredit) journalDrawingsDelta += amt;
                 else if (isCredit && !isDebit) journalDrawingsDelta -= amt;
             });
-        }
-        const txDrawings = (transactions || [])
-            .filter(t => t.type === 'EXPENSE' && ((t.category || '').toLowerCase().includes('drawing') || (t.description || '').toLowerCase().includes('drawing') || (t.accountHead || '').toLowerCase().includes('drawing')))
-            .reduce((s, t) => s + t.amount, 0);
-        const ownerDrawings = drawingAcc 
-            ? Math.max(0, (drawingAcc.openingBalance || 0) + journalDrawingsDelta + txDrawings) 
-            : 0;
+            const txDrawings = (transactions || [])
+                .filter(t => t.type === 'EXPENSE' && ((t.category || '').toLowerCase().includes('drawing') || (t.description || '').toLowerCase().includes('drawing') || (t.accountHead || '').toLowerCase().includes('drawing') || t.account === drawingAcc.id || t.accountHead === drawingAcc.name))
+                .reduce((s, t) => s + t.amount, 0);
+            ownerDrawings += Math.max(0, (drawingAcc.openingBalance || 0) + journalDrawingsDelta + txDrawings);
+        });
 
         const totalEquity = ownerCapital + retainedEarnings + currentPeriodEarnings - ownerDrawings;
 

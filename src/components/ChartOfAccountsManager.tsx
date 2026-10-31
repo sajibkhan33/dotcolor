@@ -146,10 +146,39 @@ export const ChartOfAccountsManager: React.FC = () => {
                     nameBn.includes('ইনভেন্টরি')
                 );
 
+                const isFixedAsset = (
+                    acc.accountGroup === 'Fixed Assets' || 
+                    acc.accountGroup === 'Non-Current Assets' ||
+                    acc.code.startsWith('11') || 
+                    acc.code.startsWith('12') || 
+                    acc.code.startsWith('15') || 
+                    acc.code.startsWith('16') ||
+                    nameLower.includes('furniture') || 
+                    nameLower.includes('equipment') || 
+                    nameLower.includes('vehicle') || 
+                    nameLower.includes('land') || 
+                    nameLower.includes('building') || 
+                    nameLower.includes('machinery') ||
+                    nameBn.includes('যন্ত্রপাতি') ||
+                    nameBn.includes('আসবাবপত্র')
+                );
+
                 if (isCustomerReceivable) {
                     liveBal = totalCustomerDue > 0 ? totalCustomerDue : (acc.openingBalance || 0);
                 } else if (isInventory) {
                     liveBal = calculateInventoryValuation(products, purchaseOrders, acc, journalEntries);
+                } else if (isFixedAsset) {
+                    let journalAssetDelta = 0;
+                    (journalEntries || []).forEach(j => {
+                        if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC') return;
+                        if (j.refNo && (transactions || []).some(t => t.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim())) return;
+                        const isDebit = (j.debitAccountId === acc.id || j.debitAccountId === acc.code || (j.debitAccountName && j.debitAccountName.toLowerCase().trim() === nameLower));
+                        const isCredit = (j.creditAccountId === acc.id || j.creditAccountId === acc.code || (j.creditAccountName && j.creditAccountName.toLowerCase().trim() === nameLower));
+                        const amt = Number(j.amount) || 0;
+                        if (isDebit && !isCredit) journalAssetDelta += amt;
+                        else if (isCredit && !isDebit) journalAssetDelta -= amt;
+                    });
+                    liveBal = Math.max(0, (acc.openingBalance || 0) + journalAssetDelta);
                 } else {
                     // Dynamic individual live balance calculation for Cash, City Bank PLC, Southeast Bank, Nagad, bKash, etc.
                     liveBal = calculateSingleAccountBalance(acc, transactions, invoices, projects, journalEntries);
@@ -187,6 +216,39 @@ export const ChartOfAccountsManager: React.FC = () => {
                     } else {
                         liveBal = netMatchingAdvance;
                     }
+                } else {
+                    // Dynamic calculation for ANY other user-defined Liability (e.g. Wages Payable 2003, Bank Loan 2030, VAT Payable 2040, Security Deposits)
+                    let journalLiabilityDelta = 0;
+                    (journalEntries || []).forEach(j => {
+                        if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC') return;
+                        if (j.refNo && (transactions || []).some(t => t.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim())) return;
+                        const isDebit = (
+                            j.debitAccountId === acc.id ||
+                            j.debitAccountId === acc.code ||
+                            (j.debitAccountName && j.debitAccountName.toLowerCase().trim() === nameLower)
+                        );
+                        const isCredit = (
+                            j.creditAccountId === acc.id ||
+                            j.creditAccountId === acc.code ||
+                            (j.creditAccountName && j.creditAccountName.toLowerCase().trim() === nameLower)
+                        );
+                        const amt = Number(j.amount) || 0;
+                        if (isCredit && !isDebit) journalLiabilityDelta += amt;
+                        else if (isDebit && !isCredit) journalLiabilityDelta -= amt;
+                    });
+
+                    // Transactions matching this liability account
+                    let txLiabilityDelta = 0;
+                    (transactions || []).forEach(t => {
+                        const tAcc = (t.account || t.paymentAccount || t.accountHead || t.category || '').toLowerCase().trim();
+                        const isMatched = tAcc === nameLower || tAcc === (acc.code || '').toLowerCase() || tAcc === (acc.id || '').toLowerCase() || (acc.nameBn && tAcc === (acc.nameBn || '').toLowerCase().trim());
+                        if (isMatched) {
+                            if (t.type === 'INCOME') txLiabilityDelta += Number(t.amount) || 0;
+                            else if (t.type === 'EXPENSE') txLiabilityDelta -= Number(t.amount) || 0;
+                        }
+                    });
+
+                    liveBal = Math.max(0, (acc.openingBalance || 0) + journalLiabilityDelta + txLiabilityDelta);
                 }
             } else if (acc.classification === 'Revenue') {
                 const isProjectRev = (
@@ -295,7 +357,13 @@ export const ChartOfAccountsManager: React.FC = () => {
                                 (t.refNo?.startsWith('INC-') && !chartOfAccounts.some(otherAcc => 
                                     otherAcc.id !== acc.id && 
                                     otherAcc.classification === 'Revenue' && 
-                                    otherAcc.name.toLowerCase() === (t.category || '').toLowerCase()
+                                    (
+                                        (otherAcc.name && otherAcc.name.toLowerCase() === (t.category || '').toLowerCase()) ||
+                                        (otherAcc.name && (t.category || '').toLowerCase().includes(otherAcc.name.toLowerCase())) ||
+                                        (otherAcc.nameBn && otherAcc.nameBn.toLowerCase() === (t.category || '').toLowerCase()) ||
+                                        (otherAcc.name && (t.accountHead || '').toLowerCase() === otherAcc.name.toLowerCase()) ||
+                                        (otherAcc.nameBn && (t.accountHead || '').toLowerCase() === (otherAcc.nameBn || '').toLowerCase())
+                                    )
                                 ))
                             )
                         )
@@ -549,7 +617,15 @@ export const ChartOfAccountsManager: React.FC = () => {
                     const netOperatingProfit = totalOperationalRevenue - totalOperationalExpenses;
                     liveBal = (acc.openingBalance || 0) + netOperatingProfit + journalEquityDelta;
                 } else {
-                    liveBal = Math.max(0, (acc.openingBalance || 0) + journalEquityDelta);
+                    let txCapitalDelta = 0;
+                    (transactions || []).forEach(t => {
+                        const tAcc = (t.account || t.paymentAccount || t.accountHead || t.category || '').toLowerCase().trim();
+                        const isMatched = tAcc === nameLower || tAcc === (acc.code || '').toLowerCase() || tAcc === (acc.id || '').toLowerCase() || (acc.nameBn && tAcc === (acc.nameBn || '').toLowerCase().trim());
+                        if (isMatched && t.type === 'INCOME') {
+                            txCapitalDelta += Number(t.amount) || 0;
+                        }
+                    });
+                    liveBal = Math.max(0, (acc.openingBalance || 0) + journalEquityDelta + txCapitalDelta);
                 }
             }
         }
