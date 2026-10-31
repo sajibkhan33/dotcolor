@@ -270,19 +270,28 @@ export const calculateSingleAccountBalance = (
                     let maxAllowedForChannel = Number(matchedProject.totalCollected) || Number(matchedProject.totalSales) || 0;
                     
                     const accNameLower = (acc.name || '').toLowerCase().trim();
-                    const isAccCash = accNameLower.includes('cash') || acc.code === '1001' || acc.code === '1010';
-                    const isAccBank = accNameLower.includes('bank') || accNameLower.includes('city') || accNameLower.includes('southeast') || accNameLower.includes('brac');
+                    const isAccCash = (accNameLower.includes('cash') || acc.code === '1001' || acc.code === '1010') && !accNameLower.includes('bkash') && !accNameLower.includes('nagad');
+                    const isAccCity = accNameLower.includes('city');
+                    const isAccSoutheast = accNameLower.includes('southeast');
+                    const isAccBrac = accNameLower.includes('brac');
                     const isAccNagad = accNameLower.includes('nagad');
                     const isAccBkash = accNameLower.includes('bkash');
 
                     let specificChannelBudget: number | null = null;
                     (matchedProject.salesItems || []).forEach((si: any) => {
-                        (si.paymentBreakdown || []).forEach((pb: any) => {
+                        const breakdowns = (si.paymentBreakdown && si.paymentBreakdown.length > 0)
+                            ? si.paymentBreakdown
+                            : (si.paymentMethod ? [{ method: si.paymentMethod, amount: si.amount }] : []);
+                        breakdowns.forEach((pb: any) => {
                             const m = (pb.method || '').toLowerCase();
-                            const matchesChannel = (isAccCash && (m.includes('cash') || m === 'pm-cash')) ||
+                            const matchesChannel = 
+                                (isAccCity && m.includes('city')) ||
+                                (isAccSoutheast && m.includes('southeast')) ||
+                                (isAccBrac && m.includes('brac')) ||
                                 (isAccNagad && (m.includes('nagad') || m === 'pm-nagad')) ||
                                 (isAccBkash && (m.includes('bkash') || m === 'pm-bkash')) ||
-                                (isAccBank && (m.includes('bank') || m.includes('city') || m.includes('southeast') || m.includes('brac') || m.includes('card')));
+                                (isAccCash && (m.includes('cash') || m === 'pm-cash')) ||
+                                (!isAccCity && !isAccSoutheast && !isAccBrac && !isAccNagad && !isAccBkash && !isAccCash && (m.includes('bank') || m.includes('card')));
                             if (matchesChannel) {
                                 specificChannelBudget = (specificChannelBudget || 0) + (Number(pb.amount) || 0);
                             }

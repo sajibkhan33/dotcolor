@@ -448,7 +448,8 @@ export const sanitizeSalesInvoices = (list: any[]): SalesInvoice[] => {
 };
 
 export const AppProvider: React.FC<{
-    children: React.ReactNode;
+    children
+    : React.ReactNode;
 }> = ({ children }) => {
     // Safe LocalStorage parsing helper
     const safeGetLocalStorage = <T,>(key: string, fallback: T): T => {
