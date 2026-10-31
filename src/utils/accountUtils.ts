@@ -348,13 +348,15 @@ export const calculateSingleAccountBalance = (
 
     (invoices || []).forEach((inv) => {
         const invRef = (inv.invoiceNo || '').toLowerCase().trim();
+        const isProjectLinked = Boolean(inv.projectId || inv.projectCode || (invRef && projectLinkedInvoiceNos.has(invRef)));
+        const matchedProj = isProjectLinked
+            ? (projects || []).find((p: any) => p.id === inv.projectId || p.code === inv.projectCode || (invRef && (p.invoiceNo || '').toLowerCase().trim() === invRef))
+            : null;
+        const projRecordedAmt = matchedProj
+            ? (seenProjectChannelSums.get(`${matchedProj.id || matchedProj.code}_${acc.id || acc.code || acc.name}`) || 0)
+            : 0;
 
-        // Skip invoices that belong to projects - project collections/sales are recorded via project vouchers/transactions
-        if (inv.projectId || inv.projectCode || (invRef && projectLinkedInvoiceNos.has(invRef))) {
-            return;
-        }
-
-        const alreadyRecorded = getRecordedAmtForThisAcc(invRef);
+        const alreadyRecorded = Math.max(getRecordedAmtForThisAcc(invRef), projRecordedAmt);
 
         if (inv.splitPayments && Object.keys(inv.splitPayments).length > 0) {
             // Deduplicate split payment channels so alias keys (e.g. 'bKash' and 'bkash') are NEVER summed together
@@ -407,8 +409,11 @@ export const calculateSingleAccountBalance = (
             if (isMatched) {
                 const unrecordedAmt = Math.max(0, targetAccSplitAmt - alreadyRecorded);
                 balance += unrecordedAmt;
+                if (matchedProj) {
+                    seenProjectChannelSums.set(`${matchedProj.id || matchedProj.code}_${acc.id || acc.code || acc.name}`, targetAccSplitAmt);
+                }
             }
-        } else if ((inv.paidAmount || 0) > 0) {
+        } else if ((inv.paidAmount || 0) > 0 && !isProjectLinked) {
             const pmLower = (inv.paymentMethod || '').toLowerCase();
             let matchesPm = false;
             if (pmLower === accNameLower || (accCode && pmLower.includes(accCode))) {
@@ -428,7 +433,42 @@ export const calculateSingleAccountBalance = (
             if (matchesPm) {
                 const unrecordedAmt = Math.max(0, Number(inv.paidAmount) - alreadyRecorded);
                 balance += unrecordedAmt;
+                if (matchedProj) {
+                    seenProjectChannelSums.set(`${matchedProj.id || matchedProj.code}_${acc.id || acc.code || acc.name}`, Number(inv.paidAmount));
+                }
             }
+        }
+    });
+
+    // 2b. Reconcile project milestone sales items for payment channels that don't have ledger transactions
+    (projects || []).forEach((proj: any) => {
+        const projKey = `${proj.id || proj.code}_${acc.id || acc.code || acc.name}`;
+        const currentRecorded = seenProjectChannelSums.get(projKey) || 0;
+
+        let channelMilestoneTotal = 0;
+        (proj.salesItems || []).forEach((si: any) => {
+            const breakdowns = (si.paymentBreakdown && si.paymentBreakdown.length > 0)
+                ? si.paymentBreakdown
+                : (si.paymentMethod ? [{ method: si.paymentMethod, amount: si.amount }] : []);
+            breakdowns.forEach((pb: any) => {
+                const m = (pb.method || '').toLowerCase();
+                const matchesChannel = 
+                    (isCity && m.includes('city')) ||
+                    (isSoutheast && m.includes('southeast')) ||
+                    (isBrac && m.includes('brac')) ||
+                    (isNagad && (m.includes('nagad') || m === 'pm-nagad')) ||
+                    (isBkash && (m.includes('bkash') || m === 'pm-bkash')) ||
+                    (isCash && (m.includes('cash') || m === 'pm-cash'));
+                if (matchesChannel) {
+                    channelMilestoneTotal += (Number(pb.amount) || 0);
+                }
+            });
+        });
+
+        if (channelMilestoneTotal > currentRecorded) {
+            const unrecordedProjAmt = channelMilestoneTotal - currentRecorded;
+            balance += unrecordedProjAmt;
+            seenProjectChannelSums.set(projKey, channelMilestoneTotal);
         }
     });
 
