@@ -4034,18 +4034,23 @@ export const AppProvider: React.FC<{
         }
         const newDue = Math.max(0, newSubtotal - po.paidAmount);
         const newPaymentStatus = newDue <= 0 ? 'Paid' : (po.paidAmount > 0 ? 'Partial' : 'Due');
-        setPurchaseOrders((prev) => prev.map((p) => (p.id === poId ? {
+        const nextPOs = purchaseOrders.map((p) => (p.id === poId ? {
             ...p,
-            status: 'Received',
+            status: 'Received' as const,
             items: updatedItems,
             subtotal: newSubtotal,
             totalAmount: newSubtotal,
             grandTotal: newSubtotal,
             dueAmount: newDue,
             paymentStatus: newPaymentStatus
-        } : p)));
+        } : p));
+        setPurchaseOrders(nextPOs);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(nextPOs));
+        } catch {}
+
         // Update supplier due amount and total purchased when goods are received
-        setSuppliers((prev) => prev.map((s) => {
+        const nextSuppliers = suppliers.map((s) => {
             const sName = s.name?.toLowerCase().trim();
             const sCompany = s.company?.toLowerCase().trim();
             const supNameData = po.supplierName?.toLowerCase().trim();
@@ -4067,7 +4072,15 @@ export const AppProvider: React.FC<{
                 };
             }
             return s;
-        }));
+        });
+        setSuppliers(nextSuppliers);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(nextSuppliers));
+        } catch {}
+
+        let nextProducts = products;
+        let nextMovements = stockMovements;
+
         if (updatedItems.length > 0) {
             const currentProds = latestStateRef.current?.products || products || [];
             const existingProductIds = new Set(currentProds.map((p: any) => p.id));
@@ -4120,7 +4133,7 @@ export const AppProvider: React.FC<{
                     });
                 }
             });
-            const nextProducts = [...updated, ...toAdd];
+            nextProducts = [...updated, ...toAdd];
             setProducts(nextProducts);
             try {
                 localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(nextProducts));
@@ -4142,23 +4155,25 @@ export const AppProvider: React.FC<{
                     reason: `PO marked received from ${po.supplierName}`,
                 };
             });
-            const nextMovements = [...movements, ...currentMovements];
+            nextMovements = [...movements, ...currentMovements];
             setStockMovements(nextMovements);
             try {
                 localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(nextMovements));
             } catch {}
+        }
 
-            if (latestStateRef.current) {
-                latestStateRef.current = {
-                    ...latestStateRef.current,
-                    products: nextProducts,
-                    stockMovements: nextMovements,
-                };
-            }
-            triggerImmediatePush();
-            if (pushToCloudRef.current) {
-                pushToCloudRef.current({ force: true }).catch(() => {});
-            }
+        if (latestStateRef.current) {
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                products: nextProducts,
+                stockMovements: nextMovements,
+                purchaseOrders: nextPOs,
+                suppliers: nextSuppliers,
+            };
+        }
+        triggerImmediatePush();
+        if (pushToCloudRef.current) {
+            pushToCloudRef.current({ force: true }).catch(() => {});
         }
         addAuditLog({
             staffId: activeStaff.id,
@@ -4187,7 +4202,7 @@ export const AppProvider: React.FC<{
         const newDue = Math.max(0, currentGrandTotal - newPaid);
         const newStatus: 'Paid' | 'Partial' | 'Due' = newDue <= 0 ? 'Paid' : newPaid > 0 ? 'Partial' : 'Due';
         // 1. Update the Purchase Order
-        setPurchaseOrders((prev) => prev.map((p) => p.id === poId
+        const nextPOs = purchaseOrders.map((p) => p.id === poId
             ? {
                 ...p,
                 paidAmount: newPaid,
@@ -4195,11 +4210,15 @@ export const AppProvider: React.FC<{
                 paymentStatus: newStatus,
                 paymentMethod: paymentMethod || p.paymentMethod || 'Bank Transfer',
             }
-            : p));
+            : p);
+        setPurchaseOrders(nextPOs);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(nextPOs));
+        } catch {}
         // 2. Also reduce the Supplier's due amount / balance payable
         const poSupName = po.supplierName?.toLowerCase().trim();
         const poSupPhone = (po.supplierPhone || '').replace(/\D/g, '');
-        setSuppliers((prev) => prev.map((s) => {
+        const nextSuppliers = suppliers.map((s) => {
             const sName = s.name?.toLowerCase().trim();
             const sCompany = s.company?.toLowerCase().trim();
             const sPhone = (s.phone || '').replace(/\D/g, '');
@@ -4217,7 +4236,11 @@ export const AppProvider: React.FC<{
                 };
             }
             return s;
-        }));
+        });
+        setSuppliers(nextSuppliers);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(nextSuppliers));
+        } catch {}
         // 3. Add accounting transaction
         const newTx: AccountingTransaction = {
             id: generateUniqueId('tx'),
@@ -4230,13 +4253,18 @@ export const AppProvider: React.FC<{
             customerOrSupplier: po.supplierName,
             description: `Payment for Purchase Order ${po.poNo} (${newStatus}) - Supplier: ${po.supplierName}`,
         };
-        setTransactions((prev) => ensureUniqueTransactions([newTx, ...prev]));
+        const nextTransactions = ensureUniqueTransactions([newTx, ...transactions]);
+        setTransactions(nextTransactions);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(nextTransactions));
+        } catch {}
 
         // Automatic Double-Entry Journal for PO Payment: Debit Accounts Payable (2001/2010), Credit Cash/Bank Asset
         const currentCoa = latestStateRef.current?.chartOfAccounts || chartOfAccounts || [];
         const apAcc = currentCoa.find(a => a.id === 'coa-2001' || a.id === 'coa-2010' || a.code === '2001' || a.code === '2010' || a.name.toLowerCase().includes('payable')) || currentCoa[0];
         const payAssetAcc = matchChannelToAccount(paymentAccount || paymentMethod || 'Cash', currentCoa, paymentMethods) || currentCoa[0];
 
+        let nextJournals = journalEntries;
         if (apAcc && payAssetAcc) {
             const supplierJournal: JournalEntry = {
                 id: generateUniqueId('jnl-po-pay'),
@@ -4252,14 +4280,25 @@ export const AppProvider: React.FC<{
                 source: 'PURCHASE',
                 createdBy: activeStaff?.name || 'Authorized Staff',
             };
-            setJournalEntries(prev => [supplierJournal, ...prev]);
+            nextJournals = [supplierJournal, ...journalEntries];
+            setJournalEntries(nextJournals);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(nextJournals));
+            } catch {}
+        }
+
+        if (latestStateRef.current) {
             latestStateRef.current = {
                 ...latestStateRef.current,
-                journalEntries: [supplierJournal, ...(latestStateRef.current?.journalEntries || [])],
+                purchaseOrders: nextPOs,
+                suppliers: nextSuppliers,
+                transactions: nextTransactions,
+                journalEntries: nextJournals,
             };
-            try {
-                localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(latestStateRef.current.journalEntries));
-            } catch {}
+        }
+        triggerImmediatePush();
+        if (pushToCloudRef.current) {
+            pushToCloudRef.current({ force: true }).catch(() => {});
         }
         // 4. Audit log
         addAuditLog({
@@ -4370,14 +4409,24 @@ export const AppProvider: React.FC<{
                 source: 'PURCHASE',
                 createdBy: activeStaff?.name || 'Authorized Staff',
             };
-            setJournalEntries(prev => [supplierJournal, ...prev]);
+            const nextJournals = [supplierJournal, ...journalEntries];
+            setJournalEntries(nextJournals);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(nextJournals));
+            } catch {}
+        }
+
+        if (latestStateRef.current) {
             latestStateRef.current = {
                 ...latestStateRef.current,
-                journalEntries: [supplierJournal, ...(latestStateRef.current?.journalEntries || [])],
+                purchaseOrders: latestStateRef.current.purchaseOrders,
+                suppliers: latestStateRef.current.suppliers,
+                transactions: latestStateRef.current.transactions,
             };
-            try {
-                localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(latestStateRef.current.journalEntries));
-            } catch {}
+        }
+        triggerImmediatePush();
+        if (pushToCloudRef.current) {
+            pushToCloudRef.current({ force: true }).catch(() => {});
         }
         addAuditLog({
             staffId: activeStaff.id,

@@ -92,7 +92,9 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
     }, [products, purchaseOrders, invAcc, journalEntries]);
 
     const rawMaterialPurchases = useMemo(() => {
-        return purchaseOrders.reduce((sum, po) => sum + (po.totalAmount || 0), 0);
+        return purchaseOrders
+            .filter((po) => po.status === 'Received' || (po as any).challanStatus === 'Received')
+            .reduce((sum, po) => sum + (po.totalAmount || 0), 0);
     }, [purchaseOrders]);
     // Opening stock (baseline estimation for period)
     const openingStockValuation = useMemo(() => {
