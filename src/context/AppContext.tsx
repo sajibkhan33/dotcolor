@@ -2969,16 +2969,53 @@ export const AppProvider: React.FC<{
         }
         // Decrement stock for physical items
         if (data.items && data.items.length > 0) {
-            setProducts((prev) => prev.map((p) => {
-                const item = data.items.find((i) => i.productId === p.id);
+            const currentProds = latestStateRef.current?.products || products || [];
+            const nextProducts = currentProds.map((p: ProductItem) => {
+                const item = data.items.find((i) => {
+                    if (i.productId && i.productId === p.id) return true;
+                    if (p.code && (i as any).code && p.code.toLowerCase().trim() === (i as any).code.toLowerCase().trim()) return true;
+                    if (p.name && i.name) {
+                        const n1 = p.name.toLowerCase().trim();
+                        const n2 = i.name.toLowerCase().trim();
+                        if (n1 === n2 || n1.includes(n2) || n2.includes(n1)) return true;
+                    }
+                    return false;
+                });
                 if (item) {
-                    const locKey = data.warehouseLocation === 'Factory' ? 'stockFactory' : 'stockOffice';
-                    const currentStock = p[locKey] !== undefined ? p[locKey] : 0;
-                    const newStock = Math.max(0, currentStock - (item.qty || 0));
-                    return { ...p, [locKey]: newStock };
+                    const prefLoc = data.warehouseLocation === 'Office' ? 'stockOffice' : 'stockFactory';
+                    const otherLoc = prefLoc === 'stockFactory' ? 'stockOffice' : 'stockFactory';
+
+                    let toDeduct = Number(item.qty) || 0;
+                    let prefStock = Number(p[prefLoc]) || 0;
+                    let otherStock = Number(p[otherLoc]) || 0;
+
+                    const takePref = Math.min(prefStock, toDeduct);
+                    prefStock -= takePref;
+                    toDeduct -= takePref;
+
+                    const takeOther = Math.min(otherStock, toDeduct);
+                    otherStock -= takeOther;
+                    toDeduct -= takeOther;
+
+                    if (toDeduct > 0) {
+                        prefStock = Math.max(0, prefStock - toDeduct);
+                    }
+
+                    return {
+                        ...p,
+                        [prefLoc]: prefStock,
+                        [otherLoc]: otherStock,
+                        stock: prefStock + otherStock,
+                    };
                 }
                 return p;
-            }));
+            });
+            setProducts(nextProducts);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(nextProducts));
+            } catch {}
+
+            const currentMovements = latestStateRef.current?.stockMovements || stockMovements || [];
             const newMovements: StockMovement[] = data.items.map((item, idx) => ({
                 id: generateUniqueId(`sm-${idx}-${item.productId}`),
                 date: new Date().toISOString().replace('T', ' ').slice(0, 16),
@@ -2991,7 +3028,19 @@ export const AppProvider: React.FC<{
                 refNo: invoiceNo,
                 reason: `Sales Invoice to ${data.customerName}`,
             }));
-            setStockMovements((prev) => [...newMovements, ...prev]);
+            const nextMovements = [...newMovements, ...currentMovements];
+            setStockMovements(nextMovements);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(nextMovements));
+            } catch {}
+
+            if (latestStateRef.current) {
+                latestStateRef.current = {
+                    ...latestStateRef.current,
+                    products: nextProducts,
+                    stockMovements: nextMovements,
+                };
+            }
         }
         // Record audit log entry
         try {
@@ -3977,55 +4026,64 @@ export const AppProvider: React.FC<{
             return s;
         }));
         if (updatedItems.length > 0) {
-            setProducts((prev) => {
-                const existingProductIds = new Set(prev.map(p => p.id));
-                const updated = prev.map((p) => {
-                    const item = updatedItems.find((i) => i.productId === p.id);
-                    if (item) {
-                        const rQty = item.receivedQty !== undefined ? item.receivedQty : item.qty;
-                        const locKey = po.destination === 'Factory' ? 'stockFactory' : 'stockOffice';
-                        const prevQty = (p.stockFactory || 0) + (p.stockOffice || 0);
-                        const newCost = Number(item.unitCost) || 0;
-                        let targetCost = p.costPrice;
-                        if (newCost > 0) {
-                            if (prevQty <= 0 || !p.costPrice || p.costPrice <= 1) {
-                                targetCost = newCost;
-                            } else {
-                                targetCost = Math.round(((prevQty * p.costPrice) + (rQty * newCost)) / (prevQty + rQty) * 100) / 100;
-                            }
+            const currentProds = latestStateRef.current?.products || products || [];
+            const existingProductIds = new Set(currentProds.map((p: any) => p.id));
+            const updated = currentProds.map((p: ProductItem) => {
+                const item = updatedItems.find((i) => i.productId === p.id);
+                if (item) {
+                    const rQty = item.receivedQty !== undefined ? item.receivedQty : item.qty;
+                    const locKey = po.destination === 'Factory' ? 'stockFactory' : 'stockOffice';
+                    const prevQty = (p.stockFactory || 0) + (p.stockOffice || 0);
+                    const newCost = Number(item.unitCost) || 0;
+                    let targetCost = p.costPrice;
+                    if (newCost > 0) {
+                        if (prevQty <= 0 || !p.costPrice || p.costPrice <= 1) {
+                            targetCost = newCost;
+                        } else {
+                            targetCost = Math.round(((prevQty * p.costPrice) + (rQty * newCost)) / (prevQty + rQty) * 100) / 100;
                         }
-                        return { 
-                            ...p, 
-                            [locKey]: (p[locKey] || 0) + rQty,
-                            costPrice: targetCost,
-                            unitPrice: p.unitPrice < targetCost ? Math.round(targetCost * 1.2) : p.unitPrice,
-                        };
                     }
-                    return p;
-                });
-                const toAdd: ProductItem[] = [];
-                updatedItems.forEach(item => {
-                    if (!existingProductIds.has(item.productId)) {
-                        const rQty = item.receivedQty !== undefined ? item.receivedQty : item.qty;
-                        toAdd.push({
-                            id: item.productId,
-                            name: item.name,
-                            nameBn: '',
-                            code: `RM-${Math.floor(100 + Math.random() * 900)}`,
-                            category: 'Raw Materials',
-                            unit: item.unit || 'pcs',
-                            costPrice: item.unitCost,
-                            unitPrice: Math.round(item.unitCost * 1.2),
-                            stockOffice: po.destination === 'Office' ? rQty : 0,
-                            stockFactory: po.destination === 'Factory' ? rQty : 0,
-                            minStockAlert: 5,
-                            isRawMaterial: true,
-                            description: `Purchased via PO ${po.poNo}`,
-                        });
-                    }
-                });
-                return [...updated, ...toAdd];
+                    const newLocStock = (p[locKey] || 0) + rQty;
+                    const otherLocKey = locKey === 'stockFactory' ? 'stockOffice' : 'stockFactory';
+                    return { 
+                        ...p, 
+                        [locKey]: newLocStock,
+                        stock: newLocStock + (p[otherLocKey] || 0),
+                        costPrice: targetCost,
+                        unitPrice: p.unitPrice < targetCost ? Math.round(targetCost * 1.2) : p.unitPrice,
+                    };
+                }
+                return p;
             });
+            const toAdd: ProductItem[] = [];
+            updatedItems.forEach(item => {
+                if (!existingProductIds.has(item.productId)) {
+                    const rQty = item.receivedQty !== undefined ? item.receivedQty : item.qty;
+                    toAdd.push({
+                        id: item.productId,
+                        name: item.name,
+                        nameBn: '',
+                        code: `RM-${Math.floor(100 + Math.random() * 900)}`,
+                        category: 'Raw Materials',
+                        unit: item.unit || 'pcs',
+                        costPrice: item.unitCost,
+                        unitPrice: Math.round(item.unitCost * 1.2),
+                        stockOffice: po.destination === 'Office' ? rQty : 0,
+                        stockFactory: po.destination === 'Factory' ? rQty : 0,
+                        stock: rQty,
+                        minStockAlert: 5,
+                        isRawMaterial: true,
+                        description: `Purchased via PO ${po.poNo}`,
+                    });
+                }
+            });
+            const nextProducts = [...updated, ...toAdd];
+            setProducts(nextProducts);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(nextProducts));
+            } catch {}
+
+            const currentMovements = latestStateRef.current?.stockMovements || stockMovements || [];
             const movements: StockMovement[] = updatedItems.map((item, idx) => {
                 const rQty = item.receivedQty !== undefined ? item.receivedQty : item.qty;
                 return {
@@ -4041,7 +4099,19 @@ export const AppProvider: React.FC<{
                     reason: `PO marked received from ${po.supplierName}`,
                 };
             });
-            setStockMovements((prev) => [...movements, ...prev]);
+            const nextMovements = [...movements, ...currentMovements];
+            setStockMovements(nextMovements);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(nextMovements));
+            } catch {}
+
+            if (latestStateRef.current) {
+                latestStateRef.current = {
+                    ...latestStateRef.current,
+                    products: nextProducts,
+                    stockMovements: nextMovements,
+                };
+            }
         }
         addAuditLog({
             staffId: activeStaff.id,
@@ -4513,12 +4583,53 @@ export const AppProvider: React.FC<{
             });
         }
 
+        // Restore stock for deleted invoice items
+        let nextProductsForDelete = latestStateRef.current?.products || products || [];
+        let nextMovementsForDelete = latestStateRef.current?.stockMovements || stockMovements || [];
+        if (inv.items && inv.items.length > 0) {
+            nextProductsForDelete = nextProductsForDelete.map((p: ProductItem) => {
+                const item = inv.items.find((i) => {
+                    if (i.productId && i.productId === p.id) return true;
+                    if (p.code && (i as any).code && p.code.toLowerCase().trim() === (i as any).code.toLowerCase().trim()) return true;
+                    if (p.name && i.name) {
+                        const n1 = p.name.toLowerCase().trim();
+                        const n2 = i.name.toLowerCase().trim();
+                        if (n1 === n2 || n1.includes(n2) || n2.includes(n1)) return true;
+                    }
+                    return false;
+                });
+                if (item) {
+                    const locKey = inv.warehouseLocation === 'Office' ? 'stockOffice' : 'stockFactory';
+                    const newLocStock = (p[locKey] || 0) + (Number(item.qty) || 0);
+                    const otherLocKey = locKey === 'stockFactory' ? 'stockOffice' : 'stockFactory';
+                    return {
+                        ...p,
+                        [locKey]: newLocStock,
+                        stock: newLocStock + (p[otherLocKey] || 0),
+                    };
+                }
+                return p;
+            });
+            setProducts(nextProductsForDelete);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(nextProductsForDelete));
+            } catch {}
+
+            nextMovementsForDelete = nextMovementsForDelete.filter((sm: StockMovement) => sm.refNo !== invoiceNo && sm.refNo !== id);
+            setStockMovements(nextMovementsForDelete);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(nextMovementsForDelete));
+            } catch {}
+        }
+
         latestStateRef.current = {
             ...latestStateRef.current,
             invoices: nextInvoices,
             customers: nextCusts,
             transactions: nextTxs,
             journalEntries: nextJournals,
+            products: nextProductsForDelete,
+            stockMovements: nextMovementsForDelete,
         };
         addAuditLog({
             staffId: activeStaff.id,

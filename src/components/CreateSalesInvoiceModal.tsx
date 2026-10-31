@@ -630,8 +630,11 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
                   onChange={(e) => setWarehouseLocation(e.target.value as any)}
                   className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-semibold text-xs"
                 >
+                  <option value="Factory">
+                    {'Central Factory & Production Unit'}
+                  </option>
                   <option value="Office">
-                    {'Central Warehouse & Outlet'}
+                    {'Central Warehouse & Outlet (Office)'}
                   </option>
                 </select>
               </div>

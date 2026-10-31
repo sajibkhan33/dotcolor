@@ -938,8 +938,11 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                 {'Dispatch From'}
               </label>
               <select value={warehouseLocation} onChange={(e) => setWarehouseLocation(e.target.value as any)} className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-xs focus:ring-1 focus:ring-amber-500/30 focus:outline-hidden">
+                <option value="Factory">
+                  {'Central Factory & Production Unit'}
+                </option>
                 <option value="Office">
-                  {'Central Warehouse & Outlet'}
+                  {'Central Warehouse & Outlet (Office)'}
                 </option>
               </select>
             </div>
