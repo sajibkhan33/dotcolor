@@ -3041,6 +3041,10 @@ export const AppProvider: React.FC<{
                     stockMovements: nextMovements,
                 };
             }
+            triggerImmediatePush();
+            if (pushToCloudRef.current) {
+                pushToCloudRef.current({ force: true }).catch(() => {});
+            }
         }
         // Record audit log entry
         try {
@@ -3903,53 +3907,62 @@ export const AppProvider: React.FC<{
         }
         // Auto receive stock if marked Received
         if (data.status === 'Received' && data.items.length > 0) {
-            setProducts((prev) => {
-                const existingProductIds = new Set(prev.map(p => p.id));
-                const updated = prev.map((p) => {
-                    const item = data.items.find((i) => i.productId === p.id);
-                    if (item) {
-                        const locKey = data.destination === 'Factory' ? 'stockFactory' : 'stockOffice';
-                        const prevQty = (p.stockFactory || 0) + (p.stockOffice || 0);
-                        const newCost = Number(item.unitCost) || 0;
-                        let targetCost = p.costPrice;
-                        if (newCost > 0) {
-                            if (prevQty <= 0 || !p.costPrice || p.costPrice <= 1) {
-                                targetCost = newCost;
-                            } else {
-                                targetCost = Math.round(((prevQty * p.costPrice) + (item.qty * newCost)) / (prevQty + item.qty) * 100) / 100;
-                            }
+            const currentProds = latestStateRef.current?.products || products || [];
+            const existingProductIds = new Set(currentProds.map(p => p.id));
+            const updated = currentProds.map((p) => {
+                const item = data.items.find((i) => i.productId === p.id);
+                if (item) {
+                    const locKey = data.destination === 'Factory' ? 'stockFactory' : 'stockOffice';
+                    const prevQty = (p.stockFactory || 0) + (p.stockOffice || 0);
+                    const newCost = Number(item.unitCost) || 0;
+                    let targetCost = p.costPrice;
+                    if (newCost > 0) {
+                        if (prevQty <= 0 || !p.costPrice || p.costPrice <= 1) {
+                            targetCost = newCost;
+                        } else {
+                            targetCost = Math.round(((prevQty * p.costPrice) + (item.qty * newCost)) / (prevQty + item.qty) * 100) / 100;
                         }
-                        return { 
-                            ...p, 
-                            [locKey]: (p[locKey] || 0) + item.qty,
-                            costPrice: targetCost,
-                            unitPrice: p.unitPrice < targetCost ? Math.round(targetCost * 1.2) : p.unitPrice,
-                        };
                     }
-                    return p;
-                });
-                const toAdd: ProductItem[] = [];
-                data.items.forEach(item => {
-                    if (!existingProductIds.has(item.productId)) {
-                        toAdd.push({
-                            id: item.productId,
-                            name: item.name,
-                            nameBn: '',
-                            code: `RM-${Math.floor(100 + Math.random() * 900)}`,
-                            category: 'Raw Materials',
-                            unit: item.unit || 'pcs',
-                            costPrice: item.unitCost,
-                            unitPrice: Math.round(item.unitCost * 1.2),
-                            stockOffice: data.destination === 'Office' ? item.qty : 0,
-                            stockFactory: data.destination === 'Factory' ? item.qty : 0,
-                            minStockAlert: 5,
-                            isRawMaterial: true,
-                            description: `Purchased via PO ${poNo}`,
-                        });
-                    }
-                });
-                return [...updated, ...toAdd];
+                    const newLocStock = (p[locKey] || 0) + item.qty;
+                    const otherLocKey = locKey === 'stockFactory' ? 'stockOffice' : 'stockFactory';
+                    return { 
+                        ...p, 
+                        [locKey]: newLocStock,
+                        stock: newLocStock + (p[otherLocKey] || 0),
+                        costPrice: targetCost,
+                        unitPrice: p.unitPrice < targetCost ? Math.round(targetCost * 1.2) : p.unitPrice,
+                    };
+                }
+                return p;
             });
+            const toAdd: ProductItem[] = [];
+            data.items.forEach(item => {
+                if (!existingProductIds.has(item.productId)) {
+                    toAdd.push({
+                        id: item.productId,
+                        name: item.name,
+                        nameBn: '',
+                        code: `RM-${Math.floor(100 + Math.random() * 900)}`,
+                        category: 'Raw Materials',
+                        unit: item.unit || 'pcs',
+                        costPrice: item.unitCost,
+                        unitPrice: Math.round(item.unitCost * 1.2),
+                        stockOffice: data.destination === 'Office' ? item.qty : 0,
+                        stockFactory: data.destination === 'Factory' ? item.qty : 0,
+                        stock: item.qty,
+                        minStockAlert: 5,
+                        isRawMaterial: true,
+                        description: `Purchased via PO ${poNo}`,
+                    });
+                }
+            });
+            const nextProducts = [...updated, ...toAdd];
+            setProducts(nextProducts);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(nextProducts));
+            } catch {}
+
+            const currentMovements = latestStateRef.current?.stockMovements || stockMovements || [];
             const movements: StockMovement[] = data.items.map((item, idx) => ({
                 id: generateUniqueId(`sm-${idx}-${item.productId}`),
                 date: new Date().toISOString().replace('T', ' ').slice(0, 16),
@@ -3958,11 +3971,29 @@ export const AppProvider: React.FC<{
                 type: 'IN',
                 qty: item.qty,
                 unit: item.unit,
+                destinationLocation: data.destination,
                 targetLocation: data.destination,
                 refNo: poNo,
                 reason: `PO Received from ${data.supplierName}`,
             }));
-            setStockMovements((prev) => [...movements, ...prev]);
+            const nextMovements = [...movements, ...currentMovements];
+            setStockMovements(nextMovements);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(nextMovements));
+            } catch {}
+
+            if (latestStateRef.current) {
+                latestStateRef.current = {
+                    ...latestStateRef.current,
+                    products: nextProducts,
+                    stockMovements: nextMovements,
+                    purchaseOrders: [newPO, ...(latestStateRef.current.purchaseOrders || [])],
+                };
+            }
+            triggerImmediatePush();
+            if (pushToCloudRef.current) {
+                pushToCloudRef.current({ force: true }).catch(() => {});
+            }
         }
         return newPO;
     };
@@ -4111,6 +4142,10 @@ export const AppProvider: React.FC<{
                     products: nextProducts,
                     stockMovements: nextMovements,
                 };
+            }
+            triggerImmediatePush();
+            if (pushToCloudRef.current) {
+                pushToCloudRef.current({ force: true }).catch(() => {});
             }
         }
         addAuditLog({

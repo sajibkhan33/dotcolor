@@ -221,10 +221,27 @@ app.post("/api/state", requireAuth, async (req, res) => {
       if (effectivePurgeTime > 0) {
         data.lastPurgedAt = existing.data.lastPurgedAt;
         data.lastPurgeMode = existing.data.lastPurgeMode;
+        const isRecordBeforePurge = (item) => {
+          if (!item) return false;
+          if (item.date) {
+            const dt = new Date(item.date).getTime();
+            if (!isNaN(dt) && dt >= effectivePurgeTime) return false;
+          }
+          if (item.createdAt) {
+            const ct = new Date(item.createdAt).getTime();
+            if (!isNaN(ct) && ct >= effectivePurgeTime) return false;
+          }
+          const match = String(item.id || "").match(/(\d{10,})/);
+          if (match) {
+            const ts = Number(match[1]);
+            const normTs = match[1].length === 10 ? ts * 1e3 : ts;
+            if (normTs < effectivePurgeTime) return true;
+          }
+          return false;
+        };
         if (Array.isArray(data.invoices)) {
           data.invoices = data.invoices.filter((inv) => {
-            const match = String(inv.id || "").match(/inv-(\d+)/);
-            if (match && Number(match[1]) < effectivePurgeTime) {
+            if (isRecordBeforePurge(inv)) {
               console.log(`[PURGE GUARD] Blocked stale resurrection of invoice ${inv.id} (${inv.invoiceNo}) created before purge.`);
               return false;
             }
@@ -233,8 +250,7 @@ app.post("/api/state", requireAuth, async (req, res) => {
         }
         if (Array.isArray(data.transactions)) {
           data.transactions = data.transactions.filter((tx) => {
-            const match = String(tx.id || "").match(/tx-(\d+)/);
-            if (match && Number(match[1]) < effectivePurgeTime) {
+            if (isRecordBeforePurge(tx)) {
               console.log(`[PURGE GUARD] Blocked stale resurrection of transaction ${tx.id} created before purge.`);
               return false;
             }
@@ -243,8 +259,7 @@ app.post("/api/state", requireAuth, async (req, res) => {
         }
         if (Array.isArray(data.purchaseOrders)) {
           data.purchaseOrders = data.purchaseOrders.filter((po) => {
-            const match = String(po.id || "").match(/po-(\d+)/);
-            if (match && Number(match[1]) < effectivePurgeTime) {
+            if (isRecordBeforePurge(po)) {
               console.log(`[PURGE GUARD] Blocked stale resurrection of purchase order ${po.id} created before purge.`);
               return false;
             }
@@ -253,8 +268,7 @@ app.post("/api/state", requireAuth, async (req, res) => {
         }
         if (Array.isArray(data.quotations)) {
           data.quotations = data.quotations.filter((q) => {
-            const match = String(q.id || "").match(/qt-(\d+)/);
-            if (match && Number(match[1]) < effectivePurgeTime) {
+            if (isRecordBeforePurge(q)) {
               return false;
             }
             return true;
@@ -262,8 +276,7 @@ app.post("/api/state", requireAuth, async (req, res) => {
         }
         if (Array.isArray(data.stockMovements)) {
           data.stockMovements = data.stockMovements.filter((sm) => {
-            const match = String(sm.id || "").match(/sm-(\d+)/);
-            if (match && Number(match[1]) < effectivePurgeTime) {
+            if (isRecordBeforePurge(sm)) {
               return false;
             }
             return true;
@@ -271,8 +284,7 @@ app.post("/api/state", requireAuth, async (req, res) => {
         }
         if (Array.isArray(data.journalEntries)) {
           data.journalEntries = data.journalEntries.filter((je) => {
-            const match = String(je.id || "").match(/jnl-(\d+)/);
-            if (match && Number(match[1]) < effectivePurgeTime) {
+            if (isRecordBeforePurge(je)) {
               return false;
             }
             return true;
@@ -280,8 +292,7 @@ app.post("/api/state", requireAuth, async (req, res) => {
         }
         if (Array.isArray(data.projects) && existing.data.lastPurgeMode === "RESET_ALL_TRANSACTIONS") {
           data.projects = data.projects.filter((p) => {
-            const match = String(p.id || "").match(/prj-(\d+)/);
-            if (match && Number(match[1]) < effectivePurgeTime) {
+            if (isRecordBeforePurge(p)) {
               return false;
             }
             return true;
