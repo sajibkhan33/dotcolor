@@ -3367,19 +3367,29 @@ export const AppProvider: React.FC<{
         }
 
         // Add transaction with guaranteed unique ID and exact channel
+        const isProjectInvoice = Boolean(
+            targetInv.projectId ||
+            targetInv.projectCode ||
+            (projects || []).some((p) => p.id === targetInv.projectId || p.code === targetInv.projectCode || p.invoiceNo === targetInv.invoiceNo)
+        );
+
         const newTxsToAdd: AccountingTransaction[] = [];
         if (cashCollect > 0) {
             newTxsToAdd.push({
                 id: generateUniqueId('tx'),
                 date: new Date().toISOString().slice(0, 10),
                 type: 'INCOME',
-                category: 'Client Due Collection',
+                category: isProjectInvoice ? 'Project Due Collection' : 'Client Due Collection',
                 amount: cashCollect,
                 paymentAccount: resolvedAccount,
                 accountHead: resolvedAccount,
                 refNo: targetInv.invoiceNo,
+                projectId: targetInv.projectId,
+                projectCode: targetInv.projectCode,
                 customerOrSupplier: targetInv.customerName,
-                description: `Due collection against invoice ${targetInv.invoiceNo} via ${resolvedAccount}`,
+                description: isProjectInvoice
+                    ? `Project Due Collected: [${targetInv.projectCode || 'PROJECT'}] ${targetInv.customerName} - Invoice #${targetInv.invoiceNo} (${resolvedAccount})`
+                    : `Due collection against invoice ${targetInv.invoiceNo} via ${resolvedAccount}`,
             });
         }
         if (advanceAdjust > 0) {
@@ -3387,11 +3397,13 @@ export const AppProvider: React.FC<{
                 id: generateUniqueId('tx'),
                 date: new Date().toISOString().slice(0, 10),
                 type: 'INCOME',
-                category: 'Customer Advance Adjustment',
+                category: isProjectInvoice ? 'Project Advance Adjustment' : 'Customer Advance Adjustment',
                 amount: advanceAdjust,
                 paymentAccount: 'Customer Advance',
                 accountHead: 'Customer Advance',
                 refNo: targetInv.invoiceNo,
+                projectId: targetInv.projectId,
+                projectCode: targetInv.projectCode,
                 customerOrSupplier: targetInv.customerName,
                 description: `Adjusted Tk ${advanceAdjust.toLocaleString()} from Customer Advance against invoice ${targetInv.invoiceNo}`,
             });

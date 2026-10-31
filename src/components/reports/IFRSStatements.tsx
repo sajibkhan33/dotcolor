@@ -285,11 +285,23 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
 
                     credit = (acc.openingBalance || 0) + effectivePrjRevenue;
                 } else if (acc.code === '4001' || acc.code === '4010' || nameLower.includes('sales')) {
+                    const isDueCol = (t: any) => {
+                        const c = (t.category || '').toLowerCase();
+                        const d = (t.description || '').toLowerCase();
+                        return c.includes('due collection') || d.includes('due collection') || d.includes('due collected');
+                    };
+                    const isPrjInvRef = (t: any) => {
+                        const ref = (t.refNo || '').toLowerCase().trim();
+                        return Boolean(ref && (invoices || []).some(inv => (inv.invoiceNo || '').toLowerCase().trim() === ref && (inv.projectId || inv.projectCode)));
+                    };
+
                     const invoiceSalesFromTx = (transactions || [])
                         .filter(t => 
                             t.type === 'INCOME' && 
-                            isInvoiceTransaction(t) && 
-                            !isProjectTransaction(t) && 
+                            isInvoiceTransaction(t, invoices, projects) && 
+                            !isProjectTransaction(t, invoices, projects) && 
+                            !isDueCol(t) &&
+                            !isPrjInvRef(t) &&
                             !(t.category || '').toLowerCase().includes('project') && 
                             !(t.refNo || '').toUpperCase().startsWith('COL-') && 
                             !(t.refNo || '').toUpperCase().startsWith('PRJ-')
@@ -300,11 +312,13 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                     const directMatchingSales = (transactions || [])
                         .filter(t => 
                             t.type === 'INCOME' && 
-                            !isInvoiceTransaction(t) && 
-                            !isProjectTransaction(t) && 
+                            !isInvoiceTransaction(t, invoices, projects) && 
+                            !isProjectTransaction(t, invoices, projects) && 
                             !isDueReceivableTransaction(t) && 
                             !isAdvanceDepositTransaction(t) && 
                             !isAdvanceAdjustmentTransaction(t) && 
+                            !isDueCol(t) &&
+                            !isPrjInvRef(t) &&
                             !(t.category || '').toLowerCase().includes('project') &&
                             !(t.refNo || '').toUpperCase().startsWith('COL-') && 
                             !(t.refNo || '').toUpperCase().startsWith('PRJ-') &&

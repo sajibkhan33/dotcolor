@@ -926,10 +926,10 @@ export const getCashAccountsBreakdown = (
  * (e.g. POS invoice payments, automated invoice payment sync, client due collection).
  * These transactions represent collections of accounts receivable, rather than new sales revenue.
  */
-export const isInvoiceTransaction = (tx: Partial<AccountingTransaction>): boolean => {
+export const isInvoiceTransaction = (tx: Partial<AccountingTransaction>, invoices?: any[], projects?: any[]): boolean => {
     if (!tx) return false;
     // Strictly exclude any project transactions, project due collections, and project vouchers
-    if (isProjectTransaction(tx) || isProjectDueCollectionTransaction(tx)) return false;
+    if (isProjectTransaction(tx, invoices, projects) || isProjectDueCollectionTransaction(tx)) return false;
     const cat = (tx.category || '').toLowerCase();
     if (cat.includes('project')) return false;
 
@@ -954,7 +954,7 @@ export const isInvoiceTransaction = (tx: Partial<AccountingTransaction>): boolea
 /**
  * Checks whether an accounting transaction is linked to a project sales billing, collection or expense
  */
-export const isProjectTransaction = (tx: Partial<AccountingTransaction>): boolean => {
+export const isProjectTransaction = (tx: Partial<AccountingTransaction>, invoices?: any[], projects?: any[]): boolean => {
     if (!tx) return false;
     const ref = (tx.refNo || '').toUpperCase();
     const desc = (tx.description || '').toLowerCase();
@@ -966,6 +966,17 @@ export const isProjectTransaction = (tx: Partial<AccountingTransaction>): boolea
     if (cat.includes('project')) return true;
     if (desc.includes('project income') || desc.includes('project sales') || desc.includes('project expense') || desc.includes('project due') || desc.includes('project cost')) return true;
     if (Boolean(tx.projectId) || Boolean(tx.projectCode)) return true;
+
+    // Cross-check with invoices list if available: if ref matches an invoice that belongs to a project
+    if (ref && Array.isArray(invoices)) {
+        const inv = invoices.find(i => (i.invoiceNo || '').toUpperCase() === ref);
+        if (inv && (inv.projectId || inv.projectCode)) return true;
+    }
+    // Cross-check with projects list if available
+    if (ref && Array.isArray(projects)) {
+        if (projects.some(p => (p.invoiceNo && (p.invoiceNo || '').toUpperCase() === ref) || (p.code && (p.code || '').toUpperCase() === ref))) return true;
+    }
+
     return false;
 };
 
