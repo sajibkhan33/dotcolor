@@ -630,6 +630,20 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                             specificChannelBudget = (specificChannelBudget || 0) + (Number(pb.amount) || 0);
                         }
                     });
+
+                    (si.collections || []).forEach((col: any) => {
+                        const m = (col.paymentMethod || '').toLowerCase();
+                        if (method.includes(m) || m.includes(method)) {
+                            specificChannelBudget = (specificChannelBudget || 0) + (Number(col.amount) || 0);
+                        }
+                    });
+                });
+
+                (matchedProject.collections || []).forEach((col: any) => {
+                    const m = (col.paymentMethod || '').toLowerCase();
+                    if (method.includes(m) || m.includes(method)) {
+                        specificChannelBudget = (specificChannelBudget || 0) + (Number(col.amount) || 0);
+                    }
                 });
 
                 const maxAllowed = specificChannelBudget !== null ? specificChannelBudget : (Number(matchedProject.totalCollected) || Number(matchedProject.totalSales) || amt);

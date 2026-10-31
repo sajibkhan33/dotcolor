@@ -199,6 +199,36 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({ reportId, tr
                                 specificChannelBudget = (specificChannelBudget || 0) + (Number(pb.amount) || 0);
                             }
                         });
+
+                        (si.collections || []).forEach((col: any) => {
+                            const m = (col.paymentMethod || '').toLowerCase();
+                            const matchesChannel = 
+                                (headLower.includes('city') && m.includes('city')) ||
+                                (headLower.includes('southeast') && m.includes('southeast')) ||
+                                (headLower.includes('brac') && m.includes('brac')) ||
+                                (headLower.includes('nagad') && (m.includes('nagad') || m === 'pm-nagad')) ||
+                                (headLower.includes('bkash') && (m.includes('bkash') || m === 'pm-bkash')) ||
+                                (headLower.includes('cash') && (m.includes('cash') || m === 'pm-cash')) ||
+                                (!headLower.includes('city') && !headLower.includes('southeast') && !headLower.includes('brac') && !headLower.includes('nagad') && !headLower.includes('bkash') && !headLower.includes('cash') && (m.includes('bank') || m.includes('card')));
+                            if (matchesChannel) {
+                                specificChannelBudget = (specificChannelBudget || 0) + (Number(col.amount) || 0);
+                            }
+                        });
+                    });
+
+                    (matchedProject.collections || []).forEach((col: any) => {
+                        const m = (col.paymentMethod || '').toLowerCase();
+                        const matchesChannel = 
+                            (headLower.includes('city') && m.includes('city')) ||
+                            (headLower.includes('southeast') && m.includes('southeast')) ||
+                            (headLower.includes('brac') && m.includes('brac')) ||
+                            (headLower.includes('nagad') && (m.includes('nagad') || m === 'pm-nagad')) ||
+                            (headLower.includes('bkash') && (m.includes('bkash') || m === 'pm-bkash')) ||
+                            (headLower.includes('cash') && (m.includes('cash') || m === 'pm-cash')) ||
+                            (!headLower.includes('city') && !headLower.includes('southeast') && !headLower.includes('brac') && !headLower.includes('nagad') && !headLower.includes('bkash') && !headLower.includes('cash') && (m.includes('bank') || m.includes('card')));
+                        if (matchesChannel) {
+                            specificChannelBudget = (specificChannelBudget || 0) + (Number(col.amount) || 0);
+                        }
                     });
 
                     const maxAllowed = specificChannelBudget !== null ? specificChannelBudget : (Number(matchedProject.totalCollected) || Number(matchedProject.totalSales) || amt);
