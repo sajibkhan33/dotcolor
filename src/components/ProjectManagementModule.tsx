@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Project, ProjectExpenseItem, ProjectSalesItem } from '../types';
 import { FolderKanban, Plus, Search, Filter, TrendingUp, TrendingDown, DollarSign, Receipt, CheckCircle2, Clock, Briefcase, Layers, Edit2, Trash2, ChevronDown, ChevronUp, FileSpreadsheet, Printer, Calendar, User, Phone, BookOpen, PieChart, Tag, CreditCard, Wallet, Landmark, Banknote, Smartphone, History, FileText, X, RotateCw } from 'lucide-react';
-import { getPaymentMethodLiveBalance, isInvoiceMatchingCustomer } from '../utils/accountUtils';
+import { getPaymentMethodLiveBalance, calculateSingleAccountBalance, isInvoiceMatchingCustomer } from '../utils/accountUtils';
 export interface SalesPaymentRow {
     id: string;
     method: string;
@@ -221,19 +221,48 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
     }, [availableExpenseAccounts]);
 
     const availablePaymentAccounts = useMemo(() => {
-        const list = (chartOfAccounts || []).filter(a => a.classification === 'Asset' && !a.name.toLowerCase().includes('receivable') && (
+        const list: Array<{ id: string; code?: string; name: string; balance: number }> = [];
+        const seen = new Set<string>();
+
+        // 1. All active payment methods from Settings (Payment Gateways & Methods) - Authoritative
+        (activePaymentMethods || []).forEach((pm) => {
+            const key = pm.name.trim().toLowerCase();
+            if (!seen.has(key) && !key.includes('due') && !key.includes('receivable')) {
+                seen.add(key);
+                const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances, projects, journalEntries);
+                list.push({
+                    id: pm.id,
+                    name: pm.name,
+                    balance: bal,
+                });
+            }
+        });
+
+        // 2. Liquid Asset accounts from Chart of Accounts
+        (chartOfAccounts || []).filter(a => a.classification === 'Asset' && !a.name.toLowerCase().includes('receivable') && (
             a.code === '1001' || a.code === '1010' || a.code === '1006' || a.code === '1020' || a.code === '1040' ||
             (a.name || '').toLowerCase().includes('cash') || (a.name || '').toLowerCase().includes('bank') || (a.name || '').toLowerCase().includes('bkash') || (a.name || '').toLowerCase().includes('nagad') || (a.name || '').toLowerCase().includes('wallet')
-        ));
+        )).forEach(a => {
+            const key = a.name.trim().toLowerCase();
+            if (!seen.has(key)) {
+                seen.add(key);
+                const bal = calculateSingleAccountBalance(a, transactions, invoices, accountBalances, projects, journalEntries);
+                list.push({
+                    id: a.id,
+                    code: a.code,
+                    name: a.name,
+                    balance: bal,
+                });
+            }
+        });
+
         if (list.length === 0) {
             return [
-                { id: 'pay-cash', code: '1001', name: 'Cash in Hand' },
-                { id: 'pay-bank', code: '1006', name: 'Bank' },
-                { id: 'pay-mfs', code: '1040', name: 'bKash / Nagad' },
+                { id: 'pay-cash', code: '1001', name: 'Cash in Hand', balance: 0 },
             ];
         }
         return list;
-    }, [chartOfAccounts]);
+    }, [activePaymentMethods, chartOfAccounts, transactions, invoices, accountBalances, projects, journalEntries]);
 
     const collectPaymentAccounts = useMemo(() => {
         const accounts: string[] = [];
@@ -1938,9 +1967,20 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
 
                               {/* Credit Account: Payment Source */}
                               <div>
-                                <label className="text-[10px] font-bold text-emerald-700 flex items-center gap-1 mb-1">
-                                  <span>Paid Via / Credit (Payment Source) *</span>
-                                </label>
+                                <div className="flex items-center justify-between mb-1">
+                                  <label className="text-[10px] font-bold text-emerald-700 flex items-center gap-1">
+                                    <span>Paid Via / Credit (Payment Source) *</span>
+                                  </label>
+                                  {(() => {
+                                    const selectedAcc = availablePaymentAccounts.find(a => a.name === currentPayment || a.id === currentPayment) || availablePaymentAccounts[0];
+                                    if (!selectedAcc) return null;
+                                    return (
+                                      <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.2 rounded font-mono">
+                                        Live: {profile.currencySymbol}{selectedAcc.balance.toLocaleString()}
+                                      </span>
+                                    );
+                                  })()}
+                                </div>
                                 <select
                                   value={currentPayment}
                                   onChange={(e) => {
@@ -1950,7 +1990,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                                 >
                                   {availablePaymentAccounts.map((pm) => (
                                     <option key={pm.id} value={pm.name}>
-                                      [{pm.code}] {pm.name}
+                                      {pm.code ? `[${pm.code}] ` : ''}{pm.name} – [{profile.currencySymbol}{pm.balance.toLocaleString()}]
                                     </option>
                                   ))}
                                 </select>
