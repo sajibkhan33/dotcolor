@@ -147,6 +147,7 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({ reportId, tr
         const totalOpening = openingCash + openingBank + openingMfs;
 
         // Process ledger transactions
+        const seenProjectChannelSums = new Map<string, number>();
         (transactions || []).forEach((tx) => {
             if (!tx) return;
             const amt = Number(tx.amount) || 0;
@@ -160,7 +161,53 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({ reportId, tr
                 if (headLower.includes('customer advance') || headLower.includes('advance adjust') || headLower.includes('receivable')) {
                     return;
                 }
-                receiptsMap.set(head, (receiptsMap.get(head) || 0) + amt);
+
+                // Check for project transaction capping to avoid duplicate project transaction inflation
+                let allowedContribution = amt;
+                const tRef = (tx.refNo || '').toLowerCase();
+                const tDesc = (tx.description || '').toLowerCase();
+                const matchedProject = (projects || []).find((p) => {
+                    const pCode = (p.code || '').toLowerCase();
+                    const pId = (p.id || '').toLowerCase();
+                    return (
+                        (pCode && (tRef.includes(pCode) || tDesc.includes(pCode))) ||
+                        (pId && (tx.projectId === p.id || tDesc.includes(pId))) ||
+                        (p.code && tx.projectCode === p.code)
+                    );
+                });
+
+                if (matchedProject) {
+                    const projKey = `${matchedProject.id || matchedProject.code}_${head}`;
+                    const currentProjAccSum = seenProjectChannelSums.get(projKey) || 0;
+
+                    let specificChannelBudget: number | null = null;
+                    (matchedProject.salesItems || []).forEach((si: any) => {
+                        const breakdowns = (si.paymentBreakdown && si.paymentBreakdown.length > 0)
+                            ? si.paymentBreakdown
+                            : (si.paymentMethod ? [{ method: si.paymentMethod, amount: si.amount }] : []);
+                        breakdowns.forEach((pb: any) => {
+                            const m = (pb.method || '').toLowerCase();
+                            const matchesChannel = 
+                                (headLower.includes('city') && m.includes('city')) ||
+                                (headLower.includes('southeast') && m.includes('southeast')) ||
+                                (headLower.includes('brac') && m.includes('brac')) ||
+                                (headLower.includes('nagad') && (m.includes('nagad') || m === 'pm-nagad')) ||
+                                (headLower.includes('bkash') && (m.includes('bkash') || m === 'pm-bkash')) ||
+                                (headLower.includes('cash') && (m.includes('cash') || m === 'pm-cash')) ||
+                                (!headLower.includes('city') && !headLower.includes('southeast') && !headLower.includes('brac') && !headLower.includes('nagad') && !headLower.includes('bkash') && !headLower.includes('cash') && (m.includes('bank') || m.includes('card')));
+                            if (matchesChannel) {
+                                specificChannelBudget = (specificChannelBudget || 0) + (Number(pb.amount) || 0);
+                            }
+                        });
+                    });
+
+                    const maxAllowed = specificChannelBudget !== null ? specificChannelBudget : (Number(matchedProject.totalCollected) || Number(matchedProject.totalSales) || amt);
+                    allowedContribution = Math.min(amt, Math.max(0, maxAllowed - currentProjAccSum));
+                    if (allowedContribution <= 0) return;
+                    seenProjectChannelSums.set(projKey, currentProjAccSum + allowedContribution);
+                }
+
+                receiptsMap.set(head, (receiptsMap.get(head) || 0) + allowedContribution);
             } else if (tx.type === 'DEBIT' || tx.type === 'EXPENSE') {
                 const rawHead = tx.accountHead || tx.category || 'General Expenses';
                 const head = normLiquidHead(rawHead);

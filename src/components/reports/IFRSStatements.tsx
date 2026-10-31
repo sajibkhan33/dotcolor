@@ -525,9 +525,54 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
     // -------------------------------------------------------------
     const cashFlowData = useMemo(() => {
         // 1. Operating Activities
-        const customerReceiptsFromTx = (transactions || [])
-            .filter(t => (t.type === 'INCOME' || t.type === 'CREDIT') && !isAdvanceAdjustmentTransaction(t) && !isDueReceivableTransaction(t))
-            .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+        const seenProjectChannelSums = new Map<string, number>();
+        let customerReceiptsFromTx = 0;
+        (transactions || []).forEach((t) => {
+            if ((t.type !== 'INCOME' && t.type !== 'CREDIT') || isAdvanceAdjustmentTransaction(t) || isDueReceivableTransaction(t)) return;
+            const amt = Number(t.amount) || 0;
+            if (amt <= 0) return;
+
+            const tRef = (t.refNo || '').toLowerCase();
+            const tDesc = (t.description || '').toLowerCase();
+            const matchedProject = (projects || []).find((p) => {
+                const pCode = (p.code || '').toLowerCase();
+                const pId = (p.id || '').toLowerCase();
+                return (
+                    (pCode && (tRef.includes(pCode) || tDesc.includes(pCode))) ||
+                    (pId && (t.projectId === p.id || tDesc.includes(pId))) ||
+                    (p.code && t.projectCode === p.code)
+                );
+            });
+
+            if (matchedProject) {
+                const method = (t.paymentMethod || t.paymentAccount || t.account || '').toLowerCase();
+                const projKey = `${matchedProject.id || matchedProject.code}_${method}`;
+                const currentProjAccSum = seenProjectChannelSums.get(projKey) || 0;
+
+                let specificChannelBudget: number | null = null;
+                (matchedProject.salesItems || []).forEach((si: any) => {
+                    const breakdowns = (si.paymentBreakdown && si.paymentBreakdown.length > 0)
+                        ? si.paymentBreakdown
+                        : (si.paymentMethod ? [{ method: si.paymentMethod, amount: si.amount }] : []);
+                    breakdowns.forEach((pb: any) => {
+                        const m = (pb.method || '').toLowerCase();
+                        if (method.includes(m) || m.includes(method)) {
+                            specificChannelBudget = (specificChannelBudget || 0) + (Number(pb.amount) || 0);
+                        }
+                    });
+                });
+
+                const maxAllowed = specificChannelBudget !== null ? specificChannelBudget : (Number(matchedProject.totalCollected) || Number(matchedProject.totalSales) || amt);
+                const allowedContribution = Math.min(amt, Math.max(0, maxAllowed - currentProjAccSum));
+                if (allowedContribution <= 0) return;
+                seenProjectChannelSums.set(projKey, currentProjAccSum + allowedContribution);
+                customerReceiptsFromTx += allowedContribution;
+                return;
+            }
+
+            customerReceiptsFromTx += amt;
+        });
+
         const cashReceiptsFromCustomers = customerReceiptsFromTx > 0 
             ? customerReceiptsFromTx 
             : invoices.reduce((s, inv) => s + (inv.paidAmount || 0), 0);

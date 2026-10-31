@@ -358,6 +358,7 @@ export const AccountingModule: React.FC = () => {
 
     // New Income/Receipt Modal
     const [showIncomeModal, setShowIncomeModal] = useState(false);
+    const [isSubmittingIncome, setIsSubmittingIncome] = useState(false);
     const [incomeTitle, setIncomeTitle] = useState('');
     const [incomeCategory, setIncomeCategory] = useState('Sales Revenue');
     const [incomeAmount, setIncomeAmount] = useState<number>(5000);
@@ -707,10 +708,13 @@ export const AccountingModule: React.FC = () => {
     };
     const handleCreateIncome = (e: React.FormEvent) => {
         e.preventDefault();
+        if (isSubmittingIncome) return;
         const numAmount = Number(incomeAmount);
         if (numAmount <= 0) return;
-        const selectedAccount = incomeAccount || availablePaymentAccounts[0]?.name || 'Cash';
-        const today = new Date().toISOString().slice(0, 10);
+        setIsSubmittingIncome(true);
+        try {
+            const selectedAccount = incomeAccount || availablePaymentAccounts[0]?.name || 'Cash';
+            const today = new Date().toISOString().slice(0, 10);
 
         if (isProjectIncome && projectIncomeMode === 'existing' && selectedIncomeProject) {
             if (projectIncomeAction === 'collect_due') {
@@ -861,6 +865,9 @@ export const AccountingModule: React.FC = () => {
                 }
             }
         }
+    } finally {
+        setIsSubmittingIncome(false);
+    }
 
         setShowIncomeModal(false);
         setIncomeTitle('');
@@ -1963,15 +1970,23 @@ export const AccountingModule: React.FC = () => {
               <button type="button" onClick={() => setShowIncomeModal(false)} className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50">
                 {'Cancel'}
               </button>
-              <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1.5">
+              <button 
+                type="submit" 
+                disabled={isSubmittingIncome || incomeAmount <= 0} 
+                className={`px-5 py-2 text-white rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1.5 ${
+                  isSubmittingIncome || incomeAmount <= 0 ? 'bg-slate-400 cursor-not-allowed opacity-60' : 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer'
+                }`}
+              >
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                {isProjectIncome && projectIncomeMode === 'existing' && selectedIncomeProject
-                  ? (projectIncomeAction === 'collect_due'
-                      ? `Collect Project Due (${profile.currencySymbol}${(Number(incomeAmount) || 0).toLocaleString()})`
-                      : `Record Project Billing (${profile.currencySymbol}${(Number(incomeAmount) || 0).toLocaleString()})`)
-                  : isProjectIncome && projectIncomeMode === 'new'
-                    ? `Create Project & Record Income (${profile.currencySymbol}${(Number(incomeAmount) || 0).toLocaleString()})`
-                    : 'Confirm Income'}
+                {isSubmittingIncome 
+                  ? 'Saving...'
+                  : isProjectIncome && projectIncomeMode === 'existing' && selectedIncomeProject
+                    ? (projectIncomeAction === 'collect_due'
+                        ? `Collect Project Due (${profile.currencySymbol}${(Number(incomeAmount) || 0).toLocaleString()})`
+                        : `Record Project Billing (${profile.currencySymbol}${(Number(incomeAmount) || 0).toLocaleString()})`)
+                    : isProjectIncome && projectIncomeMode === 'new'
+                      ? `Create Project & Record Income (${profile.currencySymbol}${(Number(incomeAmount) || 0).toLocaleString()})`
+                      : 'Confirm Income'}
               </button>
             </div>
           </form>
