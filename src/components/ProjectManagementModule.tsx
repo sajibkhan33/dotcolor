@@ -246,7 +246,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
             const key = a.name.trim().toLowerCase();
             if (!seen.has(key)) {
                 seen.add(key);
-                const bal = calculateSingleAccountBalance(a, transactions, invoices, accountBalances, projects, journalEntries);
+                const bal = calculateSingleAccountBalance(a, transactions, invoices, projects, journalEntries);
                 list.push({
                     id: a.id,
                     code: a.code,

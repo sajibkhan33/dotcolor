@@ -207,6 +207,7 @@ export const calculateSingleAccountBalance = (
     projects: any[] = [],
     journalEntries: JournalEntry[] = []
 ): number => {
+    const safeProjects = Array.isArray(projects) ? projects : [];
     let balance = Number(acc.openingBalance) || 0;
 
     const accNameLower = (acc.name || '').toLowerCase().trim();
@@ -260,7 +261,7 @@ export const calculateSingleAccountBalance = (
 
                 // Project duplicate safeguard:
                 // Check if transaction matches a project (by refNo, description, projectId, or projectCode)
-                const matchedProject = (projects || []).find((p: any) => {
+                const matchedProject = safeProjects.find((p: any) => {
                     const pCode = (p.code || '').toLowerCase().trim();
                     const pInv = (p.invoiceNo || '').toLowerCase().trim();
                     const pId = (p.id || '').toLowerCase().trim();
@@ -379,20 +380,18 @@ export const calculateSingleAccountBalance = (
 
     // Build set of invoice numbers / IDs linked to projects to prevent double-counting
     const projectLinkedInvoiceNos = new Set<string>();
-    if (projects && Array.isArray(projects)) {
-        projects.forEach((p: any) => {
-            if (p.invoiceNo) projectLinkedInvoiceNos.add(p.invoiceNo.toLowerCase().trim());
-            (p.salesItems || []).forEach((s: any) => {
-                if (s.invoiceNo) projectLinkedInvoiceNos.add(s.invoiceNo.toLowerCase().trim());
-            });
+    safeProjects.forEach((p: any) => {
+        if (p.invoiceNo) projectLinkedInvoiceNos.add(p.invoiceNo.toLowerCase().trim());
+        (p.salesItems || []).forEach((s: any) => {
+            if (s.invoiceNo) projectLinkedInvoiceNos.add(s.invoiceNo.toLowerCase().trim());
         });
-    }
+    });
 
     (invoices || []).forEach((inv) => {
         const invRef = (inv.invoiceNo || '').toLowerCase().trim();
         const isProjectLinked = Boolean(inv.projectId || inv.projectCode || (invRef && projectLinkedInvoiceNos.has(invRef)));
         const matchedProj = isProjectLinked
-            ? (projects || []).find((p: any) => p.id === inv.projectId || p.code === inv.projectCode || (invRef && (p.invoiceNo || '').toLowerCase().trim() === invRef))
+            ? safeProjects.find((p: any) => p.id === inv.projectId || p.code === inv.projectCode || (invRef && (p.invoiceNo || '').toLowerCase().trim() === invRef))
             : null;
         const projRecordedAmt = matchedProj
             ? (seenProjectChannelSums.get(`${matchedProj.id || matchedProj.code}_${acc.id || acc.code || acc.name}`) || 0)
@@ -490,7 +489,7 @@ export const calculateSingleAccountBalance = (
     });
 
     // 2b. Reconcile project milestone sales items for payment channels that don't have ledger transactions
-    (projects || []).forEach((proj: any) => {
+    safeProjects.forEach((proj: any) => {
         const projKey = `${proj.id || proj.code}_${acc.id || acc.code || acc.name}`;
         const currentRecorded = seenProjectChannelSums.get(projKey) || 0;
 
@@ -1416,26 +1415,25 @@ export const calculateTotalCustomerReceivables = (
     customers: any[] = [],
     projects: any[] = []
 ): number => {
+    const safeProjects = Array.isArray(projects) ? projects : [];
     // Build set of invoice numbers / IDs linked to projects to prevent double-counting
     const projectLinkedInvoiceNos = new Set<string>();
     const projectLinkedInvoiceIds = new Set<string>();
-    if (projects && Array.isArray(projects)) {
-        projects.forEach((p: any) => {
-            if (p.id) projectLinkedInvoiceIds.add(p.id);
-            if (p.invoiceId) projectLinkedInvoiceIds.add(p.invoiceId);
-            if (p.invoiceNo) projectLinkedInvoiceNos.add(p.invoiceNo.toLowerCase().trim());
-            (p.salesItems || []).forEach((s: any) => {
-                if (s.invoiceNo) projectLinkedInvoiceNos.add(s.invoiceNo.toLowerCase().trim());
-            });
+    safeProjects.forEach((p: any) => {
+        if (p.id) projectLinkedInvoiceIds.add(p.id);
+        if (p.invoiceId) projectLinkedInvoiceIds.add(p.invoiceId);
+        if (p.invoiceNo) projectLinkedInvoiceNos.add(p.invoiceNo.toLowerCase().trim());
+        (p.salesItems || []).forEach((s: any) => {
+            if (s.invoiceNo) projectLinkedInvoiceNos.add(s.invoiceNo.toLowerCase().trim());
         });
-    }
+    });
 
     // 1. Authoritative customer receivables are strictly the outstanding due amounts on active sales invoices (excluding project-linked invoices if the project is present)
     const totalInvoiceDue = (invoices || []).filter(inv => {
         const invNo = (inv.invoiceNo || '').toLowerCase().trim();
         const isLinkedToKnownProject = Boolean(
-            (inv.projectId && (projects || []).some((p: any) => p.id === inv.projectId)) ||
-            (inv.projectCode && (projects || []).some((p: any) => p.code === inv.projectCode)) ||
+            (inv.projectId && safeProjects.some((p: any) => p.id === inv.projectId)) ||
+            (inv.projectCode && safeProjects.some((p: any) => p.code === inv.projectCode)) ||
             projectLinkedInvoiceIds.has(inv.id) ||
             (invNo && projectLinkedInvoiceNos.has(invNo))
         );
@@ -1443,7 +1441,7 @@ export const calculateTotalCustomerReceivables = (
     }).reduce((sum, inv) => sum + (Number(inv.dueAmount) || 0), 0);
 
     // 2. Authoritative customer receivables from Project Sales items
-    const totalProjectDue = (projects || []).reduce((sum, p: any) => {
+    const totalProjectDue = safeProjects.reduce((sum, p: any) => {
         let pDue = 0;
         if (p.totalDue !== undefined && Number(p.totalDue) > 0) {
             pDue = Number(p.totalDue);
@@ -1494,7 +1492,7 @@ export const calculateTotalCustomerReceivables = (
         }
 
         // Check if customer has matching projects in the system
-        const hasMatchingProjects = (projects || []).some((p: any) => {
+        const hasMatchingProjects = safeProjects.some((p: any) => {
             const cName = (c.name || '').toLowerCase().trim();
             const cPhone = (c.phone || '').trim();
             const pClient = (p.clientName || '').toLowerCase().trim();
