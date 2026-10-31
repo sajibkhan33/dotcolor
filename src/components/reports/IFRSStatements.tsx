@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ChartOfAccount, AccountingTransaction, SalesInvoice, PurchaseOrder, Product, Customer, Language, CompanyProfile, } from '../../types';
 import { Scale, TrendingUp, FileText, DollarSign, CheckCircle2, AlertCircle, Building, ArrowDownRight, ArrowUpRight, Edit2, } from 'lucide-react';
-import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateTotalCustomerAdvances, isSupplierPaymentTransaction, calculateInventoryValuation, isProjectTransaction, isDueReceivableTransaction, isAdvanceDepositTransaction, isAdvanceAdjustmentTransaction, doesTransactionMatchExpenseAccount } from '../../utils/accountUtils';
+import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateTotalCustomerAdvances, isSupplierPaymentTransaction, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isDueReceivableTransaction, isAdvanceDepositTransaction, isAdvanceAdjustmentTransaction, doesTransactionMatchExpenseAccount } from '../../utils/accountUtils';
 import { useApp } from '../../context/AppContext';
 interface IFRSStatementsProps {
     reportId: string;
@@ -284,22 +284,46 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
 
                     credit = (acc.openingBalance || 0) + effectivePrjRevenue;
                 } else if (acc.code === '4001' || acc.code === '4010' || nameLower.includes('sales')) {
+                    const invoiceSalesFromTx = (transactions || [])
+                        .filter(t => 
+                            t.type === 'INCOME' && 
+                            isInvoiceTransaction(t) && 
+                            !isProjectTransaction(t) && 
+                            !(t.category || '').toLowerCase().includes('project') && 
+                            !(t.refNo || '').toUpperCase().startsWith('COL-') && 
+                            !(t.refNo || '').toUpperCase().startsWith('PRJ-')
+                        )
+                        .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+                    const effectiveInvoiceSales = Math.max(totalNonProjectInvoiceSales, invoiceSalesFromTx);
+
                     const directMatchingSales = (transactions || [])
                         .filter(t => 
                             t.type === 'INCOME' && 
+                            !isInvoiceTransaction(t) && 
                             !isProjectTransaction(t) && 
                             !isDueReceivableTransaction(t) && 
                             !isAdvanceDepositTransaction(t) && 
                             !isAdvanceAdjustmentTransaction(t) && 
                             !(t.category || '').toLowerCase().includes('project') &&
+                            !(t.refNo || '').toUpperCase().startsWith('COL-') && 
+                            !(t.refNo || '').toUpperCase().startsWith('PRJ-') &&
                             (
                                 (t.category && (nameLower.includes(t.category.toLowerCase()) || t.category.toLowerCase().includes('sales'))) ||
                                 (t.accountHead && (nameLower.includes(t.accountHead.toLowerCase()) || t.accountHead.toLowerCase().includes('sales')))
+                            ) &&
+                            // Exclude if explicitly claimed by another specific COA Revenue account!
+                            !(chartOfAccounts || []).some(otherAcc => 
+                                otherAcc.id !== acc.id && 
+                                otherAcc.classification === 'Revenue' && 
+                                (
+                                    (t.category && otherAcc.name.toLowerCase() === t.category.toLowerCase()) ||
+                                    (t.accountHead && otherAcc.name.toLowerCase() === t.accountHead.toLowerCase())
+                                )
                             )
                         )
                         .reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
-                    credit = (acc.openingBalance || 0) + Math.max(totalNonProjectInvoiceSales, directMatchingSales, (acc.currentBalance || 0));
+                    credit = (acc.openingBalance || 0) + effectiveInvoiceSales + directMatchingSales;
                 } else {
                     credit = (acc.openingBalance || 0) + (acc.currentBalance || 0);
                 }
