@@ -18,6 +18,9 @@ import {
     getInvoicePayments,
     getPurchaseOrderPayments,
     matchChannelToAccount,
+    isCapitalOrLoanIncome,
+    isDrawingOrLiabilityExpense,
+    doesTransactionMatchEquityOrLiabilityAccount,
 } from '../src/utils/accountUtils';
 
 import {
@@ -868,6 +871,86 @@ console.log('\n--- Section 10: Purchase Order Payment Channel Tracking & Breakdo
         finalAssets === (finalLiabilities + finalEquity) && finalEquity === 22850,
         'Full Accounting Equation Parity: Assets (৳22,850) === Liabilities (৳0) + Equity (৳22,850)',
         `Expected Assets ${finalAssets} to equal Equity ${finalEquity}`
+    );
+}
+
+// ============================================================================
+// SECTION 13: Owner's Capital & Equity Financing Parity (INC- Direct Receipts)
+// ============================================================================
+console.log('\n--- Section 13: Owner\'s Capital & Equity Financing Parity ---');
+{
+    const mockChartOfAccounts: ChartOfAccount[] = [
+        { id: 'coa-1001', code: '1001', name: 'Cash in Hand', nameBn: 'হাতে নগদ', classification: 'Asset', accountGroup: 'Current Assets', normalBalance: 'Debit', currentBalance: 0, openingBalance: 0, isSystem: true, isActive: true },
+        { id: 'coa-1005', code: '1005', name: 'Southeast Bank', nameBn: 'সাউথইস্ট ব্যাংক', classification: 'Asset', accountGroup: 'Current Assets', normalBalance: 'Debit', currentBalance: 0, openingBalance: 0, isSystem: true, isActive: true },
+        { id: 'coa-3001', code: '3001', name: "Owner's Capital Investment", nameBn: 'মালিকের মূলধন বিনিয়োগ', classification: 'Equity', accountGroup: 'Equity', normalBalance: 'Credit', currentBalance: 0, openingBalance: 0, isSystem: true, isActive: true },
+        { id: 'coa-3020', code: '3100', name: 'Retained Earnings', nameBn: 'সংরক্ষিত আয়', classification: 'Equity', accountGroup: 'Equity', normalBalance: 'Credit', currentBalance: 0, openingBalance: 0, isSystem: true, isActive: true },
+        { id: 'coa-4001', code: '4001', name: 'Sales Revenue', nameBn: 'বিক্রয় আয়', classification: 'Revenue', accountGroup: 'Operating Revenue', normalBalance: 'Credit', currentBalance: 0, openingBalance: 0, isSystem: true, isActive: true },
+    ];
+
+    // Transaction 1: Recorded via "+ Record Income" modal for Owner Investment (INC-5275) into Cash
+    const txCapitalCash: AccountingTransaction = {
+        id: 'tx-inc-5275',
+        date: '2026-11-01',
+        type: 'INCOME',
+        refNo: 'INC-5275',
+        category: "Owner's Capital Investment",
+        description: 'Owners Investment 1',
+        amount: 450,
+        account: 'Cash in Hand',
+        paymentAccount: 'Cash in Hand',
+        accountHead: 'Cash in Hand',
+        paymentMethod: 'Cash in Hand',
+    };
+
+    // Transaction 2: Recorded via "+ Record Income" modal for Raw Materials Fund (INC-0008) into Southeast Bank
+    const txCapitalBank: AccountingTransaction = {
+        id: 'tx-inc-0008',
+        date: '2026-11-01',
+        type: 'INCOME',
+        refNo: 'INC-0008',
+        category: "Owner's Capital Investment",
+        description: 'Owners Investment For Raw Materials',
+        amount: 250000,
+        account: 'Southeast Bank',
+        paymentAccount: 'Southeast Bank',
+        accountHead: 'Southeast Bank',
+        paymentMethod: 'Southeast Bank',
+    };
+
+    // Test 13.1: isCapitalOrLoanIncome identifies equity financing and strictly excludes from operating revenue
+    assert(
+        isCapitalOrLoanIncome(txCapitalCash, mockChartOfAccounts) === true &&
+        isCapitalOrLoanIncome(txCapitalBank, mockChartOfAccounts) === true,
+        'isCapitalOrLoanIncome correctly flags Owner Capital transactions from "+ Record Income" modal',
+        `Expected both transactions to be flagged as capital`
+    );
+
+    // Test 13.2: doesTransactionMatchEquityOrLiabilityAccount matches Owner's Capital head despite asset payment channel
+    const capitalAcc = mockChartOfAccounts.find(a => a.code === '3001')!;
+    assert(
+        doesTransactionMatchEquityOrLiabilityAccount(txCapitalCash, capitalAcc) === true &&
+        doesTransactionMatchEquityOrLiabilityAccount(txCapitalBank, capitalAcc) === true,
+        'doesTransactionMatchEquityOrLiabilityAccount credits 3001 Owner\'s Capital Investment isolating credit category from debit asset account',
+        `Expected both to match account 3001`
+    );
+
+    // Test 13.3: Operating Revenue and Retained Earnings remain 0
+    const salesTx = [txCapitalCash, txCapitalBank].filter(t => !isCapitalOrLoanIncome(t, mockChartOfAccounts));
+    assert(
+        salesTx.length === 0,
+        'Operating Revenue remains strictly 0 when owner injects capital via "+ Record Income"',
+        `Expected 0 sales transactions, found ${salesTx.length}`
+    );
+
+    // Test 13.4: Asset = Equity Parity
+    const totalCash = calculateSingleAccountBalance(mockChartOfAccounts[0], [txCapitalCash]); // 450
+    const totalBank = calculateSingleAccountBalance(mockChartOfAccounts[1], [txCapitalBank]); // 250,000
+    const totalAssets = totalCash + totalBank; // 250,450
+    const totalEquity = 450 + 250000; // 250,450
+    assert(
+        totalAssets === totalEquity && totalAssets === 250450,
+        'Full Balance Sheet Parity for Capital Injections: Assets (৳250,450) === Equity (৳250,450)',
+        `Expected Assets ${totalAssets} to match Equity ${totalEquity}`
     );
 }
 

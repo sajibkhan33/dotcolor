@@ -7,7 +7,7 @@ import { ReportPrintModal } from './ReportPrintModal';
 import { ChartOfAccountsManager } from './ChartOfAccountsManager';
 import { ExpenseHeadManager } from './ExpenseHeadManager';
 import { JournalEntriesManager } from './JournalEntriesManager';
-import { getBankAccountsBreakdown, getMfsAccountsBreakdown, getPaymentMethodLiveBalance, calculateSingleAccountBalance, isAdvanceAdjustmentTransaction, isDueReceivableTransaction, resolveExpenseAccount, matchChannelToAccount, isSupplierPaymentTransaction } from '../utils/accountUtils';
+import { getBankAccountsBreakdown, getMfsAccountsBreakdown, getPaymentMethodLiveBalance, calculateSingleAccountBalance, isAdvanceAdjustmentTransaction, isDueReceivableTransaction, resolveExpenseAccount, matchChannelToAccount, isSupplierPaymentTransaction, isCapitalOrLoanIncome, isDrawingOrLiabilityExpense } from '../utils/accountUtils';
 export const AccountingModule: React.FC = () => {
     const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, invoices = [], paymentMethods = [], customers = [], updateCustomer, addTransaction, updateTransaction, deleteTransaction, projects = [], addProjectExpense, addProject, addProjectSales, collectProjectDue, generateInvoiceForProject, checkPermission, activeStaff, addJournalEntry } = useApp();
 
@@ -630,32 +630,8 @@ export const AccountingModule: React.FC = () => {
         })
         .reduce((acc, inv) => acc + (Number(inv.paidAmount) || 0), 0);
 
-    const isCapitalOrLoanIncome = (tx: any) => {
-        const cat = (tx.category || '').toLowerCase().trim();
-        const head = (tx.accountHead || '').toLowerCase().trim();
-        return (chartOfAccounts || []).some(a => 
-            (a.classification === 'Equity' && a.normalBalance === 'Credit' && a.id !== 'coa-3020' && !a.name.toLowerCase().includes('retained')) &&
-            (a.name.toLowerCase() === cat || (a.nameBn && a.nameBn.toLowerCase() === cat) || a.name.toLowerCase() === head)
-        ) || (chartOfAccounts || []).some(a => 
-            (a.classification === 'Liability' && (a.accountGroup === 'Long-term Liabilities' || a.name.toLowerCase().includes('loan'))) &&
-            (a.name.toLowerCase() === cat || (a.nameBn && a.nameBn.toLowerCase() === cat) || a.name.toLowerCase() === head)
-        );
-    };
-
-    const isDrawingOrLiabilityExpense = (tx: any) => {
-        const cat = (tx.category || '').toLowerCase().trim();
-        const head = (tx.accountHead || '').toLowerCase().trim();
-        return (chartOfAccounts || []).some(a => 
-            (a.classification === 'Equity' && (a.normalBalance === 'Debit' || a.name.toLowerCase().includes('drawing') || (a.nameBn || '').includes('উত্তোলন'))) &&
-            (a.name.toLowerCase() === cat || (a.nameBn && a.nameBn.toLowerCase() === cat) || a.name.toLowerCase() === head)
-        ) || (chartOfAccounts || []).some(a => 
-            (a.classification === 'Liability' && !a.name.toLowerCase().includes('supplier') && !a.name.toLowerCase().includes('advance')) &&
-            (a.name.toLowerCase() === cat || (a.nameBn && a.nameBn.toLowerCase() === cat) || a.name.toLowerCase() === head)
-        );
-    };
-
     const txIncome = filteredTransactions
-        .filter((tx) => tx.type === 'INCOME' && !isAdvanceAdjustmentTransaction(tx) && !isDueReceivableTransaction(tx) && !isCapitalOrLoanIncome(tx))
+        .filter((tx) => tx.type === 'INCOME' && !isAdvanceAdjustmentTransaction(tx) && !isDueReceivableTransaction(tx) && !isCapitalOrLoanIncome(tx, chartOfAccounts))
         .reduce((acc, tx) => acc + tx.amount, 0);
 
     const totalIncome = txIncome + unrecordedInvoiceIncome;
@@ -667,7 +643,7 @@ export const AccountingModule: React.FC = () => {
 
     // Direct Operating Expenses (Office rent, utilities, overheads - excludes Owner Drawings & Loans)
     const directOperatingExpenses = filteredTransactions
-        .filter((tx) => tx.type === 'EXPENSE' && !isSupplierPaymentTransaction(tx) && !isDrawingOrLiabilityExpense(tx))
+        .filter((tx) => tx.type === 'EXPENSE' && !isSupplierPaymentTransaction(tx) && !isDrawingOrLiabilityExpense(tx, chartOfAccounts))
         .reduce((acc, tx) => acc + tx.amount, 0);
 
     // Journal Voucher adjustments that merged/recognized expenses (e.g. raw materials consumed -> COGS)

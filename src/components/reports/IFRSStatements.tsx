@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ChartOfAccount, AccountingTransaction, SalesInvoice, PurchaseOrder, Product, Customer, Language, CompanyProfile, } from '../../types';
 import { Scale, TrendingUp, FileText, DollarSign, CheckCircle2, AlertCircle, Building, ArrowDownRight, ArrowUpRight, Edit2, } from 'lucide-react';
-import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateTotalCustomerAdvances, isSupplierPaymentTransaction, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, isAdvanceDepositTransaction, isAdvanceAdjustmentTransaction, doesTransactionMatchExpenseAccount } from '../../utils/accountUtils';
+import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateTotalCustomerAdvances, isSupplierPaymentTransaction, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, isAdvanceDepositTransaction, isAdvanceAdjustmentTransaction, doesTransactionMatchExpenseAccount, isCapitalOrLoanIncome, isDrawingOrLiabilityExpense, doesTransactionMatchEquityOrLiabilityAccount } from '../../utils/accountUtils';
 import { useApp } from '../../context/AppContext';
 interface IFRSStatementsProps {
     reportId: string;
@@ -46,6 +46,7 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
         const directIncomeTotal = (transactions || [])
             .filter((t) => {
                 if (t.type !== 'INCOME') return false;
+                if (isCapitalOrLoanIncome(t, chartOfAccounts)) return false;
                 if (isDueReceivableTransaction(t)) return false;
                 if (isAdvanceDepositTransaction(t)) return false;
                 if (isAdvanceAdjustmentTransaction(t)) return false;
@@ -314,6 +315,7 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                     const directMatchingSales = (transactions || [])
                         .filter(t => 
                             t.type === 'INCOME' && 
+                            !isCapitalOrLoanIncome(t, chartOfAccounts) &&
                             !isInvoiceTransaction(t, invoices, projects) && 
                             !isProjectTransaction(t, invoices, projects) && 
                             !isDueReceivableTransaction(t) && 
@@ -507,9 +509,7 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
 
                 let txLiabilityDelta = 0;
                 (transactions || []).forEach(t => {
-                    const tAcc = (t.account || t.paymentAccount || t.accountHead || t.category || '').toLowerCase().trim();
-                    const isMatched = tAcc === nameLower || tAcc === (acc.code || '').toLowerCase() || tAcc === (acc.id || '').toLowerCase();
-                    if (isMatched) {
+                    if (doesTransactionMatchEquityOrLiabilityAccount(t, acc)) {
                         if (t.type === 'INCOME') txLiabilityDelta += Number(t.amount) || 0;
                         else if (t.type === 'EXPENSE') txLiabilityDelta -= Number(t.amount) || 0;
                     }
@@ -545,9 +545,7 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
             });
             let txCapitalDelta = 0;
             (transactions || []).forEach(t => {
-                const tAcc = (t.account || t.paymentAccount || t.accountHead || t.category || '').toLowerCase().trim();
-                const isMatched = tAcc === capNameLower || tAcc === (capitalAcc.code || '').toLowerCase() || tAcc === (capitalAcc.id || '').toLowerCase();
-                if (isMatched && t.type === 'INCOME') {
+                if (t.type === 'INCOME' && doesTransactionMatchEquityOrLiabilityAccount(t, capitalAcc)) {
                     txCapitalDelta += Number(t.amount) || 0;
                 }
             });
@@ -699,6 +697,13 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
             const cId = (j.creditAccountId || '').toLowerCase();
             if (cId === 'coa-3001' || cId === '3001' || cName.includes('capital') || cName.includes('মূলধন')) {
                 capitalInfusions += Number(j.amount) || 0;
+            }
+        });
+        (transactions || []).forEach(t => {
+            if (t.type === 'INCOME' && isCapitalOrLoanIncome(t, chartOfAccounts)) {
+                if (!journalEntries.some(j => j.refNo && t.refNo && j.refNo.toLowerCase().trim() === t.refNo.toLowerCase().trim())) {
+                    capitalInfusions += Number(t.amount) || 0;
+                }
             }
         });
 

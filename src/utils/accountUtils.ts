@@ -198,6 +198,137 @@ export const doesTransactionMatchAccount = (
 };
 
 /**
+ * Checks whether an income transaction represents Owner Capital Injection or Loan / Financing Receipt
+ */
+export const isCapitalOrLoanIncome = (
+    tx: Partial<AccountingTransaction>,
+    chartOfAccounts?: ChartOfAccount[]
+): boolean => {
+    const cat = (tx.category || '').toLowerCase().trim();
+    const head = (tx.accountHead || '').toLowerCase().trim();
+    const desc = (tx.description || '').toLowerCase().trim();
+
+    // 1. Direct string checks for equity/capital keywords
+    if (
+        cat.includes('capital') || cat.includes('মূলধন') || cat.includes('invest') || cat.includes('বিনিয়োগ') ||
+        head.includes('capital') || head.includes('মূলধন') ||
+        (desc.includes('owner') && (desc.includes('invest') || desc.includes('capital') || desc.includes('মূলধন')))
+    ) {
+        return true;
+    }
+
+    // 2. Direct string checks for long-term loan / borrowing keywords (excluding customer advance)
+    if (
+        (cat.includes('loan') || cat.includes('ঋণ') || cat.includes('borrowing')) &&
+        !cat.includes('advance') && !cat.includes('অগ্রিম')
+    ) {
+        return true;
+    }
+
+    if (!chartOfAccounts || chartOfAccounts.length === 0) return false;
+
+    // 3. Match against Chart of Accounts Equity heads
+    const matchesEquity = chartOfAccounts.some(a => 
+        (a.classification === 'Equity' && a.normalBalance === 'Credit' && a.id !== 'coa-3020' && !a.name.toLowerCase().includes('retained') && !(a.nameBn || '').includes('সংরক্ষিত')) &&
+        (
+            a.name.toLowerCase() === cat || 
+            (a.nameBn && a.nameBn.toLowerCase() === cat) || 
+            a.name.toLowerCase() === head ||
+            (a.nameBn && a.nameBn.toLowerCase() === head) ||
+            (cat && (a.name.toLowerCase().includes(cat) || cat.includes(a.name.toLowerCase())))
+        )
+    );
+    if (matchesEquity) return true;
+
+    // 4. Match against Chart of Accounts Liability heads (Loans & Borrowings)
+    const matchesLiabilityLoan = chartOfAccounts.some(a => 
+        (a.classification === 'Liability' && (a.accountGroup === 'Long-term Liabilities' || a.name.toLowerCase().includes('loan') || (a.nameBn || '').includes('ঋণ'))) &&
+        (
+            a.name.toLowerCase() === cat || 
+            (a.nameBn && a.nameBn.toLowerCase() === cat) || 
+            a.name.toLowerCase() === head ||
+            (a.nameBn && a.nameBn.toLowerCase() === head)
+        )
+    );
+
+    return matchesLiabilityLoan;
+};
+
+/**
+ * Checks whether an expense transaction represents Owner Drawings or Liability repayment
+ */
+export const isDrawingOrLiabilityExpense = (
+    tx: Partial<AccountingTransaction>,
+    chartOfAccounts?: ChartOfAccount[]
+): boolean => {
+    const cat = (tx.category || '').toLowerCase().trim();
+    const head = (tx.accountHead || '').toLowerCase().trim();
+    const desc = (tx.description || '').toLowerCase().trim();
+
+    if (cat.includes('drawing') || cat.includes('উত্তোলন') || desc.includes('drawing') || desc.includes('উত্তোলন')) {
+        return true;
+    }
+
+    if (!chartOfAccounts || chartOfAccounts.length === 0) return false;
+
+    return chartOfAccounts.some(a => 
+        (a.classification === 'Equity' && (a.normalBalance === 'Debit' || a.name.toLowerCase().includes('drawing') || (a.nameBn || '').includes('উত্তোলন'))) &&
+        (a.name.toLowerCase() === cat || (a.nameBn && a.nameBn.toLowerCase() === cat) || a.name.toLowerCase() === head)
+    ) || chartOfAccounts.some(a => 
+        (a.classification === 'Liability' && !a.name.toLowerCase().includes('supplier') && !a.name.toLowerCase().includes('advance')) &&
+        (a.name.toLowerCase() === cat || (a.nameBn && a.nameBn.toLowerCase() === cat) || a.name.toLowerCase() === head)
+    );
+};
+
+/**
+ * Checks whether a transaction belongs to a specific Equity or Liability account
+ * (examining credit side category/head/narration, strictly isolated from asset payment channel)
+ */
+export const doesTransactionMatchEquityOrLiabilityAccount = (
+    tx: Partial<AccountingTransaction>,
+    acc: ChartOfAccount
+): boolean => {
+    const nameLower = (acc.name || '').toLowerCase().trim();
+    const nameBnLower = (acc.nameBn || '').toLowerCase().trim();
+    const code = (acc.code || '').toLowerCase().trim();
+    const id = (acc.id || '').toLowerCase().trim();
+
+    const cat = (tx.category || '').toLowerCase().trim();
+    const head = (tx.accountHead || '').toLowerCase().trim();
+    const desc = (tx.description || '').toLowerCase().trim();
+
+    // 1. Direct match on category
+    if (cat) {
+        if (cat === nameLower || (nameBnLower && cat === nameBnLower) || cat === code || cat === id) return true;
+        if (nameLower.includes(cat) || cat.includes(nameLower)) return true;
+        if (nameBnLower && (nameBnLower.includes(cat) || cat.includes(nameBnLower))) return true;
+    }
+
+    // 2. Direct match on accountHead (provided it is not merely the payment account channel)
+    const payAcc = (tx.paymentAccount || tx.account || '').toLowerCase().trim();
+    if (head && head !== payAcc) {
+        if (head === nameLower || (nameBnLower && head === nameBnLower) || head === code || head === id) return true;
+        if (nameLower.includes(head) || head.includes(nameLower)) return true;
+    }
+
+    // 3. Match on description/narration for owner capital
+    if (acc.classification === 'Equity' && (code === '3001' || nameLower.includes('capital') || nameLower.includes('invest'))) {
+        if (cat.includes('capital') || cat.includes('invest') || (desc.includes('owner') && (desc.includes('invest') || desc.includes('capital')))) {
+            return true;
+        }
+    }
+
+    // 4. Match for drawings
+    if (acc.classification === 'Equity' && (acc.normalBalance === 'Debit' || nameLower.includes('drawing') || nameBnLower.includes('উত্তোলন'))) {
+        if (cat.includes('drawing') || cat.includes('উত্তোলন') || desc.includes('drawing') || desc.includes('উত্তোলন')) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
+/**
  * Calculates the exact dynamic live balance for any asset account in Chart of Accounts
  */
 export const calculateSingleAccountBalance = (

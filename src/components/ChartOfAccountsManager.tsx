@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { ChartOfAccount, SalesInvoice } from '../types';
 import { BookOpen, Plus, Search, Filter, Edit2, Trash2, Lock, CheckCircle2, AlertCircle, X, FileText, Printer, ArrowUpDown, Download, Upload, } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, doesTransactionMatchExpenseAccount, resolveExpenseAccount, isSupplierPaymentTransaction } from '../utils/accountUtils';
+import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, doesTransactionMatchExpenseAccount, resolveExpenseAccount, isSupplierPaymentTransaction, isCapitalOrLoanIncome, isDrawingOrLiabilityExpense, doesTransactionMatchEquityOrLiabilityAccount } from '../utils/accountUtils';
 export const ChartOfAccountsManager: React.FC = () => {
     const { chartOfAccounts, expenseHeads = [], invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], purchaseOrders = [], products = [], journalEntries = [], language, profile, activeStaff, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
@@ -240,9 +240,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                     // Transactions matching this liability account
                     let txLiabilityDelta = 0;
                     (transactions || []).forEach(t => {
-                        const tAcc = (t.account || t.paymentAccount || t.accountHead || t.category || '').toLowerCase().trim();
-                        const isMatched = tAcc === nameLower || tAcc === (acc.code || '').toLowerCase() || tAcc === (acc.id || '').toLowerCase() || (acc.nameBn && tAcc === (acc.nameBn || '').toLowerCase().trim());
-                        if (isMatched) {
+                        if (doesTransactionMatchEquityOrLiabilityAccount(t, acc)) {
                             if (t.type === 'INCOME') txLiabilityDelta += Number(t.amount) || 0;
                             else if (t.type === 'EXPENSE') txLiabilityDelta -= Number(t.amount) || 0;
                         }
@@ -342,6 +340,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                             !isInvoiceTransaction(t) && 
                             !isProjectTransaction(t) && 
                             !isProjectDueCollectionTransaction(t) && 
+                            !isCapitalOrLoanIncome(t, chartOfAccounts) &&
                             !(t.category || '').toLowerCase().includes('project') && 
                             !isAdvanceDepositTransaction(t) && 
                             !isAdvanceAdjustmentTransaction(t) && 
@@ -353,10 +352,10 @@ export const ChartOfAccountsManager: React.FC = () => {
                                     t.category.toLowerCase().includes('sales') || 
                                     t.category.toLowerCase().includes('বিক্রয়')
                                 )) ||
-                                // Default INC- direct incomes to primary sales revenue if not explicitly claimed by another specific active COA revenue head
+                                // Default INC- direct incomes to primary sales revenue if not explicitly claimed by another specific active COA head
                                 (t.refNo?.startsWith('INC-') && !chartOfAccounts.some(otherAcc => 
                                     otherAcc.id !== acc.id && 
-                                    otherAcc.classification === 'Revenue' && 
+                                    (otherAcc.classification === 'Revenue' || otherAcc.classification === 'Equity' || otherAcc.classification === 'Liability') && 
                                     (
                                         (otherAcc.name && otherAcc.name.toLowerCase() === (t.category || '').toLowerCase()) ||
                                         (otherAcc.name && (t.category || '').toLowerCase().includes(otherAcc.name.toLowerCase())) ||
@@ -378,6 +377,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                             !isInvoiceTransaction(t) && 
                             !isProjectTransaction(t) && 
                             !isProjectDueCollectionTransaction(t) && 
+                            !isCapitalOrLoanIncome(t, chartOfAccounts) &&
                             !(t.category || '').toLowerCase().includes('project') && 
                             !(t.refNo || '').toUpperCase().startsWith('COL-') && 
                             !(t.refNo || '').toUpperCase().startsWith('PRJ-') && 
@@ -570,6 +570,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                             !isProjectDueCollectionTransaction(t) && 
                             !isAdvanceDepositTransaction(t) && 
                             !isAdvanceAdjustmentTransaction(t) &&
+                            !isCapitalOrLoanIncome(t, chartOfAccounts) &&
                             !(t.category || '').toLowerCase().includes('advance') &&
                             !(t.category || '').includes('অগ্রিম') &&
                             !(t.category || '').toLowerCase().includes('project') &&
@@ -619,9 +620,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                 } else {
                     let txCapitalDelta = 0;
                     (transactions || []).forEach(t => {
-                        const tAcc = (t.account || t.paymentAccount || t.accountHead || t.category || '').toLowerCase().trim();
-                        const isMatched = tAcc === nameLower || tAcc === (acc.code || '').toLowerCase() || tAcc === (acc.id || '').toLowerCase() || (acc.nameBn && tAcc === (acc.nameBn || '').toLowerCase().trim());
-                        if (isMatched && t.type === 'INCOME') {
+                        if (t.type === 'INCOME' && doesTransactionMatchEquityOrLiabilityAccount(t, acc)) {
                             txCapitalDelta += Number(t.amount) || 0;
                         }
                     });
