@@ -3961,7 +3961,6 @@ export const AppProvider: React.FC<{
                         unitPrice: Math.round(item.unitCost * 1.2),
                         stockOffice: data.destination === 'Office' ? item.qty : 0,
                         stockFactory: data.destination === 'Factory' ? item.qty : 0,
-                        stock: item.qty,
                         minStockAlert: 5,
                         isRawMaterial: true,
                         description: `Purchased via PO ${poNo}`,
@@ -4033,7 +4032,7 @@ export const AppProvider: React.FC<{
             });
         }
         const newDue = Math.max(0, newSubtotal - po.paidAmount);
-        const newPaymentStatus = newDue <= 0 ? 'Paid' : (po.paidAmount > 0 ? 'Partial' : 'Due');
+        const newPaymentStatus: 'Paid' | 'Partial' | 'Due' = newDue <= 0 ? 'Paid' : (po.paidAmount > 0 ? 'Partial' : 'Due');
         const nextPOs = purchaseOrders.map((p) => (p.id === poId ? {
             ...p,
             status: 'Received' as const,
@@ -4126,7 +4125,6 @@ export const AppProvider: React.FC<{
                         unitPrice: Math.round(item.unitCost * 1.2),
                         stockOffice: po.destination === 'Office' ? rQty : 0,
                         stockFactory: po.destination === 'Factory' ? rQty : 0,
-                        stock: rQty,
                         minStockAlert: 5,
                         isRawMaterial: true,
                         description: `Purchased via PO ${po.poNo}`,

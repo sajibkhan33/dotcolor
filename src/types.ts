@@ -615,6 +615,7 @@ export interface Project {
   netProfit: number;
   profitMargin: number;
   notes?: string;
+  collections?: ProjectSalesCollection[];
   chartOfAccountId?: string;
   projectAccountCode?: string;
   invoiceId?: string;
