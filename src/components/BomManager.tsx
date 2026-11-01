@@ -793,7 +793,7 @@ export const BomManager: React.FC = () => {
                             <input
                               type="number"
                               step="any"
-                              min="0.001"
+                              min="0.000001"
                               value={comp.quantity}
                               onChange={(e) => handleUpdateComponent(idx, 'quantity', e.target.value)}
                               className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
