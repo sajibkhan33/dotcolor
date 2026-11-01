@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
-import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, InvoiceItem, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, ProductUnit, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus, ProjectSalesCollection, ProjectSalesPaymentBreakdown } from '../types';
+import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, InvoiceItem, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, ProductUnit, BillOfMaterial, BomComponent, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus, ProjectSalesCollection, ProjectSalesPaymentBreakdown } from '../types';
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
-import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_PRODUCT_UNITS, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
+import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_PRODUCT_UNITS, INITIAL_BOM_LIST, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
 import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation, resolveExpenseAccount as resolveExpenseAccountUtil, isSupplierPaymentTransaction } from '../utils/accountUtils';
 import { hashPin, verifyPin, isPinHashed } from '../utils/securityUtils';
 
@@ -92,6 +92,12 @@ interface AppContextType {
         success: boolean;
         message?: string;
     };
+    // Bill of Materials (BOM)
+    bomList: BillOfMaterial[];
+    addBom: (bom: Omit<BillOfMaterial, 'id' | 'createdAt' | 'updatedAt'>) => BillOfMaterial;
+    updateBom: (id: string, updates: Partial<BillOfMaterial>) => void;
+    deleteBom: (id: string) => void;
+    produceBatch: (bomId: string, quantity: number, location?: 'Factory' | 'Office') => { success: boolean; message: string };
     addProduct: (product: Omit<ProductItem, 'id' | 'code'>) => void;
     bulkImportProducts: (items: Array<Omit<ProductItem, 'id'> & {
         id?: string;
@@ -678,6 +684,9 @@ export const AppProvider: React.FC<{
     const [productUnits, setProductUnits] = useState<ProductUnit[]>(() => {
         return safeGetLocalStorage<ProductUnit[]>(`${STORAGE_KEY}_PRODUCT_UNITS`, INITIAL_PRODUCT_UNITS);
     });
+    const [bomList, setBomList] = useState<BillOfMaterial[]>(() => {
+        return safeGetLocalStorage<BillOfMaterial[]>(`${STORAGE_KEY}_BOM_LIST`, INITIAL_BOM_LIST);
+    });
     const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => {
         const list = safeGetLocalStorage<JournalEntry[]>(`${STORAGE_KEY}_JOURNALS`, INITIAL_JOURNAL_ENTRIES);
         return ensureUniqueJournalEntries(list);
@@ -755,6 +764,7 @@ export const AppProvider: React.FC<{
         expenseHeads,
         productCategories,
         productUnits,
+        bomList,
         journalEntries,
         projects,
         paymentMethods,
@@ -777,6 +787,7 @@ export const AppProvider: React.FC<{
         expenseHeads,
         productCategories,
         productUnits,
+        bomList,
         journalEntries,
         projects,
         paymentMethods,
@@ -869,6 +880,9 @@ export const AppProvider: React.FC<{
             const rawUnits = localStorage.getItem(`${STORAGE_KEY}_PRODUCT_UNITS`);
             if (rawUnits !== null) setProductUnits(JSON.parse(rawUnits));
 
+            const rawBom = localStorage.getItem(`${STORAGE_KEY}_BOM_LIST`);
+            if (rawBom !== null) setBomList(JSON.parse(rawBom));
+
             const rawPm = localStorage.getItem(`${STORAGE_KEY}_PAYMENT_METHODS`);
             if (rawPm !== null) setPaymentMethods(JSON.parse(rawPm));
 
@@ -893,6 +907,7 @@ export const AppProvider: React.FC<{
                 ...(rawRoles !== null ? { userRoles: JSON.parse(rawRoles) } : {}),
                 ...(rawCats !== null ? { productCategories: JSON.parse(rawCats) } : {}),
                 ...(rawUnits !== null ? { productUnits: JSON.parse(rawUnits) } : {}),
+                ...(rawBom !== null ? { bomList: JSON.parse(rawBom) } : {}),
                 ...(rawPm !== null ? { paymentMethods: JSON.parse(rawPm) } : {}),
                 ...(rawProfile !== null ? { profile: JSON.parse(rawProfile) } : {}),
             };
@@ -994,6 +1009,9 @@ export const AppProvider: React.FC<{
         safeSetLocalStorage(`${STORAGE_KEY}_PRODUCT_UNITS`, JSON.stringify(productUnits));
     }, [productUnits]);
     useEffect(() => {
+        safeSetLocalStorage(`${STORAGE_KEY}_BOM_LIST`, JSON.stringify(bomList));
+    }, [bomList]);
+    useEffect(() => {
         safeSetLocalStorage(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(journalEntries));
     }, [journalEntries]);
     useEffect(() => {
@@ -1092,6 +1110,12 @@ export const AppProvider: React.FC<{
                     const parsed = JSON.parse(e.newValue);
                     if (Array.isArray(parsed)) {
                         setProductUnits(parsed);
+                    }
+                }
+                else if (e.key === `${STORAGE_KEY}_BOM_LIST`) {
+                    const parsed = JSON.parse(e.newValue);
+                    if (Array.isArray(parsed)) {
+                        setBomList(parsed);
                     }
                 }
             }
@@ -2993,10 +3017,52 @@ export const AppProvider: React.FC<{
                 } catch {}
             }
         }
-        // Decrement stock for physical items
+        // Decrement stock for physical items & BOM raw materials
         if (data.items && data.items.length > 0) {
             const currentProds = latestStateRef.current?.products || products || [];
+            const currentBoms = latestStateRef.current?.bomList || bomList || [];
+            const bomConsumptionMovements: StockMovement[] = [];
+            const rawMaterialDeductions: { [productId: string]: number } = {};
+
+            // Identify items with an active BOM formula
+            data.items.forEach((item) => {
+                const activeBom = currentBoms.find(b => 
+                    (item.productId && b.finishedProductId === item.productId) ||
+                    ((item as any).code && b.finishedProductCode && b.finishedProductCode.toLowerCase().trim() === (item as any).code.toLowerCase().trim()) ||
+                    (item.name && b.finishedProductName && b.finishedProductName.toLowerCase().trim() === item.name.toLowerCase().trim())
+                );
+
+                if (activeBom && activeBom.autoDeductOnSale !== false && activeBom.components && activeBom.components.length > 0) {
+                    const consumptionMultiplier = (item.totalSqft && Number(item.totalSqft) > 0) ? Number(item.totalSqft) : (Number(item.qty) || 0);
+                    activeBom.components.forEach((comp) => {
+                        const requiredQty = (Number(comp.quantity) || 0) * consumptionMultiplier;
+                        if (requiredQty > 0) {
+                            rawMaterialDeductions[comp.rawMaterialId] = (rawMaterialDeductions[comp.rawMaterialId] || 0) + requiredQty;
+                            bomConsumptionMovements.push({
+                                id: generateUniqueId(`sm-bom-${item.productId}-${comp.rawMaterialId}`),
+                                date: new Date().toISOString().replace('T', ' ').slice(0, 16),
+                                productId: comp.rawMaterialId,
+                                productName: comp.rawMaterialName,
+                                type: 'OUT',
+                                qty: Math.round(requiredQty * 1000) / 1000,
+                                unit: comp.unit,
+                                sourceLocation: data.warehouseLocation,
+                                refNo: invoiceNo,
+                                reason: `BOM auto-consumption for ${item.name} (${consumptionMultiplier} ${item.unit || 'units'}) - Inv #${invoiceNo}`,
+                            });
+                        }
+                    });
+                }
+            });
+
             const nextProducts = currentProds.map((p: ProductItem) => {
+                const prefLoc = data.warehouseLocation === 'Office' ? 'stockOffice' : 'stockFactory';
+                const otherLoc = prefLoc === 'stockFactory' ? 'stockOffice' : 'stockFactory';
+                let prefStock = Number(p[prefLoc]) || 0;
+                let otherStock = Number(p[otherLoc]) || 0;
+                let wasModified = false;
+
+                // 1. Direct item sale deduction
                 const item = data.items.find((i) => {
                     if (i.productId && i.productId === p.id) return true;
                     if (p.code && (i as any).code && p.code.toLowerCase().trim() === (i as any).code.toLowerCase().trim()) return true;
@@ -3008,13 +3074,7 @@ export const AppProvider: React.FC<{
                     return false;
                 });
                 if (item) {
-                    const prefLoc = data.warehouseLocation === 'Office' ? 'stockOffice' : 'stockFactory';
-                    const otherLoc = prefLoc === 'stockFactory' ? 'stockOffice' : 'stockFactory';
-
                     let toDeduct = Number(item.qty) || 0;
-                    let prefStock = Number(p[prefLoc]) || 0;
-                    let otherStock = Number(p[otherLoc]) || 0;
-
                     const takePref = Math.min(prefStock, toDeduct);
                     prefStock -= takePref;
                     toDeduct -= takePref;
@@ -3026,7 +3086,27 @@ export const AppProvider: React.FC<{
                     if (toDeduct > 0) {
                         prefStock = Math.max(0, prefStock - toDeduct);
                     }
+                    wasModified = true;
+                }
 
+                // 2. BOM raw material consumption deduction
+                if (rawMaterialDeductions[p.id]) {
+                    let toDeductRm = rawMaterialDeductions[p.id];
+                    const takePrefRm = Math.min(prefStock, toDeductRm);
+                    prefStock -= takePrefRm;
+                    toDeductRm -= takePrefRm;
+
+                    const takeOtherRm = Math.min(otherStock, toDeductRm);
+                    otherStock -= takeOtherRm;
+                    toDeductRm -= takeOtherRm;
+
+                    if (toDeductRm > 0) {
+                        prefStock = Math.max(0, prefStock - toDeductRm);
+                    }
+                    wasModified = true;
+                }
+
+                if (wasModified) {
                     return {
                         ...p,
                         [prefLoc]: prefStock,
@@ -3054,7 +3134,7 @@ export const AppProvider: React.FC<{
                 refNo: invoiceNo,
                 reason: `Sales Invoice to ${data.customerName}`,
             }));
-            const nextMovements = [...newMovements, ...currentMovements];
+            const nextMovements = [...bomConsumptionMovements, ...newMovements, ...currentMovements];
             setStockMovements(nextMovements);
             try {
                 localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(nextMovements));
@@ -5077,6 +5157,230 @@ export const AppProvider: React.FC<{
         triggerImmediatePush();
         return { success: true };
     };
+
+    // Bill of Materials (BOM) Implementation
+    const addBom = (bom: Omit<BillOfMaterial, 'id' | 'createdAt' | 'updatedAt'>): BillOfMaterial => {
+        const newBom: BillOfMaterial = {
+            ...bom,
+            id: `bom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        };
+        const currentBoms = latestStateRef.current.bomList || bomList;
+        const next = [...currentBoms.filter(b => b.finishedProductId !== newBom.finishedProductId), newBom];
+        setBomList(next);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_BOM_LIST`, JSON.stringify(next));
+        } catch {}
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            bomList: next,
+        };
+        addAuditLog({
+            staffId: activeStaff.id,
+            staffName: activeStaff.name,
+            staffRole: activeStaff.role,
+            location: 'Office',
+            actionType: 'BOM_CREATED' as any,
+            entityType: 'Inventory',
+            refNo: newBom.finishedProductCode,
+            details: `Created BOM for ${newBom.finishedProductName} with ${newBom.components.length} components`,
+            severity: 'info',
+        });
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
+        return newBom;
+    };
+
+    const updateBom = (id: string, updates: Partial<BillOfMaterial>) => {
+        const currentBoms = latestStateRef.current.bomList || bomList;
+        const next = currentBoms.map(b => b.id === id ? { ...b, ...updates, updatedAt: new Date().toISOString() } : b);
+        setBomList(next);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_BOM_LIST`, JSON.stringify(next));
+        } catch {}
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            bomList: next,
+        };
+        addAuditLog({
+            staffId: activeStaff.id,
+            staffName: activeStaff.name,
+            staffRole: activeStaff.role,
+            location: 'Office',
+            actionType: 'BOM_UPDATED' as any,
+            entityType: 'Inventory',
+            details: `Updated BOM formula (${id})`,
+            severity: 'info',
+        });
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
+    };
+
+    const deleteBom = (id: string) => {
+        const currentBoms = latestStateRef.current.bomList || bomList;
+        const target = currentBoms.find(b => b.id === id);
+        const next = currentBoms.filter(b => b.id !== id);
+        setBomList(next);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_BOM_LIST`, JSON.stringify(next));
+        } catch {}
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            bomList: next,
+        };
+        if (target) {
+            addAuditLog({
+                staffId: activeStaff.id,
+                staffName: activeStaff.name,
+                staffRole: activeStaff.role,
+                location: 'Office',
+                actionType: 'BOM_DELETED' as any,
+                entityType: 'Inventory',
+                refNo: target.finishedProductCode,
+                details: `Deleted BOM for ${target.finishedProductName}`,
+                severity: 'warning',
+            });
+        }
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
+    };
+
+    const produceBatch = (bomId: string, quantity: number, location: 'Factory' | 'Office' = 'Factory'): { success: boolean; message: string } => {
+        if (quantity <= 0) return { success: false, message: 'Production quantity must be greater than 0' };
+        const currentBoms = latestStateRef.current.bomList || bomList;
+        const bom = currentBoms.find(b => b.id === bomId);
+        if (!bom) return { success: false, message: 'BOM specification not found' };
+
+        const currentProds = latestStateRef.current.products || products;
+        const finishedProd = currentProds.find(p => p.id === bom.finishedProductId);
+        if (!finishedProd) return { success: false, message: 'Finished product not found in inventory' };
+
+        const batchRefNo = `PROD-${Date.now().toString().slice(-6)}`;
+        const targetLocKey = location === 'Office' ? 'stockOffice' : 'stockFactory';
+        const otherLocKey = targetLocKey === 'stockFactory' ? 'stockOffice' : 'stockFactory';
+
+        const rawMaterialDeductions: { [productId: string]: number } = {};
+        (bom.components || []).forEach(comp => {
+            const needed = (Number(comp.quantity) || 0) * quantity;
+            rawMaterialDeductions[comp.rawMaterialId] = (rawMaterialDeductions[comp.rawMaterialId] || 0) + needed;
+        });
+
+        const newMovements: StockMovement[] = [];
+
+        // Raw materials OUT movements
+        (bom.components || []).forEach(comp => {
+            const needed = (Number(comp.quantity) || 0) * quantity;
+            newMovements.push({
+                id: generateUniqueId(`sm-prod-rm-${comp.rawMaterialId}`),
+                date: new Date().toISOString().replace('T', ' ').slice(0, 16),
+                productId: comp.rawMaterialId,
+                productName: comp.rawMaterialName,
+                type: 'OUT',
+                qty: Math.round(needed * 1000) / 1000,
+                unit: comp.unit,
+                sourceLocation: location,
+                refNo: batchRefNo,
+                reason: `Batch Production Run #${batchRefNo}: Produced ${quantity} ${bom.outputUnit || 'units'} of ${bom.finishedProductName}`,
+            });
+        });
+
+        // Finished Good IN movement
+        newMovements.push({
+            id: generateUniqueId(`sm-prod-fg-${bom.finishedProductId}`),
+            date: new Date().toISOString().replace('T', ' ').slice(0, 16),
+            productId: bom.finishedProductId,
+            productName: bom.finishedProductName,
+            type: 'IN',
+            qty: quantity,
+            unit: bom.outputUnit || finishedProd.unit || 'pcs',
+            targetLocation: location,
+            refNo: batchRefNo,
+            reason: `Batch Production Run #${batchRefNo} Completed`,
+        });
+
+        // Update products stock
+        const nextProducts = currentProds.map(p => {
+            if (rawMaterialDeductions[p.id]) {
+                let toDeduct = rawMaterialDeductions[p.id];
+                let locStock = Number(p[targetLocKey]) || 0;
+                let otherStock = Number(p[otherLocKey]) || 0;
+
+                const takeLoc = Math.min(locStock, toDeduct);
+                locStock -= takeLoc;
+                toDeduct -= takeLoc;
+
+                const takeOther = Math.min(otherStock, toDeduct);
+                otherStock -= takeOther;
+                toDeduct -= takeOther;
+
+                if (toDeduct > 0) {
+                    locStock = Math.max(0, locStock - toDeduct);
+                }
+
+                return {
+                    ...p,
+                    [targetLocKey]: locStock,
+                    [otherLocKey]: otherStock,
+                    stock: locStock + otherStock,
+                };
+            }
+
+            if (p.id === bom.finishedProductId) {
+                const locStock = (Number(p[targetLocKey]) || 0) + quantity;
+                const otherStock = Number(p[otherLocKey]) || 0;
+                return {
+                    ...p,
+                    [targetLocKey]: locStock,
+                    stock: locStock + otherStock,
+                };
+            }
+
+            return p;
+        });
+
+        setProducts(nextProducts);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(nextProducts));
+        } catch {}
+
+        const currentMovements = latestStateRef.current?.stockMovements || stockMovements || [];
+        const nextMovements = [...newMovements, ...currentMovements];
+        setStockMovements(nextMovements);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(nextMovements));
+        } catch {}
+
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            products: nextProducts,
+            stockMovements: nextMovements,
+        };
+
+        addAuditLog({
+            staffId: activeStaff.id,
+            staffName: activeStaff.name,
+            staffRole: activeStaff.role,
+            location,
+            actionType: 'PRODUCTION_BATCH_RUN' as any,
+            entityType: 'Inventory',
+            refNo: batchRefNo,
+            details: `Produced ${quantity} ${bom.outputUnit || 'units'} of ${bom.finishedProductName} (Batch #${batchRefNo})`,
+            severity: 'info',
+        });
+
+        broadcastCrossTabSync();
+        triggerImmediatePush();
+        if (pushToCloudRef.current) {
+            pushToCloudRef.current({ force: true }).catch(() => {});
+        }
+
+        return {
+            success: true,
+            message: `Successfully produced ${quantity} ${bom.outputUnit || 'units'} of ${bom.finishedProductName}. Finished stock added to ${location} and raw materials deducted.`,
+        };
+    };
+
     // Chart of Accounts
     const addChartOfAccount = (account: Omit<ChartOfAccount, 'id' | 'currentBalance'>): ChartOfAccount => {
         const newAcct: ChartOfAccount = {
@@ -8238,6 +8542,7 @@ export const AppProvider: React.FC<{
         setExpenseHeads(INITIAL_EXPENSE_HEADS);
         setProductCategories(INITIAL_PRODUCT_CATEGORIES);
         setProductUnits(INITIAL_PRODUCT_UNITS);
+        setBomList(INITIAL_BOM_LIST);
         setJournalEntries(INITIAL_JOURNAL_ENTRIES);
         setProjects(INITIAL_PROJECTS);
         setPaymentMethods(INITIAL_PAYMENT_METHODS);
@@ -8264,6 +8569,7 @@ export const AppProvider: React.FC<{
             localStorage.setItem(`${STORAGE_KEY}_EXPENSE_HEADS`, JSON.stringify(INITIAL_EXPENSE_HEADS));
             localStorage.setItem(`${STORAGE_KEY}_CATEGORIES`, JSON.stringify(INITIAL_PRODUCT_CATEGORIES));
             localStorage.setItem(`${STORAGE_KEY}_PRODUCT_UNITS`, JSON.stringify(INITIAL_PRODUCT_UNITS));
+            localStorage.setItem(`${STORAGE_KEY}_BOM_LIST`, JSON.stringify(INITIAL_BOM_LIST));
             localStorage.setItem(`${STORAGE_KEY}_PAYMENT_METHODS`, JSON.stringify(INITIAL_PAYMENT_METHODS));
             localStorage.setItem(`${STORAGE_KEY}_PROFILE`, JSON.stringify(INITIAL_COMPANY_PROFILE));
             localStorage.setItem(`${STORAGE_KEY}_ACTIVE_STAFF`, JSON.stringify(INITIAL_STAFF_MEMBERS[0]));
@@ -8288,6 +8594,7 @@ export const AppProvider: React.FC<{
         expenseHeads,
         productCategories,
         productUnits,
+        bomList,
         journalEntries,
         projects,
         paymentMethods,
@@ -8312,6 +8619,7 @@ export const AppProvider: React.FC<{
             expenseHeads: s.expenseHeads,
             productCategories: s.productCategories,
             productUnits: s.productUnits,
+            bomList: s.bomList,
             journalEntries: s.journalEntries,
             projects: s.projects,
             paymentMethods: s.paymentMethods,
@@ -8515,6 +8823,10 @@ export const AppProvider: React.FC<{
             if (data.productUnits && Array.isArray(data.productUnits)) {
                 setProductUnits(data.productUnits);
                 try { localStorage.setItem(`${STORAGE_KEY}_PRODUCT_UNITS`, JSON.stringify(data.productUnits)); } catch {}
+            }
+            if (data.bomList && Array.isArray(data.bomList)) {
+                setBomList(data.bomList);
+                try { localStorage.setItem(`${STORAGE_KEY}_BOM_LIST`, JSON.stringify(data.bomList)); } catch {}
             }
             if (data.journalEntries && Array.isArray(data.journalEntries)) {
                 let jns = data.journalEntries;
@@ -8846,6 +9158,7 @@ export const AppProvider: React.FC<{
         expenseHeads,
         productCategories,
         productUnits,
+        bomList,
         journalEntries,
         projects,
         paymentMethods,
@@ -9013,6 +9326,11 @@ export const AppProvider: React.FC<{
             addProductUnit,
             updateProductUnit,
             deleteProductUnit,
+            bomList,
+            addBom,
+            updateBom,
+            deleteBom,
+            produceBatch,
             addProduct,
             bulkImportProducts,
             updateProduct,

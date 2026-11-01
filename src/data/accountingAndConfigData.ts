@@ -3,6 +3,8 @@ import {
     ExpenseHead,
     ProductCategory,
     ProductUnit,
+    BillOfMaterial,
+    BomComponent,
     UserRole,
     RolePermission,
     JournalEntry,
@@ -31,6 +33,7 @@ export const ALL_SYSTEM_PERMISSIONS: RolePermission[] = [
     { id: 'perm-inv-6', code: 'inventory.manage_categories', name: 'Add/Edit/Delete Categories', nameBn: "", category: 'Inventory' },
     { id: 'perm-inv-7', code: 'inventory.bulk_import', name: 'Bulk Product CSV Import', nameBn: "", category: 'Inventory' },
     { id: 'perm-inv-8', code: 'inventory.manage_units', name: 'Add/Edit/Delete Units', nameBn: "ইউনিট তৈরি ও এডিট", category: 'Inventory' },
+    { id: 'perm-inv-9', code: 'inventory.manage_bom', name: 'Manage Bill of Materials (BOM)', nameBn: "উপাদান ও রেসিপি তৈরি/এডিট", category: 'Inventory' },
     // Supply Chain
     { id: 'perm-sup-1', code: 'supply.view', name: 'View Purchase & Suppliers', nameBn: "", category: 'Supply Chain' },
     { id: 'perm-sup-2', code: 'supply.create_po', name: 'Create Purchase Orders', nameBn: "Order", category: 'Supply Chain' },
@@ -189,6 +192,7 @@ export const INITIAL_USER_ROLES: UserRole[] = [
             'inventory.adjust_stock',
             'inventory.manage_categories',
             'inventory.manage_units',
+            'inventory.manage_bom',
             'inventory.bulk_import',
             'supply.view',
             'supply.receive_stock',
@@ -302,6 +306,9 @@ export const INITIAL_PRODUCT_UNITS: ProductUnit[] = [
         isDefault: true,
     },
 ];
+
+export const INITIAL_BOM_LIST: BillOfMaterial[] = [];
+
 
 export const INITIAL_EXPENSE_HEADS: ExpenseHead[] = [
     {

@@ -5,6 +5,7 @@ import { Package, Boxes, ArrowRightLeft, AlertTriangle, Plus, Search, Filter, La
 import { BulkProductImportModal } from './BulkProductImportModal';
 import { ProductCategoryManager } from './ProductCategoryManager';
 import { UnitManager } from './UnitManager';
+import { BomManager } from './BomManager';
 export const InventoryModule: React.FC = () => {
     const { products, productCategories, productUnits, profile, language, activeLocation, addProduct, updateProduct, deleteProduct, adjustStock, addProductCategory, updateProductCategory, checkPermission, activeStaff, } = useApp();
 
@@ -19,7 +20,8 @@ export const InventoryModule: React.FC = () => {
     const canBulkImport = isSuperAdmin || Boolean(checkPermission && checkPermission('inventory.bulk_import'));
     const canManageCategories = isSuperAdmin || Boolean(checkPermission && checkPermission('inventory.manage_categories'));
     const canManageUnits = isSuperAdmin || Boolean(checkPermission && (checkPermission('inventory.manage_units') || checkPermission('inventory.manage_categories')));
-    const [activeTab, setActiveTab] = useState<'inventory' | 'categories' | 'units'>('inventory');
+    const canManageBom = isSuperAdmin || Boolean(checkPermission && (checkPermission('inventory.manage_bom') || checkPermission('inventory.view')));
+    const [activeTab, setActiveTab] = useState<'inventory' | 'categories' | 'units' | 'bom'>('inventory');
     const [filterType, setFilterType] = useState<'ALL' | 'RAW' | 'FINISHED' | 'LOW_STOCK'>('ALL');
     const [searchQuery, setSearchQuery] = useState('');
     // Modals
@@ -282,6 +284,11 @@ export const InventoryModule: React.FC = () => {
               {'Unit Manager'}
             </button>
           )}
+          {canManageBom && (
+            <button type="button" id="tab-inventory-bom" onClick={() => setActiveTab('bom')} className={`flex-1 md:flex-none px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'bom' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>
+              {'Bill of Materials (BOM)'}
+            </button>
+          )}
         </div>
 
         {activeTab === 'inventory' && (<div className="flex items-center gap-2 w-full md:w-auto">
@@ -407,6 +414,18 @@ export const InventoryModule: React.FC = () => {
                             </button>
                           )}
 
+                          {/* BOM Recipe shortcut for finished products */}
+                          {!p.isRawMaterial && canManageBom && (
+                            <button
+                              type="button"
+                              onClick={() => setActiveTab('bom')}
+                              className="p-1.5 text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 rounded-lg border border-indigo-200"
+                              title="Bill of Materials (BOM Recipe)"
+                            >
+                              <Layers className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
                           {/* Edit Product */}
                           {canEditProduct && (
                             <button type="button" onClick={() => handleOpenEdit(p)} className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg border border-slate-200" title="Edit Item">
@@ -466,6 +485,9 @@ export const InventoryModule: React.FC = () => {
 
       {/* SUB-TAB: UNITS */}
       {activeTab === 'units' && <UnitManager />}
+
+      {/* SUB-TAB: BOM */}
+      {activeTab === 'bom' && <BomManager />}
 
       {/* ADJUST / TRANSFER STOCK MODAL */}
       {adjustModalProduct && (<div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">

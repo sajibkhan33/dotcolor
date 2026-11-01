@@ -31,6 +31,30 @@ export interface ProductUnit {
   isDefault?: boolean;
 }
 
+export interface BomComponent {
+  rawMaterialId: string;
+  rawMaterialCode: string;
+  rawMaterialName: string;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  totalCost: number;
+}
+
+export interface BillOfMaterial {
+  id: string;
+  finishedProductId: string;
+  finishedProductCode: string;
+  finishedProductName: string;
+  outputUnit: string;
+  components: BomComponent[];
+  totalCost: number;
+  notes?: string;
+  autoDeductOnSale?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type LocationType = 'Factory' | 'Office' | 'Both';
 
 export type UnitType = 'pcs' | 'sqft' | 'ream' | 'roll' | 'ltr' | 'box' | 'set' | 'job' | 'pack' | 'packet' | string;
