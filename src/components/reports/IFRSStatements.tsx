@@ -668,7 +668,7 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
         const seenProjectChannelSums = new Map<string, number>();
         let customerReceiptsFromTx = 0;
         (transactions || []).forEach((t) => {
-            if ((t.type !== 'INCOME' && t.type !== 'CREDIT') || isAdvanceAdjustmentTransaction(t) || isDueReceivableTransaction(t)) return;
+            if ((t.type !== 'INCOME' && t.type !== 'CREDIT') || isAdvanceAdjustmentTransaction(t) || isDueReceivableTransaction(t) || isCapitalOrLoanIncome(t, chartOfAccounts)) return;
             const amt = Number(t.amount) || 0;
             if (amt <= 0) return;
 
@@ -735,7 +735,7 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
         const cashPaidToSuppliers = Math.max(supplierPaymentsFromTx, purchaseOrders.reduce((s, po) => s + (po.paidAmount || 0), 0));
 
         const cashPaidForExpenses = (transactions || [])
-            .filter((t) => t.type === 'EXPENSE' && !isSupplierPaymentTransaction(t))
+            .filter((t) => t.type === 'EXPENSE' && !isSupplierPaymentTransaction(t) && !isDrawingOrLiabilityExpense(t, chartOfAccounts))
             .reduce((s, t) => s + (Number(t.amount) || 0), 0);
         const netCashOperating = cashReceiptsFromCustomers - cashPaidToSuppliers - cashPaidForExpenses;
 

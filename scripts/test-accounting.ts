@@ -1007,6 +1007,36 @@ console.log('\n--- Section 13: Owner\'s Capital & Equity Financing Parity ---');
         'Trial Balance Reconciled: Cash Debit (৳483) === Owner Capital Credit (৳483), Out of Balance = 0',
         `Expected difference 0, got liveCash: ${liveCashDebits}, liveCapital: ${liveCapitalCredits}, diff: ${tbDifference}`
     );
+
+    // Test 13.6: Statement of Cash Flows (IAS 7) Parity (No Double Counting of ৳450)
+    let customerReceiptsOperating = 0;
+    [txCapitalCash].forEach(t => {
+        if ((t.type === 'INCOME' || t.type === 'CREDIT') && !isCapitalOrLoanIncome(t, mockChartOfAccounts)) {
+            customerReceiptsOperating += t.amount;
+        }
+    });
+    let capitalFinancing = 0;
+    [mockJv33, mockJv450].forEach(j => {
+        if (j.creditAccountId === 'coa-3001') capitalFinancing += j.amount;
+    });
+    // In Cash Flows, tx with ref matching journal voucher is deduplicated
+    [txCapitalCash].forEach(t => {
+        if (t.type === 'INCOME' && isCapitalOrLoanIncome(t, mockChartOfAccounts)) {
+            if (![mockJv33, mockJv450].some(j => j.refNo && t.refNo && j.refNo.toLowerCase().trim() === t.refNo.toLowerCase().trim())) {
+                capitalFinancing += t.amount;
+            }
+        }
+    });
+
+    const netCashOperating = customerReceiptsOperating; // 0
+    const netCashFinancing = capitalFinancing; // 483 (33 + 450)
+    const netChangeInCash = netCashOperating + netCashFinancing; // 483 (NOT 933)
+
+    assert(
+        customerReceiptsOperating === 0 && capitalFinancing === 483 && netChangeInCash === 483,
+        'Statement of Cash Flows (IAS 7) Parity: Operating (৳0) + Financing (৳483) = Net Cash ৳483 (Prevents ৳933 double counting)',
+        `Expected netChangeInCash 483, got operating: ${customerReceiptsOperating}, financing: ${capitalFinancing}, net: ${netChangeInCash}`
+    );
 }
 
 // --- Summary ---
