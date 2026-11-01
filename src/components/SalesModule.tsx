@@ -473,6 +473,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
 
     const totalCollected = filteredInvoices.reduce((acc, i) => acc + (Number(i.paidAmount) || 0), 0);
     const totalDue = filteredInvoices.reduce((acc, i) => acc + (Number(i.dueAmount) || 0), 0);
+    const totalGeneralCollected = generalInvoices.reduce((acc, i) => acc + (Number(i.paidAmount) || 0), 0);
+    const totalProjectCollected = projectInvoices.reduce((acc, i) => acc + (Number(i.paidAmount) || 0), 0);
+    const totalGeneralDue = generalInvoices.reduce((acc, i) => acc + (Number(i.dueAmount) || 0), 0);
+    const totalProjectDue = projectInvoices.reduce((acc, i) => acc + (Number(i.dueAmount) || 0), 0);
     const handleCollectSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!paymentModalInvoice)
@@ -620,7 +624,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
     ];
     return (<div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5">
       {/* Top Metric Cards - 5 Cards including Separate General Sales & Project Sales */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         {/* Card 1: Total Gross Sales */}
         <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col justify-between">
           <div>
@@ -632,56 +636,37 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 Total
               </span>
             </div>
-            <div className="text-lg sm:text-2xl font-black text-slate-900">
+            <div className="text-xl sm:text-2xl font-black text-slate-900">
               {profile.currencySymbol}{(Number(totalSales) || 0).toLocaleString()}
             </div>
           </div>
-          <span className="text-[11px] text-slate-400 mt-2 block font-medium truncate">
-            {filteredInvoices.length} {'invoices recorded'}
-          </span>
-        </div>
 
-        {/* Card 2: General Sales */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-blue-200 bg-gradient-to-br from-white to-blue-50/40 shadow-2xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] sm:text-xs font-bold text-blue-700 uppercase tracking-wider">
-                {'General Sales'}
-              </span>
-              <span className="text-[10px] font-bold text-blue-700 bg-blue-100/80 px-1.5 py-0.5 rounded border border-blue-200">
-                POS / Retail
+          <div className="mt-2.5 pt-2 border-t border-slate-100 space-y-1">
+            <div className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                <span className="text-slate-600 font-medium">{'General Sales:'}</span>
+              </div>
+              <span className="font-bold text-blue-700">
+                {profile.currencySymbol}{(Number(totalGeneralSales) || 0).toLocaleString()}
               </span>
             </div>
-            <div className="text-lg sm:text-2xl font-black text-blue-900">
-              {profile.currencySymbol}{(Number(totalGeneralSales) || 0).toLocaleString()}
+            <div className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
+                <span className="text-slate-600 font-medium">{'Project Sales:'}</span>
+              </div>
+              <span className="font-bold text-amber-800">
+                {profile.currencySymbol}{(Number(totalProjectSales) || 0).toLocaleString()}
+              </span>
             </div>
+            <span className="text-[10px] text-slate-400 block pt-0.5 font-medium truncate">
+              {filteredInvoices.length} {'invoices recorded'} ({generalInvoices.length} general, {projectInvoices.length} project)
+            </span>
           </div>
-          <span className="text-[11px] text-blue-600/90 mt-2 block font-medium truncate">
-            {generalInvoices.length} {'sales invoices'}
-          </span>
         </div>
 
-        {/* Card 3: Project Sales */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-amber-200 bg-gradient-to-br from-white to-amber-50/50 shadow-2xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] sm:text-xs font-bold text-amber-800 uppercase tracking-wider">
-                {'Project Sales'}
-              </span>
-              <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-200">
-                Projects
-              </span>
-            </div>
-            <div className="text-lg sm:text-2xl font-black text-amber-950">
-              {profile.currencySymbol}{(Number(totalProjectSales) || 0).toLocaleString()}
-            </div>
-          </div>
-          <span className="text-[11px] text-amber-700 mt-2 block font-medium truncate">
-            {projectInvoices.length} {'project contracts'}
-          </span>
-        </div>
-
-        {/* Card 4: Total Collected */}
+        {/* Card 2: Total Collected */}
         <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-emerald-200 bg-gradient-to-br from-white to-emerald-50/30 shadow-2xs flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-1">
@@ -692,17 +677,38 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 Paid
               </span>
             </div>
-            <div className="text-lg sm:text-2xl font-black text-emerald-700">
+            <div className="text-xl sm:text-2xl font-black text-emerald-700">
               {profile.currencySymbol}{(Number(totalCollected) || 0).toLocaleString()}
             </div>
           </div>
-          <span className="text-[11px] text-emerald-600/90 mt-2 block font-medium truncate">
-            {'via Cash, Bank & Mobile'}
-          </span>
+
+          <div className="mt-2.5 pt-2 border-t border-emerald-100/70 space-y-1">
+            <div className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                <span className="text-slate-600 font-medium">{'General Collection:'}</span>
+              </div>
+              <span className="font-bold text-blue-700">
+                {profile.currencySymbol}{(Number(totalGeneralCollected) || 0).toLocaleString()}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
+                <span className="text-slate-600 font-medium">{'Project Collection:'}</span>
+              </div>
+              <span className="font-bold text-amber-800">
+                {profile.currencySymbol}{(Number(totalProjectCollected) || 0).toLocaleString()}
+              </span>
+            </div>
+            <span className="text-[10px] text-emerald-600/90 block pt-0.5 font-medium truncate">
+              {'via Cash, Bank & Mobile'}
+            </span>
+          </div>
         </div>
 
-        {/* Card 5: Customer Due */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-rose-200 bg-gradient-to-br from-white to-rose-50/30 shadow-2xs col-span-2 sm:col-span-1 flex flex-col justify-between">
+        {/* Card 3: Customer Due */}
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-rose-200 bg-gradient-to-br from-white to-rose-50/30 shadow-2xs flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-1">
               <span className="text-[11px] sm:text-xs font-bold text-rose-600 uppercase tracking-wider">
@@ -712,14 +718,35 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 Receivable
               </span>
             </div>
-            <div className="text-lg sm:text-2xl font-black text-rose-600">
+            <div className="text-xl sm:text-2xl font-black text-rose-600">
               {profile.currencySymbol}{(Number(totalDue) || 0).toLocaleString()}
             </div>
           </div>
-          <span className="text-[11px] text-rose-500 mt-2 block font-medium truncate">
-            {invoices.filter((i) => (Number(i.dueAmount) || 0) > 0).length}{' '}
-            {'invoices with due'}
-          </span>
+
+          <div className="mt-2.5 pt-2 border-t border-rose-100/70 space-y-1">
+            <div className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                <span className="text-slate-600 font-medium">{'General Due:'}</span>
+              </div>
+              <span className="font-bold text-rose-600">
+                {profile.currencySymbol}{(Number(totalGeneralDue) || 0).toLocaleString()}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
+                <span className="text-slate-600 font-medium">{'Project Due:'}</span>
+              </div>
+              <span className="font-bold text-rose-600">
+                {profile.currencySymbol}{(Number(totalProjectDue) || 0).toLocaleString()}
+              </span>
+            </div>
+            <span className="text-[10px] text-rose-500 block pt-0.5 font-medium truncate">
+              {invoices.filter((i) => (Number(i.dueAmount) || 0) > 0).length}{' '}
+              {'invoices with due'}
+            </span>
+          </div>
         </div>
       </div>
 
