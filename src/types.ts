@@ -21,9 +21,19 @@ export interface ProductCategory {
   isRawMaterialGroup?: boolean;
 }
 
+export interface ProductUnit {
+  id: string;
+  code: string;
+  name: string;
+  nameBn?: string;
+  symbol?: string;
+  description?: string;
+  isDefault?: boolean;
+}
+
 export type LocationType = 'Factory' | 'Office' | 'Both';
 
-export type UnitType = 'pcs' | 'sqft' | 'ream' | 'roll' | 'ltr' | 'box' | 'set' | 'job' | 'pack';
+export type UnitType = 'pcs' | 'sqft' | 'ream' | 'roll' | 'ltr' | 'box' | 'set' | 'job' | 'pack' | 'packet' | string;
 
 export interface CompanyServiceCapability {
   id: string;

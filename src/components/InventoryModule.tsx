@@ -4,8 +4,9 @@ import { ProductItem, UnitType, ServiceCategory, ProductCategory } from '../type
 import { Package, Boxes, ArrowRightLeft, AlertTriangle, Plus, Search, Filter, Layers, ArrowDownRight, ArrowUpRight, History, Factory, Building2, DollarSign, TrendingDown, Edit2, Trash2, UploadCloud, FileSpreadsheet, Tag, AlertCircle, } from 'lucide-react';
 import { BulkProductImportModal } from './BulkProductImportModal';
 import { ProductCategoryManager } from './ProductCategoryManager';
+import { UnitManager } from './UnitManager';
 export const InventoryModule: React.FC = () => {
-    const { products, productCategories, profile, language, activeLocation, addProduct, updateProduct, deleteProduct, adjustStock, addProductCategory, updateProductCategory, checkPermission, activeStaff, } = useApp();
+    const { products, productCategories, productUnits, profile, language, activeLocation, addProduct, updateProduct, deleteProduct, adjustStock, addProductCategory, updateProductCategory, checkPermission, activeStaff, } = useApp();
 
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
         (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
@@ -17,7 +18,8 @@ export const InventoryModule: React.FC = () => {
     const canAdjustStock = isSuperAdmin || Boolean(checkPermission && checkPermission('inventory.adjust_stock'));
     const canBulkImport = isSuperAdmin || Boolean(checkPermission && checkPermission('inventory.bulk_import'));
     const canManageCategories = isSuperAdmin || Boolean(checkPermission && checkPermission('inventory.manage_categories'));
-    const [activeTab, setActiveTab] = useState<'inventory' | 'categories'>('inventory');
+    const canManageUnits = isSuperAdmin || Boolean(checkPermission && (checkPermission('inventory.manage_units') || checkPermission('inventory.manage_categories')));
+    const [activeTab, setActiveTab] = useState<'inventory' | 'categories' | 'units'>('inventory');
     const [filterType, setFilterType] = useState<'ALL' | 'RAW' | 'FINISHED' | 'LOW_STOCK'>('ALL');
     const [searchQuery, setSearchQuery] = useState('');
     // Modals
@@ -275,6 +277,11 @@ export const InventoryModule: React.FC = () => {
               {'Category Manager'}
             </button>
           )}
+          {canManageUnits && (
+            <button type="button" id="tab-inventory-units" onClick={() => setActiveTab('units')} className={`flex-1 md:flex-none px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'units' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>
+              {'Unit Manager'}
+            </button>
+          )}
         </div>
 
         {activeTab === 'inventory' && (<div className="flex items-center gap-2 w-full md:w-auto">
@@ -456,6 +463,9 @@ export const InventoryModule: React.FC = () => {
 
       {/* SUB-TAB: CATEGORIES */}
       {activeTab === 'categories' && <ProductCategoryManager />}
+
+      {/* SUB-TAB: UNITS */}
+      {activeTab === 'units' && <UnitManager />}
 
       {/* ADJUST / TRANSFER STOCK MODAL */}
       {adjustModalProduct && (<div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -691,14 +701,24 @@ export const InventoryModule: React.FC = () => {
                     {'Unit'}
                   </label>
                   <select value={formData.unit} onChange={(e) => setFormData({ ...formData, unit: e.target.value as any })} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium">
-                    <option value="pcs">Pieces (pcs)</option>
-                    <option value="sqft">Square Feet (sqft)</option>
-                    <option value="roll">Rolls (roll)</option>
-                    <option value="box">Boxes (box)</option>
-                    <option value="set">Sets (set)</option>
-                    <option value="job">Per Job (job)</option>
-                    <option value="ream">Ream (ream)</option>
-                    <option value="ltr">Liter (ltr)</option>
+                    {productUnits && productUnits.length > 0 ? (
+                      productUnits.map((u) => (
+                        <option key={u.id} value={u.code}>
+                          {u.name} ({u.symbol || u.code})
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="pcs">Pieces (pcs)</option>
+                        <option value="sqft">Square Feet (sqft)</option>
+                        <option value="roll">Rolls (roll)</option>
+                        <option value="box">Boxes (box)</option>
+                        <option value="set">Sets (set)</option>
+                        <option value="job">Per Job (job)</option>
+                        <option value="ream">Ream (ream)</option>
+                        <option value="ltr">Liter (ltr)</option>
+                      </>
+                    )}
                   </select>
                 </div>
               </div>

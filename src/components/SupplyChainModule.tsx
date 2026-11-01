@@ -4,7 +4,7 @@ import { PurchaseOrder, Supplier, PaymentMethod, PurchaseItem } from '../types';
 import { getPaymentMethodLiveBalance, calculateSingleAccountBalance, matchChannelToAccount, getPurchaseOrderPayments } from '../utils/accountUtils';
 import { Truck, Plus, Search, CheckCircle2, Clock, Building2, DollarSign, AlertCircle, FileCheck, UserCheck, Package, Calendar, Phone, Factory, ArrowRight, Edit2, Trash2, CreditCard, Wallet, Landmark, Smartphone, Receipt, ExternalLink, MapPin, Mail, User, PackageCheck, Banknote, History, } from 'lucide-react';
 export const SupplyChainModule: React.FC = () => {
-    const { purchaseOrders = [], suppliers = [], products = [], profile, language, accountBalances, paymentMethods = [], chartOfAccounts = [], transactions = [], invoices = [], journalEntries = [], addPurchaseOrder, updatePurchaseOrder, deletePurchaseOrder, receivePurchaseOrder, payPurchaseOrder, paySupplier, paySupplierDue, addSupplier, updateSupplier, deleteSupplier, checkPermission, activeStaff } = useApp();
+    const { purchaseOrders = [], suppliers = [], products = [], productUnits = [], profile, language, accountBalances, paymentMethods = [], chartOfAccounts = [], transactions = [], invoices = [], journalEntries = [], addPurchaseOrder, updatePurchaseOrder, deletePurchaseOrder, receivePurchaseOrder, payPurchaseOrder, paySupplier, paySupplierDue, addSupplier, updateSupplier, deleteSupplier, checkPermission, activeStaff } = useApp();
 
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
         (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
@@ -1069,14 +1069,26 @@ export const SupplyChainModule: React.FC = () => {
                     <div className="col-span-3">
                       <div className="flex items-center gap-1">
                         <input type="number" step="any" min="1" value={item.qty} onChange={(e) => handleUpdatePoItemRow(idx, 'qty', Math.max(1, Number(e.target.value)))} placeholder="Qty" className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-center"/>
-                        {poType === 'Custom' ? (<select value={item.unit} onChange={(e) => handleUpdatePoItemRow(idx, 'unit', e.target.value)} className="bg-white border border-slate-200 rounded-lg text-[10px] p-1 font-semibold min-w-[50px]">
-                            <option value="pcs">pcs</option>
-                            <option value="roll">roll</option>
-                            <option value="sqft">sqft</option>
-                            <option value="set">set</option>
-                            <option value="kg">kg</option>
-                            <option value="liter">ltr</option>
-                          </select>) : (<span className="text-[10px] text-slate-500">{item.unit}</span>)}
+                        {poType === 'Custom' ? (
+                          <select value={item.unit} onChange={(e) => handleUpdatePoItemRow(idx, 'unit', e.target.value)} className="bg-white border border-slate-200 rounded-lg text-[10px] p-1 font-semibold min-w-[50px]">
+                            {productUnits && productUnits.length > 0 ? (
+                              productUnits.map((u) => (
+                                <option key={u.id} value={u.code}>
+                                  {u.symbol || u.code}
+                                </option>
+                              ))
+                            ) : (
+                              <>
+                                <option value="pcs">pcs</option>
+                                <option value="roll">roll</option>
+                                <option value="sqft">sqft</option>
+                                <option value="set">set</option>
+                                <option value="kg">kg</option>
+                                <option value="liter">ltr</option>
+                              </>
+                            )}
+                          </select>
+                        ) : (<span className="text-[10px] text-slate-500">{item.unit}</span>)}
                       </div>
                     </div>
 

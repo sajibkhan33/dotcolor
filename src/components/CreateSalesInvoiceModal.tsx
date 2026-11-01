@@ -9,7 +9,7 @@ interface CreateSalesInvoiceModalProps {
     onInvoiceCreated: (invoiceId: string) => void;
 }
 export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = ({ isOpen, onClose, onInvoiceCreated, }) => {
-    const { customers, products, profile, language, paymentMethods = [], chartOfAccounts = [], transactions = [], invoices = [], accountBalances, journalEntries = [], projects = [], addInvoice, addCustomer, } = useApp();
+    const { customers, products, productUnits = [], profile, language, paymentMethods = [], chartOfAccounts = [], transactions = [], invoices = [], accountBalances, journalEntries = [], projects = [], addInvoice, addCustomer, } = useApp();
     const activePaymentMethods = useMemo(() => {
         const list = (paymentMethods || []).filter((p) => p.isEnabled);
         return list.length > 0 ? list : [{ id: 'pm-cash', name: 'Cash', nameBn: "Cash", type: 'cash' as const, isEnabled: true }];
@@ -823,11 +823,21 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
                   {'Unit'}
                 </label>
                 <select value={itemUnit} onChange={(e) => setItemUnit(e.target.value as any)} className="w-full px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-semibold text-xs">
-                  <option value="pcs">pcs</option>
-                  <option value="sqft">sqft</option>
-                  <option value="set">set</option>
-                  <option value="roll">roll</option>
-                  <option value="packet">packet</option>
+                  {productUnits && productUnits.length > 0 ? (
+                    productUnits.map((u) => (
+                      <option key={u.id} value={u.code}>
+                        {u.symbol || u.code}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="pcs">pcs</option>
+                      <option value="sqft">sqft</option>
+                      <option value="set">set</option>
+                      <option value="roll">roll</option>
+                      <option value="packet">packet</option>
+                    </>
+                  )}
                 </select>
               </div>
 

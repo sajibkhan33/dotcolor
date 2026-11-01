@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
-import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, InvoiceItem, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus, ProjectSalesCollection, ProjectSalesPaymentBreakdown } from '../types';
+import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, InvoiceItem, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, ProductUnit, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus, ProjectSalesCollection, ProjectSalesPaymentBreakdown } from '../types';
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
-import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
+import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_PRODUCT_UNITS, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
 import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation, resolveExpenseAccount as resolveExpenseAccountUtil, isSupplierPaymentTransaction } from '../utils/accountUtils';
 import { hashPin, verifyPin, isPinHashed } from '../utils/securityUtils';
 
@@ -81,6 +81,14 @@ interface AppContextType {
     addProductCategory: (cat: Omit<ProductCategory, 'id'>) => ProductCategory;
     updateProductCategory: (id: string, updates: Partial<ProductCategory>) => void;
     deleteProductCategory: (id: string) => {
+        success: boolean;
+        message?: string;
+    };
+    // Units
+    productUnits: ProductUnit[];
+    addProductUnit: (unit: Omit<ProductUnit, 'id'>) => ProductUnit;
+    updateProductUnit: (id: string, updates: Partial<ProductUnit>) => void;
+    deleteProductUnit: (id: string) => {
         success: boolean;
         message?: string;
     };
@@ -667,6 +675,9 @@ export const AppProvider: React.FC<{
     const [productCategories, setProductCategories] = useState<ProductCategory[]>(() => {
         return safeGetLocalStorage<ProductCategory[]>(`${STORAGE_KEY}_CATEGORIES`, INITIAL_PRODUCT_CATEGORIES);
     });
+    const [productUnits, setProductUnits] = useState<ProductUnit[]>(() => {
+        return safeGetLocalStorage<ProductUnit[]>(`${STORAGE_KEY}_PRODUCT_UNITS`, INITIAL_PRODUCT_UNITS);
+    });
     const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => {
         const list = safeGetLocalStorage<JournalEntry[]>(`${STORAGE_KEY}_JOURNALS`, INITIAL_JOURNAL_ENTRIES);
         return ensureUniqueJournalEntries(list);
@@ -743,6 +754,7 @@ export const AppProvider: React.FC<{
         chartOfAccounts,
         expenseHeads,
         productCategories,
+        productUnits,
         journalEntries,
         projects,
         paymentMethods,
@@ -764,6 +776,7 @@ export const AppProvider: React.FC<{
         chartOfAccounts,
         expenseHeads,
         productCategories,
+        productUnits,
         journalEntries,
         projects,
         paymentMethods,
@@ -853,6 +866,9 @@ export const AppProvider: React.FC<{
             const rawCats = localStorage.getItem(`${STORAGE_KEY}_CATEGORIES`);
             if (rawCats !== null) setProductCategories(JSON.parse(rawCats));
 
+            const rawUnits = localStorage.getItem(`${STORAGE_KEY}_PRODUCT_UNITS`);
+            if (rawUnits !== null) setProductUnits(JSON.parse(rawUnits));
+
             const rawPm = localStorage.getItem(`${STORAGE_KEY}_PAYMENT_METHODS`);
             if (rawPm !== null) setPaymentMethods(JSON.parse(rawPm));
 
@@ -876,6 +892,7 @@ export const AppProvider: React.FC<{
                 ...(rawStaff !== null ? { staffMembers: JSON.parse(rawStaff) } : {}),
                 ...(rawRoles !== null ? { userRoles: JSON.parse(rawRoles) } : {}),
                 ...(rawCats !== null ? { productCategories: JSON.parse(rawCats) } : {}),
+                ...(rawUnits !== null ? { productUnits: JSON.parse(rawUnits) } : {}),
                 ...(rawPm !== null ? { paymentMethods: JSON.parse(rawPm) } : {}),
                 ...(rawProfile !== null ? { profile: JSON.parse(rawProfile) } : {}),
             };
@@ -974,6 +991,9 @@ export const AppProvider: React.FC<{
         safeSetLocalStorage(`${STORAGE_KEY}_CATEGORIES`, JSON.stringify(productCategories));
     }, [productCategories]);
     useEffect(() => {
+        safeSetLocalStorage(`${STORAGE_KEY}_PRODUCT_UNITS`, JSON.stringify(productUnits));
+    }, [productUnits]);
+    useEffect(() => {
         safeSetLocalStorage(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(journalEntries));
     }, [journalEntries]);
     useEffect(() => {
@@ -1066,6 +1086,12 @@ export const AppProvider: React.FC<{
                     const parsed = JSON.parse(e.newValue);
                     if (Array.isArray(parsed)) {
                         setProductCategories(parsed);
+                    }
+                }
+                else if (e.key === `${STORAGE_KEY}_PRODUCT_UNITS`) {
+                    const parsed = JSON.parse(e.newValue);
+                    if (Array.isArray(parsed)) {
+                        setProductUnits(parsed);
                     }
                 }
             }
@@ -4931,6 +4957,126 @@ export const AppProvider: React.FC<{
         triggerImmediatePush();
         return { success: true };
     };
+    // Product Units
+    const addProductUnit = (unit: Omit<ProductUnit, 'id'>): ProductUnit => {
+        const newUnit: ProductUnit = {
+            ...unit,
+            code: unit.code.trim().toLowerCase(),
+            name: unit.name.trim(),
+            symbol: unit.symbol ? unit.symbol.trim() : unit.code.trim().toLowerCase(),
+            id: `unit-${Date.now()}`,
+        };
+        const currentUnits = latestStateRef.current.productUnits || productUnits;
+        const next = [...currentUnits, newUnit];
+        setProductUnits(next);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_PRODUCT_UNITS`, JSON.stringify(next));
+        } catch {}
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            productUnits: next,
+        };
+        addAuditLog({
+            staffId: activeStaff.id,
+            staffName: activeStaff.name,
+            staffRole: activeStaff.role,
+            location: 'Office',
+            actionType: 'UNIT_CREATED' as any,
+            entityType: 'Inventory',
+            refNo: newUnit.code,
+            details: `Added new Unit: ${newUnit.name} (${newUnit.code})`,
+            detailsBn: undefined,
+            severity: 'info',
+        });
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
+        return newUnit;
+    };
+    const updateProductUnit = (id: string, updates: Partial<ProductUnit>) => {
+        const currentUnits = latestStateRef.current.productUnits || productUnits;
+        const oldUnit = currentUnits.find((u: ProductUnit) => u.id === id);
+        const resolvedUpdates: Partial<ProductUnit> = {
+            ...updates,
+            ...(updates.code ? { code: updates.code.trim().toLowerCase() } : {}),
+            ...(updates.name ? { name: updates.name.trim() } : {}),
+            ...(updates.symbol ? { symbol: updates.symbol.trim() } : {}),
+        };
+        const nextUnits = currentUnits.map((u: ProductUnit) => (u.id === id ? { ...u, ...resolvedUpdates } : u));
+        setProductUnits(nextUnits);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_PRODUCT_UNITS`, JSON.stringify(nextUnits));
+        } catch {}
+
+        let nextProds = latestStateRef.current.products || products;
+        if (oldUnit && resolvedUpdates.code && resolvedUpdates.code !== oldUnit.code.toLowerCase()) {
+            const nextCode = resolvedUpdates.code;
+            nextProds = nextProds.map((p: ProductItem) => (p.unit?.toLowerCase() === oldUnit.code.toLowerCase() ? { ...p, unit: nextCode } : p));
+            setProducts(nextProds);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(nextProds));
+            } catch {}
+        }
+
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            productUnits: nextUnits,
+            products: nextProds,
+        };
+        addAuditLog({
+            staffId: activeStaff.id,
+            staffName: activeStaff.name,
+            staffRole: activeStaff.role,
+            location: 'Office',
+            actionType: 'UNIT_UPDATED' as any,
+            entityType: 'Inventory',
+            details: `Updated Unit (${id})`,
+            detailsBn: undefined,
+            severity: 'info',
+        });
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
+    };
+    const deleteProductUnit = (id: string): {
+        success: boolean;
+        message?: string;
+    } => {
+        const currentUnits = latestStateRef.current.productUnits || productUnits;
+        const unit = currentUnits.find((u: ProductUnit) => u.id === id);
+        if (!unit)
+            return { success: false, message: 'Unit not found' };
+        const currentProds = latestStateRef.current.products || products;
+        const hasProducts = currentProds.some((p: ProductItem) => (p.unit || '').toLowerCase() === (unit.code || '').toLowerCase() || (p.unit || '').toLowerCase() === (unit.name || '').toLowerCase());
+        if (hasProducts) {
+            return {
+                success: false,
+                message: `Cannot delete unit: products are currently assigned to "${unit.name} (${unit.code})". Please reassign them first.`,
+            };
+        }
+        const next = currentUnits.filter((u: ProductUnit) => u.id !== id);
+        setProductUnits(next);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_PRODUCT_UNITS`, JSON.stringify(next));
+        } catch {}
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            productUnits: next,
+        };
+        addAuditLog({
+            staffId: activeStaff.id,
+            staffName: activeStaff.name,
+            staffRole: activeStaff.role,
+            location: 'Office',
+            actionType: 'UNIT_DELETED' as any,
+            entityType: 'Inventory',
+            refNo: unit.code,
+            details: `Deleted Product Unit: ${unit.name} (${unit.code})`,
+            detailsBn: undefined,
+            severity: 'warning',
+        });
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
+        return { success: true };
+    };
     // Chart of Accounts
     const addChartOfAccount = (account: Omit<ChartOfAccount, 'id' | 'currentBalance'>): ChartOfAccount => {
         const newAcct: ChartOfAccount = {
@@ -8091,6 +8237,7 @@ export const AppProvider: React.FC<{
         setChartOfAccounts(INITIAL_CHART_OF_ACCOUNTS);
         setExpenseHeads(INITIAL_EXPENSE_HEADS);
         setProductCategories(INITIAL_PRODUCT_CATEGORIES);
+        setProductUnits(INITIAL_PRODUCT_UNITS);
         setJournalEntries(INITIAL_JOURNAL_ENTRIES);
         setProjects(INITIAL_PROJECTS);
         setPaymentMethods(INITIAL_PAYMENT_METHODS);
@@ -8116,6 +8263,7 @@ export const AppProvider: React.FC<{
             localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(INITIAL_CHART_OF_ACCOUNTS));
             localStorage.setItem(`${STORAGE_KEY}_EXPENSE_HEADS`, JSON.stringify(INITIAL_EXPENSE_HEADS));
             localStorage.setItem(`${STORAGE_KEY}_CATEGORIES`, JSON.stringify(INITIAL_PRODUCT_CATEGORIES));
+            localStorage.setItem(`${STORAGE_KEY}_PRODUCT_UNITS`, JSON.stringify(INITIAL_PRODUCT_UNITS));
             localStorage.setItem(`${STORAGE_KEY}_PAYMENT_METHODS`, JSON.stringify(INITIAL_PAYMENT_METHODS));
             localStorage.setItem(`${STORAGE_KEY}_PROFILE`, JSON.stringify(INITIAL_COMPANY_PROFILE));
             localStorage.setItem(`${STORAGE_KEY}_ACTIVE_STAFF`, JSON.stringify(INITIAL_STAFF_MEMBERS[0]));
@@ -8139,6 +8287,7 @@ export const AppProvider: React.FC<{
         chartOfAccounts,
         expenseHeads,
         productCategories,
+        productUnits,
         journalEntries,
         projects,
         paymentMethods,
@@ -8162,6 +8311,7 @@ export const AppProvider: React.FC<{
             chartOfAccounts: s.chartOfAccounts,
             expenseHeads: s.expenseHeads,
             productCategories: s.productCategories,
+            productUnits: s.productUnits,
             journalEntries: s.journalEntries,
             projects: s.projects,
             paymentMethods: s.paymentMethods,
@@ -8361,6 +8511,10 @@ export const AppProvider: React.FC<{
             if (data.productCategories && Array.isArray(data.productCategories)) {
                 setProductCategories(data.productCategories);
                 try { localStorage.setItem(`${STORAGE_KEY}_CATEGORIES`, JSON.stringify(data.productCategories)); } catch {}
+            }
+            if (data.productUnits && Array.isArray(data.productUnits)) {
+                setProductUnits(data.productUnits);
+                try { localStorage.setItem(`${STORAGE_KEY}_PRODUCT_UNITS`, JSON.stringify(data.productUnits)); } catch {}
             }
             if (data.journalEntries && Array.isArray(data.journalEntries)) {
                 let jns = data.journalEntries;
@@ -8691,6 +8845,7 @@ export const AppProvider: React.FC<{
         chartOfAccounts,
         expenseHeads,
         productCategories,
+        productUnits,
         journalEntries,
         projects,
         paymentMethods,
@@ -8854,6 +9009,10 @@ export const AppProvider: React.FC<{
             addProductCategory,
             updateProductCategory,
             deleteProductCategory,
+            productUnits,
+            addProductUnit,
+            updateProductUnit,
+            deleteProductUnit,
             addProduct,
             bulkImportProducts,
             updateProduct,

@@ -14,7 +14,7 @@ interface SalesModuleProps {
     onOpenChallanModal: (invoiceId: string) => void;
 }
 export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, onOpenChallanModal, }) => {
-    const { invoices, quotations, customers, products, profile, language, paymentMethods = [], chartOfAccounts = [], transactions = [], accountBalances, journalEntries = [], updateProductionStatus, updateInvoice, deleteInvoice, collectInvoicePayment, convertQuotationToInvoice, addQuotation, updateQuotation, updateQuotationStatus, deleteQuotation, addCustomer, updateCustomer, deleteCustomer, projects = [], createProjectFromInvoice, checkPermission, activeStaff, } = useApp();
+    const { invoices, quotations, customers, products, productUnits = [], profile, language, paymentMethods = [], chartOfAccounts = [], transactions = [], accountBalances, journalEntries = [], updateProductionStatus, updateInvoice, deleteInvoice, collectInvoicePayment, convertQuotationToInvoice, addQuotation, updateQuotation, updateQuotationStatus, deleteQuotation, addCustomer, updateCustomer, deleteCustomer, projects = [], createProjectFromInvoice, checkPermission, activeStaff, } = useApp();
 
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
         (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
@@ -405,6 +405,9 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
     const [quoteCustomTypes, setQuoteCustomTypes] = useState<string[]>([]);
     const [quoteShowRegionColumn, setQuoteShowRegionColumn] = useState<boolean>(false);
     const [quoteShowTypeColumn, setQuoteShowTypeColumn] = useState<boolean>(false);
+    const [quoteItemUnit, setQuoteItemUnit] = useState<UnitType>('pcs');
+    const [quoteItemWidth, setQuoteItemWidth] = useState<number | ''>('');
+    const [quoteItemHeight, setQuoteItemHeight] = useState<number | ''>('');
     const [quoteItemQty, setQuoteItemQty] = useState(1);
     const [quoteItemPrice, setQuoteItemPrice] = useState(1000);
     const [quoteDiscount, setQuoteDiscount] = useState(0);
@@ -488,7 +491,11 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
             return;
         let finalItems = [...addedQuoteItems];
         if (finalItems.length === 0 && quoteItemName.trim()) {
-            const subItem = quoteItemQty * quoteItemPrice;
+            const w = Number(quoteItemWidth) || 0;
+            const h = Number(quoteItemHeight) || 0;
+            const singleSqft = w > 0 && h > 0 ? Number((w * h).toFixed(2)) : undefined;
+            const totalSqft = singleSqft ? Number((singleSqft * quoteItemQty).toFixed(2)) : undefined;
+            const rowTotal = singleSqft ? Math.round(singleSqft * quoteItemQty * quoteItemPrice) : Math.round(quoteItemQty * quoteItemPrice);
             finalItems.push({
                 productId: selectedProductId || `custom-${Date.now()}`,
                 name: quoteItemName.trim(),
@@ -496,11 +503,14 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 region: quoteShowRegionColumn && quoteItemRegion.trim() ? quoteItemRegion.trim() : undefined,
                 type: quoteShowTypeColumn && quoteItemType.trim() ? quoteItemType.trim() : undefined,
                 itemType: quoteShowTypeColumn && quoteItemType.trim() ? quoteItemType.trim() : undefined,
-                unit: 'pcs',
+                unit: quoteItemUnit,
                 unitPrice: quoteItemPrice,
                 costPrice: Math.round(quoteItemPrice * 0.6),
                 qty: quoteItemQty,
-                totalPrice: subItem,
+                width: w > 0 ? w : undefined,
+                height: h > 0 ? h : undefined,
+                totalSqft: totalSqft,
+                totalPrice: rowTotal,
             });
         }
         if (finalItems.length === 0) {
@@ -2127,11 +2137,21 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                       onChange={(e) => setInvItemUnit(e.target.value as any)}
                       className="w-full px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-semibold text-xs"
                     >
-                      <option value="pcs">pcs</option>
-                      <option value="sqft">sqft</option>
-                      <option value="set">set</option>
-                      <option value="roll">roll</option>
-                      <option value="packet">packet</option>
+                      {productUnits && productUnits.length > 0 ? (
+                        productUnits.map((u) => (
+                          <option key={u.id} value={u.code}>
+                            {u.symbol || u.code}
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="pcs">pcs</option>
+                          <option value="sqft">sqft</option>
+                          <option value="set">set</option>
+                          <option value="roll">roll</option>
+                          <option value="packet">packet</option>
+                        </>
+                      )}
                     </select>
                   </div>
 
@@ -2656,8 +2676,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                  <div className={quoteShowRegionColumn && quoteShowTypeColumn ? "sm:col-span-4" : (quoteShowRegionColumn || quoteShowTypeColumn ? "sm:col-span-5" : "sm:col-span-6")}>
-                    <label className="font-bold text-slate-600 block mb-1">
+                  <div className={quoteShowRegionColumn && quoteShowTypeColumn ? "sm:col-span-3" : (quoteShowRegionColumn || quoteShowTypeColumn ? "sm:col-span-4" : "sm:col-span-5")}>
+                    <label className="font-bold text-slate-600 block mb-1 text-[11px] truncate">
                       {'Service / Item Description *'}
                     </label>
                     {quoteType === 'Custom' ? (<input type="text" value={quoteItemName} onChange={(e) => setQuoteItemName(e.target.value)} placeholder={'Enter any custom description...'} className="w-full px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-medium"/>) : (<select value={selectedProductId} onChange={(e) => {
@@ -2667,6 +2687,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     if (prod) {
                         setQuoteItemName(prod.name);
                         setQuoteItemPrice(prod.unitPrice);
+                        setQuoteItemUnit(prod.unit || 'pcs');
                     }
                     else {
                         setQuoteItemName('');
@@ -2765,55 +2786,145 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     </div>
                   )}
 
-                  <div className={quoteShowRegionColumn && quoteShowTypeColumn ? "sm:col-span-4 grid grid-cols-2 gap-2" : (quoteShowRegionColumn || quoteShowTypeColumn ? "sm:col-span-5 grid grid-cols-2 gap-2" : "sm:col-span-6 grid grid-cols-2 gap-2")}>
-                    <div>
-                      <label className="font-bold text-slate-600 block mb-1">
-                        {'Quantity'}
-                      </label>
-                      <input type="number" step="any" min="1" value={quoteItemQty} onChange={(e) => setQuoteItemQty(Math.max(1, Number(e.target.value)))} className="w-full px-3 py-1.5 border border-slate-200 rounded-lg font-bold bg-white"/>
-                    </div>
-                    <div>
-                      <label className="font-bold text-slate-600 block mb-1">
-                        {"Unit RateTk"}
-                      </label>
-                      <input type="number" step="any" min="1" value={quoteItemPrice} onChange={(e) => setQuoteItemPrice(Math.max(1, Number(e.target.value)))} className="w-full px-3 py-1.5 border border-slate-200 rounded-lg font-bold bg-white"/>
-                    </div>
+                  <div className="sm:col-span-2">
+                    <label className="font-bold text-slate-600 block mb-1 text-[11px] truncate">
+                      {'Unit'}
+                    </label>
+                    <select
+                      value={quoteItemUnit}
+                      onChange={(e) => setQuoteItemUnit(e.target.value as any)}
+                      className="w-full px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-semibold text-xs"
+                    >
+                      {productUnits && productUnits.length > 0 ? (
+                        productUnits.map((u) => (
+                          <option key={u.id} value={u.code}>
+                            {u.symbol || u.code}
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="pcs">pcs</option>
+                          <option value="sqft">sqft</option>
+                          <option value="set">set</option>
+                          <option value="roll">roll</option>
+                          <option value="packet">packet</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-1">
+                    <label className="font-bold text-slate-600 block mb-1 text-[11px] truncate" title="Width">
+                      {'Width (W)'}
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={quoteItemWidth}
+                      onChange={(e) => setQuoteItemWidth(e.target.value ? Number(e.target.value) : '')}
+                      placeholder="0"
+                      className="w-full px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs text-center"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-1">
+                    <label className="font-bold text-slate-600 block mb-1 text-[11px] truncate" title="Height">
+                      {'Height (H)'}
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={quoteItemHeight}
+                      onChange={(e) => setQuoteItemHeight(e.target.value ? Number(e.target.value) : '')}
+                      placeholder="0"
+                      className="w-full px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs text-center"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-1">
+                    <label className="font-bold text-slate-600 block mb-1 text-[11px] truncate">
+                      {'Quantity'}
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="1"
+                      value={quoteItemQty}
+                      onChange={(e) => setQuoteItemQty(Math.max(1, Number(e.target.value)))}
+                      className="w-full px-1.5 py-1.5 border border-slate-200 rounded-lg font-bold text-xs text-center bg-white"
+                    />
+                  </div>
+
+                  <div className={quoteShowRegionColumn && quoteShowTypeColumn ? "sm:col-span-2" : "sm:col-span-2"}>
+                    <label className="font-bold text-slate-600 block mb-1 text-[11px] truncate">
+                      {"Unit RateTk"}
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={quoteItemPrice}
+                      onChange={(e) => setQuoteItemPrice(Math.max(0, Number(e.target.value)))}
+                      className="w-full px-2 py-1.5 border border-slate-200 rounded-lg font-bold text-xs text-right bg-white"
+                    />
                   </div>
                 </div>
 
                 <div className="flex justify-end">
-                  <button type="button" onClick={() => {
-                if (!quoteItemName.trim()) {
-                    alert('Please enter or select item name!');
-                    return;
-                }
-                const subTotal = quoteItemQty * quoteItemPrice;
-                const newItem = {
-                    productId: selectedProductId || `custom-${Date.now()}`,
-                    name: quoteItemName.trim(),
-                    category: 'BRANDED PROMOTIONAL GIFTS',
-                    region: quoteShowRegionColumn && quoteItemRegion.trim() ? quoteItemRegion.trim() : undefined,
-                    type: quoteShowTypeColumn && quoteItemType.trim() ? quoteItemType.trim() : undefined,
-                    itemType: quoteShowTypeColumn && quoteItemType.trim() ? quoteItemType.trim() : undefined,
-                    unit: 'pcs',
-                    unitPrice: quoteItemPrice,
-                    costPrice: Math.round(quoteItemPrice * 0.6),
-                    qty: quoteItemQty,
-                    totalPrice: subTotal,
-                };
-                setAddedQuoteItems([...addedQuoteItems, newItem]);
-                if (quoteItemType.trim() && !PRESET_INVOICE_ITEM_TYPES.includes(quoteItemType.trim() as any) && !quoteCustomTypes.includes(quoteItemType.trim())) {
-                    setQuoteCustomTypes(prev => [...prev, quoteItemType.trim()]);
-                }
-                setQuoteItemName('');
-                setQuoteItemRegion('');
-                setQuoteItemType('');
-                setQuoteIsCustomType(false);
-                setSelectedProductId('');
-                setQuoteItemQty(1);
-                setQuoteItemPrice(1000);
-            }} className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors cursor-pointer">
-                    <Plus className="w-3.5 h-3.5"/>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!quoteItemName.trim()) {
+                        alert('Please enter or select item name!');
+                        return;
+                      }
+                      const w = Number(quoteItemWidth) || 0;
+                      const h = Number(quoteItemHeight) || 0;
+                      const singleSqft = w > 0 && h > 0 ? Number((w * h).toFixed(2)) : undefined;
+                      const totalSqft = singleSqft ? Number((singleSqft * quoteItemQty).toFixed(2)) : undefined;
+                      const rowTotal = singleSqft
+                        ? Math.round(singleSqft * quoteItemQty * quoteItemPrice)
+                        : Math.round(quoteItemQty * quoteItemPrice);
+                      const newItem = {
+                        productId: selectedProductId || `custom-${Date.now()}`,
+                        name: quoteItemName.trim(),
+                        category: 'BRANDED PROMOTIONAL GIFTS',
+                        region: quoteShowRegionColumn && quoteItemRegion.trim() ? quoteItemRegion.trim() : undefined,
+                        type: quoteShowTypeColumn && quoteItemType.trim() ? quoteItemType.trim() : undefined,
+                        itemType: quoteShowTypeColumn && quoteItemType.trim() ? quoteItemType.trim() : undefined,
+                        unit: quoteItemUnit,
+                        unitPrice: quoteItemPrice,
+                        costPrice: Math.round(quoteItemPrice * 0.6),
+                        qty: quoteItemQty,
+                        width: w > 0 ? w : undefined,
+                        height: h > 0 ? h : undefined,
+                        totalSqft: totalSqft,
+                        totalPrice: rowTotal,
+                      };
+                      setAddedQuoteItems([...addedQuoteItems, newItem]);
+                      if (
+                        quoteItemType.trim() &&
+                        !PRESET_INVOICE_ITEM_TYPES.includes(quoteItemType.trim() as any) &&
+                        !quoteCustomTypes.includes(quoteItemType.trim())
+                      ) {
+                        setQuoteCustomTypes((prev) => [...prev, quoteItemType.trim()]);
+                      }
+                      setQuoteItemName('');
+                      setQuoteItemRegion('');
+                      setQuoteItemType('');
+                      setQuoteIsCustomType(false);
+                      setSelectedProductId('');
+                      setQuoteItemQty(1);
+                      setQuoteItemPrice(1000);
+                      setQuoteItemUnit('pcs');
+                      setQuoteItemWidth('');
+                      setQuoteItemHeight('');
+                    }}
+                    className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
                     <span>{'Add Row'}</span>
                   </button>
                 </div>
@@ -2832,7 +2943,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                           <th className="p-2">{'Description'}</th>
                           {quoteShowTypeColumn && <th className="p-2 text-center w-24">{'Type'}</th>}
                           {quoteShowRegionColumn && <th className="p-2 text-center w-24">{'Region'}</th>}
-                          <th className="p-2 text-center w-28">{'Qty'}</th>
+                          <th className="p-2 text-center w-20">{'Unit'}</th>
+                          <th className="p-2 text-center w-24">{'Qty'}</th>
                           <th className="p-2 text-right w-32">{"RateTk"}</th>
                           <th className="p-2 text-right w-28">{"TotalTk"}</th>
                           <th className="p-2 text-center w-12"></th>
@@ -2841,7 +2953,14 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                       <tbody className="divide-y divide-slate-100">
                         {addedQuoteItems.map((item, idx) => (<tr key={idx} className="hover:bg-slate-50/50">
                             <td className="p-2 text-center text-slate-400">{idx + 1}</td>
-                            <td className="p-2 font-semibold text-slate-800">{item.name}</td>
+                            <td className="p-2 font-semibold text-slate-800">
+                              {item.name}
+                              {item.width && item.height && item.width > 0 && item.height > 0 && (
+                                <span className="text-[10px] text-amber-600 block font-normal">
+                                  {item.width} x {item.height} ({item.totalSqft || (item.width * item.height)} sqft)
+                                </span>
+                              )}
+                            </td>
                             {quoteShowTypeColumn && (
                               <td className="p-2 text-center font-medium text-slate-700 text-xs">
                                 {item.type || item.itemType || '-'}
@@ -2852,10 +2971,12 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                                 {item.region || '-'}
                               </td>
                             )}
+                            <td className="p-2 text-center font-bold text-xs uppercase text-slate-700">
+                              {item.unit || 'pcs'}
+                            </td>
                             <td className="p-1.5 text-center">
                               <div className="flex items-center justify-center gap-1">
                                 <input type="number" step="any" min="1" value={item.qty} onChange={(e) => handleUpdateQuoteItemRow(idx, 'qty', Math.max(1, Number(e.target.value)))} className="w-16 px-1.5 py-1 text-center font-bold text-slate-800 bg-white border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-slate-900"/>
-                                <span className="text-[10px] text-slate-500 font-medium">{item.unit || 'pcs'}</span>
                               </div>
                             </td>
                             <td className="p-1.5 text-right">
