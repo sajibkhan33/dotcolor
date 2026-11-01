@@ -220,7 +220,24 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                 } else if (acc.code === '2002' || acc.code === '2020' || nameLower.includes('advance')) {
                     credit = totalAdvances > 0 ? totalAdvances : (acc.currentBalance || acc.openingBalance || 0);
                 } else {
-                    credit = acc.currentBalance || acc.openingBalance || 0;
+                    let journalLiabilityDelta = 0;
+                    (journalEntries || []).forEach(j => {
+                        if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE' || j.source === 'EXPENSE' || j.source === 'SALES' || j.source === 'PURCHASE' || j.source === 'LEDGER_SYNC') return;
+                        if (j.refNo && (transactions || []).some(t => t.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim())) return;
+                        const isDebit = (j.debitAccountId === acc.id || j.debitAccountId === acc.code || (j.debitAccountName && j.debitAccountName.toLowerCase().trim() === nameLower));
+                        const isCredit = (j.creditAccountId === acc.id || j.creditAccountId === acc.code || (j.creditAccountName && j.creditAccountName.toLowerCase().trim() === nameLower));
+                        const amt = Number(j.amount) || 0;
+                        if (isCredit && !isDebit) journalLiabilityDelta += amt;
+                        else if (isDebit && !isCredit) journalLiabilityDelta -= amt;
+                    });
+                    let txLiabilityDelta = 0;
+                    (transactions || []).forEach(t => {
+                        if (doesTransactionMatchEquityOrLiabilityAccount(t, acc)) {
+                            if (t.type === 'INCOME') txLiabilityDelta += Number(t.amount) || 0;
+                            else if (t.type === 'EXPENSE') txLiabilityDelta -= Number(t.amount) || 0;
+                        }
+                    });
+                    credit = Math.max(0, (acc.openingBalance || 0) + journalLiabilityDelta + txLiabilityDelta);
                 }
             } else if (acc.classification === 'Equity') {
                 const isDrawings = acc.normalBalance === 'Debit' || nameLower.includes('drawing') || (acc.nameBn || '').includes('উত্তোলন');
@@ -255,8 +272,14 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                         if (isCredit && !isDebit) journalEquityDelta += amt;
                         else if (isDebit && !isCredit) journalEquityDelta -= amt;
                     });
-                    const baseCap = (journalEquityDelta > 0) ? (acc.openingBalance || 0) : (acc.openingBalance || acc.currentBalance || 0);
-                    credit = Math.max(0, baseCap + journalEquityDelta);
+                    let txCapitalDelta = 0;
+                    (transactions || []).forEach(t => {
+                        if (t.type === 'INCOME' && doesTransactionMatchEquityOrLiabilityAccount(t, acc)) {
+                            txCapitalDelta += Number(t.amount) || 0;
+                        }
+                    });
+                    const baseCap = (journalEquityDelta > 0 || txCapitalDelta > 0) ? (acc.openingBalance || 0) : (acc.openingBalance || acc.currentBalance || 0);
+                    credit = Math.max(0, baseCap + journalEquityDelta + txCapitalDelta);
                 }
             } else if (acc.classification === 'Revenue') {
                 const isPrj = acc.code === '4002' || acc.code === '4051' || acc.code === '4060' || nameLower.includes('project');
@@ -344,7 +367,40 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
 
                     credit = (acc.openingBalance || 0) + effectiveInvoiceSales + directMatchingSales;
                 } else {
-                    credit = (acc.openingBalance || 0) + (acc.currentBalance || 0);
+                    const matchingDirect = (transactions || [])
+                        .filter(t => 
+                            t.type === 'INCOME' && 
+                            !isInvoiceTransaction(t, invoices, projects) && 
+                            !isProjectTransaction(t, invoices, projects) && 
+                            !isProjectDueCollectionTransaction(t) && 
+                            !isCapitalOrLoanIncome(t, chartOfAccounts) &&
+                            !(t.category || '').toLowerCase().includes('project') && 
+                            !(t.refNo || '').toUpperCase().startsWith('COL-') && 
+                            !(t.refNo || '').toUpperCase().startsWith('PRJ-') && 
+                            !isAdvanceDepositTransaction(t) && 
+                            !isAdvanceAdjustmentTransaction(t) && (
+                                (t.category && (
+                                    nameLower.includes(t.category.toLowerCase()) || 
+                                    t.category.toLowerCase().includes(nameLower) ||
+                                    (acc.nameBn && acc.nameBn.toLowerCase().includes(t.category.toLowerCase())) ||
+                                    (acc.nameBn && t.category.toLowerCase().includes(acc.nameBn.toLowerCase()))
+                                )) ||
+                                (t.accountHead && (
+                                    nameLower.includes(t.accountHead.toLowerCase()) || 
+                                    t.accountHead.toLowerCase().includes(nameLower) ||
+                                    (acc.nameBn && acc.nameBn.toLowerCase().includes(t.accountHead.toLowerCase())) ||
+                                    (acc.nameBn && t.accountHead.toLowerCase().includes(acc.nameBn.toLowerCase()))
+                                )) ||
+                                (t.description && (
+                                    nameLower.includes(t.description.toLowerCase()) || 
+                                    t.description.toLowerCase().includes(nameLower) ||
+                                    (acc.nameBn && acc.nameBn.toLowerCase().includes(t.description.toLowerCase())) ||
+                                    (acc.nameBn && t.description.toLowerCase().includes(acc.nameBn.toLowerCase()))
+                                ))
+                            )
+                        )
+                        .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+                    credit = Math.max(acc.currentBalance || 0, (acc.openingBalance || 0) + matchingDirect);
                 }
             } else if (acc.classification === 'Expense') {
                 const isCogs = (

@@ -952,6 +952,61 @@ console.log('\n--- Section 13: Owner\'s Capital & Equity Financing Parity ---');
         'Full Balance Sheet Parity for Capital Injections: Assets (৳250,450) === Equity (৳250,450)',
         `Expected Assets ${totalAssets} to match Equity ${totalEquity}`
     );
+
+    // Test 13.5: User Scenario Trial Balance Reconciliation (33 JV + 450 INC-5275)
+    const mockJv33: JournalEntry = {
+        id: 'jnl-1',
+        entryNo: 'JNL-2026-6293',
+        date: '2026-11-01',
+        refNo: 'JV-2026-200',
+        debitAccountId: 'coa-1001',
+        debitAccountName: 'Cash in Hand',
+        creditAccountId: 'coa-3001',
+        creditAccountName: "Owner's Capital Investment",
+        amount: 33,
+        narration: 'Investment2',
+        source: 'OWNER_CAPITAL',
+    };
+    const mockJv450: JournalEntry = {
+        id: 'jnl-2',
+        entryNo: 'JNL-2026-5275',
+        date: '2026-11-01',
+        refNo: 'INC-5275',
+        debitAccountId: 'coa-1001',
+        debitAccountName: 'Cash in Hand',
+        creditAccountId: 'coa-3001',
+        creditAccountName: "Owner's Capital Investment",
+        amount: 450,
+        narration: 'Owners investment 1',
+        source: 'OWNER_CAPITAL',
+    };
+
+    // Calculate Cash in Hand Debit:
+    // calculateSingleAccountBalance matches both txCapitalCash (450) and mockJv33 (33) -> 483
+    const liveCashDebits = calculateSingleAccountBalance(mockChartOfAccounts[0], [txCapitalCash], [], [], [mockJv33, mockJv450]);
+
+    // Calculate Owner's Capital Credit:
+    // Journal delta from mockJv33 (33) [mockJv450 skipped by ref check since txCapitalCash has ref INC-5275]
+    // + Transaction delta from txCapitalCash (450) -> 33 + 450 = 483
+    let jvDelta = 0;
+    [mockJv33, mockJv450].forEach(j => {
+        if (j.refNo && [txCapitalCash].some(t => t.refNo && t.refNo.toLowerCase().trim() === j.refNo.toLowerCase().trim())) return;
+        if (j.creditAccountId === 'coa-3001') jvDelta += j.amount;
+    });
+    let txDelta = 0;
+    [txCapitalCash].forEach(t => {
+        if (t.type === 'INCOME' && doesTransactionMatchEquityOrLiabilityAccount(t, capitalAcc)) {
+            txDelta += t.amount;
+        }
+    });
+    const liveCapitalCredits = jvDelta + txDelta;
+
+    const tbDifference = Math.abs(liveCashDebits - liveCapitalCredits);
+    assert(
+        liveCashDebits === 483 && liveCapitalCredits === 483 && tbDifference === 0,
+        'Trial Balance Reconciled: Cash Debit (৳483) === Owner Capital Credit (৳483), Out of Balance = 0',
+        `Expected difference 0, got liveCash: ${liveCashDebits}, liveCapital: ${liveCapitalCredits}, diff: ${tbDifference}`
+    );
 }
 
 // --- Summary ---
