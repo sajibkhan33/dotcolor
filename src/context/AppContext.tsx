@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
-import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, InvoiceItem, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, ProductUnit, BillOfMaterial, BomComponent, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus, ProjectSalesCollection, ProjectSalesPaymentBreakdown } from '../types';
-import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
+import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, InvoiceItem, Quotation, PurchaseOrder, ProcurementRequisition, ProcurementRequisitionItem, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, ProductUnit, BillOfMaterial, BomComponent, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus, ProjectSalesCollection, ProjectSalesPaymentBreakdown } from '../types';
+import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_PROCUREMENT_REQUISITIONS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
 import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_PRODUCT_UNITS, INITIAL_BOM_LIST, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
 import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation, resolveExpenseAccount as resolveExpenseAccountUtil, isSupplierPaymentTransaction } from '../utils/accountUtils';
 import { hashPin, verifyPin, isPinHashed } from '../utils/securityUtils';
@@ -111,6 +111,11 @@ interface AppContextType {
     deleteProduct: (id: string) => void;
     adjustStock: (productId: string, type: 'IN' | 'OUT' | 'TRANSFER' | 'ADJUSTMENT', qty: number, location: 'Factory' | 'Office', targetLocation?: 'Factory' | 'Office', reason?: string) => void;
     // Supply Chain & Purchase
+    procurementRequisitions: ProcurementRequisition[];
+    addProcurementRequisition: (req: Omit<ProcurementRequisition, 'id' | 'prNo' | 'createdAt'>) => ProcurementRequisition;
+    updateProcurementRequisition: (id: string, updates: Partial<ProcurementRequisition>) => void;
+    deleteProcurementRequisition: (id: string) => void;
+    approveAndConvertRequisitionToPO: (requisitionId: string, supplierId: string, supplierName: string, destination?: 'Factory' | 'Office') => PurchaseOrder;
     addPurchaseOrder: (po: Omit<PurchaseOrder, 'id' | 'poNo'>) => PurchaseOrder;
     updatePurchaseOrder: (id: string, updates: Partial<PurchaseOrder>) => void;
     deletePurchaseOrder: (id: string) => void;
@@ -663,6 +668,10 @@ export const AppProvider: React.FC<{
             };
         });
     });
+    const [procurementRequisitions, setProcurementRequisitions] = useState<ProcurementRequisition[]>(() => {
+        const raw = safeGetLocalStorage<ProcurementRequisition[]>(`${STORAGE_KEY}_PROCUREMENT_REQUISITIONS`, INITIAL_PROCUREMENT_REQUISITIONS);
+        return Array.isArray(raw) && raw.length > 0 ? raw : INITIAL_PROCUREMENT_REQUISITIONS;
+    });
     const [transactions, setTransactions] = useState<AccountingTransaction[]>(() => {
         const list = safeGetLocalStorage<AccountingTransaction[]>(`${STORAGE_KEY}_TRANSACTIONS`, INITIAL_TRANSACTIONS);
         return ensureUniqueTransactions(list);
@@ -990,6 +999,9 @@ export const AppProvider: React.FC<{
     useEffect(() => {
         safeSetLocalStorage(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(purchaseOrders));
     }, [purchaseOrders]);
+    useEffect(() => {
+        safeSetLocalStorage(`${STORAGE_KEY}_PROCUREMENT_REQUISITIONS`, JSON.stringify(procurementRequisitions));
+    }, [procurementRequisitions]);
     useEffect(() => {
         safeSetLocalStorage(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(transactions));
     }, [transactions]);
@@ -4127,6 +4139,95 @@ export const AppProvider: React.FC<{
                 pushToCloudRef.current({ force: true }).catch(() => {});
             }
         }
+        return newPO;
+    };
+    // Procurement Requisition Functions
+    const addProcurementRequisition = (data: Omit<ProcurementRequisition, 'id' | 'prNo' | 'createdAt'>): ProcurementRequisition => {
+        const id = `pr-${Date.now()}`;
+        const prNo = `PR-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`;
+        const totalEstimated = (data.items || []).reduce((sum, it) => sum + (Number(it.totalEstimatedCost) || (Number(it.qty) * Number(it.estimatedCost)) || 0), 0);
+        const newReq: ProcurementRequisition = {
+            ...data,
+            id,
+            prNo,
+            totalEstimatedCost: totalEstimated,
+            status: data.status || 'Pending',
+            priority: data.priority || 'Medium',
+            createdAt: new Date().toISOString(),
+        };
+        setProcurementRequisitions((prev) => [newReq, ...prev]);
+        addAuditLog({
+            staffId: activeStaff?.id || 'admin',
+            staffName: activeStaff?.name || 'Super Admin',
+            action: 'CREATE',
+            entityType: 'Procurement',
+            refNo: prNo,
+            details: `Created Procurement Requisition ${prNo} with ${newReq.items.length} items (Total Est: ৳${totalEstimated})`,
+            severity: 'info',
+        });
+        return newReq;
+    };
+
+    const updateProcurementRequisition = (id: string, updates: Partial<ProcurementRequisition>) => {
+        setProcurementRequisitions((prev) => prev.map((pr) => pr.id === id ? { ...pr, ...updates } : pr));
+    };
+
+    const deleteProcurementRequisition = (id: string) => {
+        setProcurementRequisitions((prev) => prev.filter((pr) => pr.id !== id));
+    };
+
+    const approveAndConvertRequisitionToPO = (requisitionId: string, supplierId: string, supplierName: string, destination?: 'Factory' | 'Office'): PurchaseOrder => {
+        const req = procurementRequisitions.find((r) => r.id === requisitionId);
+        if (!req) throw new Error('Requisition not found');
+
+        const poItems = (req.items || []).map((it) => ({
+            productId: it.productId,
+            name: it.name,
+            unit: it.unit,
+            unitCost: Number(it.estimatedCost) || 0,
+            qty: Number(it.qty) || 0,
+            receivedQty: 0,
+            totalCost: Number(it.totalEstimatedCost) || (Number(it.qty) * Number(it.estimatedCost)) || 0,
+        }));
+
+        const totalCost = poItems.reduce((sum, it) => sum + it.totalCost, 0);
+
+        const newPO = addPurchaseOrder({
+            date: new Date().toISOString().slice(0, 10),
+            supplierId,
+            supplierName,
+            destination: destination || req.department || 'Factory',
+            destinationLocation: destination || req.department || 'Factory',
+            items: poItems,
+            totalAmount: totalCost,
+            grandTotal: totalCost,
+            subtotal: totalCost,
+            paidAmount: 0,
+            dueAmount: totalCost,
+            status: 'Ordered',
+            paymentStatus: 'Pending',
+            notes: `Converted from Procurement Requisition #${req.prNo}. ${req.notes || ''}`.trim(),
+        });
+
+        // Mark requisition as converted
+        updateProcurementRequisition(req.id, {
+            status: 'Converted to PO',
+            approvedBy: activeStaff?.name || 'Super Admin',
+            approvedAt: new Date().toISOString(),
+            convertedPoId: newPO.id,
+            convertedPoNo: newPO.poNo,
+        });
+
+        addAuditLog({
+            staffId: activeStaff?.id || 'admin',
+            staffName: activeStaff?.name || 'Super Admin',
+            action: 'APPROVE',
+            entityType: 'Procurement',
+            refNo: req.prNo,
+            details: `Approved Procurement Requisition ${req.prNo} and generated Purchase Order ${newPO.poNo} for ${supplierName}`,
+            severity: 'info',
+        });
+
         return newPO;
     };
     const receivePurchaseOrder = (poId: string, receivedItems?: {
@@ -9394,6 +9495,11 @@ export const AppProvider: React.FC<{
             updateProduct,
             deleteProduct,
             adjustStock,
+            procurementRequisitions,
+            addProcurementRequisition,
+            updateProcurementRequisition,
+            deleteProcurementRequisition,
+            approveAndConvertRequisitionToPO,
             addPurchaseOrder,
             updatePurchaseOrder,
             deletePurchaseOrder,

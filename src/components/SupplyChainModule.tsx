@@ -3,8 +3,11 @@ import { useApp } from '../context/AppContext';
 import { PurchaseOrder, Supplier, PaymentMethod, PurchaseItem } from '../types';
 import { getPaymentMethodLiveBalance, calculateSingleAccountBalance, matchChannelToAccount, getPurchaseOrderPayments } from '../utils/accountUtils';
 import { Truck, Plus, Search, CheckCircle2, Clock, Building2, DollarSign, AlertCircle, FileCheck, UserCheck, Package, Calendar, Phone, Factory, ArrowRight, Edit2, Trash2, CreditCard, Wallet, Landmark, Smartphone, Receipt, ExternalLink, MapPin, Mail, User, PackageCheck, Banknote, History, } from 'lucide-react';
+import { ProcurementRequisitionsTab } from './ProcurementRequisitionsTab';
+import { PriceMovementTab } from './PriceMovementTab';
+
 export const SupplyChainModule: React.FC = () => {
-    const { purchaseOrders = [], suppliers = [], products = [], productUnits = [], profile, language, accountBalances, paymentMethods = [], chartOfAccounts = [], transactions = [], invoices = [], journalEntries = [], addPurchaseOrder, updatePurchaseOrder, deletePurchaseOrder, receivePurchaseOrder, payPurchaseOrder, paySupplier, paySupplierDue, addSupplier, updateSupplier, deleteSupplier, checkPermission, activeStaff } = useApp();
+    const { purchaseOrders = [], suppliers = [], products = [], productUnits = [], profile, language, accountBalances, paymentMethods = [], chartOfAccounts = [], transactions = [], invoices = [], journalEntries = [], procurementRequisitions = [], addPurchaseOrder, updatePurchaseOrder, deletePurchaseOrder, receivePurchaseOrder, payPurchaseOrder, paySupplier, paySupplierDue, addSupplier, updateSupplier, deleteSupplier, checkPermission, activeStaff } = useApp();
 
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
         (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
@@ -19,9 +22,13 @@ export const SupplyChainModule: React.FC = () => {
         const list = (paymentMethods || []).filter((p) => p.isEnabled);
         return list.length > 0 ? list : [{ id: 'pm-cash', name: 'Cash', nameBn: 'নগদ', type: 'cash' as const, isEnabled: true }];
     }, [paymentMethods]);
-    const [activeSubTab, setActiveSubTab] = useState<'orders' | 'suppliers'>('orders');
+    const [activeSubTab, setActiveSubTab] = useState<'requisitions' | 'orders' | 'suppliers' | 'price-movement'>('orders');
     const [searchQuery, setSearchQuery] = useState('');
     const [filterStatus, setFilterStatus] = useState<string>('ALL');
+
+    const pendingRequisitionsCount = useMemo(() => {
+        return (procurementRequisitions || []).filter((pr) => pr.status === 'Pending').length;
+    }, [procurementRequisitions]);
     // Modals
     const [showNewPOModal, setShowNewPOModal] = useState(false);
     const [editingPO, setEditingPO] = useState<PurchaseOrder | null>(null);
@@ -512,13 +519,63 @@ export const SupplyChainModule: React.FC = () => {
       </div>
 
       {/* Action Header & Tabs */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col md:flex-row items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl w-full md:w-auto">
-          <button type="button" onClick={() => setActiveSubTab('orders')} className={`flex-1 md:flex-none px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeSubTab === 'orders' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>
-            {'Purchase Orders'}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col xl:flex-row items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-xl w-full xl:w-auto">
+          {/* SubTab 1: Procurement Requisition */}
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('requisitions')}
+            className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeSubTab === 'requisitions'
+                ? 'bg-white text-slate-900 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <span>{language === 'bn' ? '১. রিকুইজিশন (Requisition)' : '1. Procurement Requisition'}</span>
+            {pendingRequisitionsCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white">
+                {pendingRequisitionsCount}
+              </span>
+            )}
           </button>
-          <button type="button" onClick={() => setActiveSubTab('suppliers')} className={`flex-1 md:flex-none px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeSubTab === 'suppliers' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>
-            {'Vendor Directory'}
+
+          {/* SubTab 2: Purchase Orders */}
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('orders')}
+            className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeSubTab === 'orders'
+                ? 'bg-white text-slate-900 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            {language === 'bn' ? '২. পারচেজ অর্ডার (Purchase Orders)' : '2. Purchase Orders'}
+          </button>
+
+          {/* SubTab 3: Vendor Directory */}
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('suppliers')}
+            className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeSubTab === 'suppliers'
+                ? 'bg-white text-slate-900 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            {language === 'bn' ? '৩. ভেন্ডর ডিরেক্টরি (Vendor Directory)' : '3. Vendor Directory'}
+          </button>
+
+          {/* SubTab 4: Price Movement */}
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('price-movement')}
+            className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeSubTab === 'price-movement'
+                ? 'bg-white text-slate-900 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            {language === 'bn' ? '৪. দর গতিধারা (Price Movement)' : '4. Price Movement'}
           </button>
         </div>
 
@@ -928,6 +985,26 @@ export const SupplyChainModule: React.FC = () => {
             </table>
           </div>
         </div>)}
+
+      {/* SUB-TAB: PROCUREMENT REQUISITIONS */}
+      {activeSubTab === 'requisitions' && (
+        <ProcurementRequisitionsTab
+          onViewPO={(poNo) => {
+            setActiveSubTab('orders');
+            setSearchQuery(poNo);
+          }}
+        />
+      )}
+
+      {/* SUB-TAB: PRICE MOVEMENT */}
+      {activeSubTab === 'price-movement' && (
+        <PriceMovementTab
+          onViewPO={(poNo) => {
+            setActiveSubTab('orders');
+            setSearchQuery(poNo);
+          }}
+        />
+      )}
 
       {/* CREATE PURCHASE ORDER MODAL */}
       {showNewPOModal && (<div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">

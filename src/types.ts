@@ -352,6 +352,37 @@ export interface Quotation {
   showTypeColumn?: boolean;
 }
 
+export interface ProcurementRequisitionItem {
+  productId: string;
+  name: string;
+  unit: UnitType;
+  qty: number;
+  estimatedCost: number;
+  totalEstimatedCost: number;
+}
+
+export interface ProcurementRequisition {
+  id: string;
+  prNo: string;
+  date: string;
+  requiredByDate?: string;
+  department: 'Factory' | 'Office';
+  requestedBy: string;
+  items: ProcurementRequisitionItem[];
+  totalEstimatedCost: number;
+  status: 'Pending' | 'Approved' | 'Rejected' | 'Converted to PO';
+  priority?: 'Low' | 'Medium' | 'High' | 'Urgent';
+  preferredSupplierId?: string;
+  preferredSupplierName?: string;
+  notes?: string;
+  approvalNotes?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  convertedPoId?: string;
+  convertedPoNo?: string;
+  createdAt: string;
+}
+
 export interface PurchaseOrderItem {
   productId: string;
   name: string;

@@ -10,6 +10,7 @@ import {
     StockMovement,
     StaffMember,
     AuditLogEntry,
+    ProcurementRequisition,
 } from '../types';
 
 export const INITIAL_COMPANY_PROFILE: CompanyProfile = {
@@ -175,4 +176,55 @@ export const INITIAL_STAFF_MEMBERS: StaffMember[] = [
 ];
 
 export const INITIAL_AUDIT_LOGS: AuditLogEntry[] = [];
+
+export const INITIAL_PROCUREMENT_REQUISITIONS: ProcurementRequisition[] = [
+    {
+        id: 'pr-1793618001001',
+        prNo: 'PR-2026-001',
+        date: '2026-11-01',
+        requiredByDate: '2026-11-05',
+        department: 'Factory',
+        requestedBy: 'Factory Production Plant',
+        priority: 'High',
+        preferredSupplierName: 'Universal Media & Flex Supply',
+        notes: 'Refill banner media for urgent digital printing orders',
+        status: 'Pending',
+        totalEstimatedCost: 42000,
+        items: [
+            {
+                productId: 'RAW-979',
+                name: 'Solvent Banner Flex Roll (10ft x 164ft)',
+                unit: 'roll',
+                qty: 10,
+                estimatedCost: 4200,
+                totalEstimatedCost: 42000,
+            }
+        ],
+        createdAt: '2026-11-01T10:00:00.000Z',
+    },
+    {
+        id: 'pr-1793618001002',
+        prNo: 'PR-2026-002',
+        date: '2026-11-02',
+        requiredByDate: '2026-11-06',
+        department: 'Factory',
+        requestedBy: 'Factory Production Plant',
+        priority: 'Medium',
+        preferredSupplierName: 'PromoGift & Card Import Center',
+        notes: 'Sublimation blanks stock refill',
+        status: 'Pending',
+        totalEstimatedCost: 15000,
+        items: [
+            {
+                productId: 'RAW-145',
+                name: 'Blank Ceramic White Mug 11oz',
+                unit: 'pcs',
+                qty: 150,
+                estimatedCost: 100,
+                totalEstimatedCost: 15000,
+            }
+        ],
+        createdAt: '2026-11-02T09:30:00.000Z',
+    }
+];
 
