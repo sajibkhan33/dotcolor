@@ -58,7 +58,7 @@ export const PriceMovementTab: React.FC<PriceMovementTabProps> = ({ onViewPO }) 
   const { purchaseOrders = [], products = [], profile, language } = useApp();
 
   const isBn = language === 'bn';
-  const currency = profile.currencySymbol || '৳';
+  const currency = profile?.currencySymbol || '৳';
 
   // State
   const [selectedProductId, setSelectedProductId] = useState<string>('all');

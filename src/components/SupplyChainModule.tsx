@@ -989,6 +989,7 @@ export const SupplyChainModule: React.FC = () => {
       {/* SUB-TAB: PROCUREMENT REQUISITIONS */}
       {activeSubTab === 'requisitions' && (
         <ProcurementRequisitionsTab
+          profile={profile}
           onViewPO={(poNo) => {
             setActiveSubTab('orders');
             setSearchQuery(poNo);

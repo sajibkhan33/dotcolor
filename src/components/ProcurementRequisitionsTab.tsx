@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useApp } from '../context/AppContext';
 import { ProcurementRequisition, ProductItem, Supplier, CompanyProfile, PurchaseOrder } from '../types';
 import { 
   Plus, Search, CheckCircle2, XCircle, Clock, Truck, 
@@ -7,32 +8,40 @@ import {
 } from 'lucide-react';
 
 interface ProcurementRequisitionsTabProps {
-  requisitions: ProcurementRequisition[];
-  products: ProductItem[];
-  suppliers: Supplier[];
-  profile: CompanyProfile;
+  requisitions?: ProcurementRequisition[];
+  products?: ProductItem[];
+  suppliers?: Supplier[];
+  profile?: CompanyProfile;
   activeStaff?: any;
-  canCreatePO: boolean;
-  onAddRequisition: (req: Omit<ProcurementRequisition, 'id' | 'prNo' | 'createdAt'>) => ProcurementRequisition;
-  onUpdateRequisition: (id: string, updates: Partial<ProcurementRequisition>) => void;
-  onDeleteRequisition: (id: string) => void;
-  onApproveAndConvert: (reqId: string, supplierId: string, supplierName: string, destination?: 'Factory' | 'Office') => PurchaseOrder;
+  canCreatePO?: boolean;
+  onAddRequisition?: (req: Omit<ProcurementRequisition, 'id' | 'prNo' | 'createdAt'>) => ProcurementRequisition;
+  onUpdateRequisition?: (id: string, updates: Partial<ProcurementRequisition>) => void;
+  onDeleteRequisition?: (id: string) => void;
+  onApproveAndConvert?: (reqId: string, supplierId: string, supplierName: string, destination?: 'Factory' | 'Office') => PurchaseOrder;
   onViewPO?: (poNo: string) => void;
 }
 
-export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProps> = ({
-  requisitions = [],
-  products = [],
-  suppliers = [],
-  profile,
-  activeStaff,
-  canCreatePO,
-  onAddRequisition,
-  onUpdateRequisition,
-  onDeleteRequisition,
-  onApproveAndConvert,
-  onViewPO,
-}) => {
+export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProps> = (props) => {
+  const app = useApp();
+
+  const requisitions = props.requisitions || app.procurementRequisitions || [];
+  const products = props.products || app.products || [];
+  const suppliers = props.suppliers || app.suppliers || [];
+  const profile = props.profile || app.profile;
+  const currencySymbol = profile?.currencySymbol || '৳';
+  const activeStaff = props.activeStaff || app.activeStaff;
+
+  const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+    (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
+    activeStaff?.customRoleId === 'role-superadmin' ||
+    (activeStaff?.name || '').toLowerCase().includes('super admin');
+  const canCreatePO = props.canCreatePO ?? (isSuperAdmin || Boolean(app.checkPermission && app.checkPermission('supply.create_po')));
+
+  const onAddRequisition = props.onAddRequisition || app.addProcurementRequisition;
+  const onUpdateRequisition = props.onUpdateRequisition || app.updateProcurementRequisition;
+  const onDeleteRequisition = props.onDeleteRequisition || app.deleteProcurementRequisition;
+  const onApproveAndConvert = props.onApproveAndConvert || app.approveAndConvertRequisitionToPO;
+  const onViewPO = props.onViewPO;
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [filterDept, setFilterDept] = useState<string>('ALL');
@@ -257,7 +266,7 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
             {requisitions.length}
           </div>
           <span className="text-[11px] text-slate-400 mt-0.5 block">
-            {profile.currencySymbol}{totalEstVal.toLocaleString()} estimated value
+            {currencySymbol}{totalEstVal.toLocaleString()} estimated value
           </span>
         </div>
 
@@ -418,7 +427,7 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
 
                       {/* Est. Total */}
                       <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
-                        {profile.currencySymbol}{req.totalEstimatedCost.toLocaleString()}
+                        {currencySymbol}{req.totalEstimatedCost.toLocaleString()}
                       </td>
 
                       {/* Priority */}
