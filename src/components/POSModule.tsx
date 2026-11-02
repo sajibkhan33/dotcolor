@@ -30,7 +30,7 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
     const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
     // Clear selection if currently selected customer is removed
     useEffect(() => {
-        if (selectedCustomerId && !customers.some(c => c.id === selectedCustomerId)) {
+        if (selectedCustomerId && selectedCustomerId !== 'walk-in' && !customers.some(c => c.id === selectedCustomerId)) {
             setSelectedCustomerId('');
         }
     }, [customers, selectedCustomerId]);
@@ -219,33 +219,46 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
             setSplitAmounts({ [defaultPm.id]: remainder > 0 ? remainder.toString() : '0' });
         }
     };
-    const selectedCustomer = (customers || []).find((c) => c.id === selectedCustomerId);
-    const isWalkIn = Boolean(
+    const VIRTUAL_WALK_IN_CUSTOMER: Customer = {
+        id: 'walk-in',
+        name: 'Walk-in Customer',
+        company: 'Cash / Spot Sale',
+        phone: '01819-000000',
+        address: 'Counter Spot Sale',
+        email: '',
+        dueAmount: 0,
+        totalSales: 0,
+        totalPaid: 0,
+        advanceBalance: 0,
+        invoicesCount: 0,
+    };
+
+    const selectedCustomer = selectedCustomerId === 'walk-in'
+        ? VIRTUAL_WALK_IN_CUSTOMER
+        : (customers || []).find((c) => c.id === selectedCustomerId);
+
+    const isWalkIn = selectedCustomerId === 'walk-in' || Boolean(
         selectedCustomer &&
         (selectedCustomer.name.toLowerCase().includes('walk-in') ||
          selectedCustomer.name.toLowerCase().includes('walk in'))
     );
+
     const handleSelectWalkIn = () => {
-        let walkIn = (customers || []).find(c => c.name.toLowerCase().includes('walk-in') || c.name.toLowerCase().includes('walk in'));
-        if (!walkIn) {
-            walkIn = addCustomer({
-                name: 'Walk-in Customer',
-                company: 'Cash / Spot Sale',
-                phone: '01819-000000',
-                address: 'Counter Spot Sale',
-            });
-        }
-        if (walkIn) {
-            setSelectedCustomerId(walkIn.id);
-        }
+        setSelectedCustomerId('walk-in');
         setIsCustomerSearchOpen(false);
         setCustomerSearchTerm('');
     };
+
     const filteredCustomers = useMemo(() => {
+        const realCustomers = (customers || []).filter(c =>
+            c.id !== 'walk-in' &&
+            !c.name.toLowerCase().includes('walk-in') &&
+            !c.name.toLowerCase().includes('walk in')
+        );
         if (!customerSearchTerm.trim())
-            return customers;
+            return realCustomers;
         const term = customerSearchTerm.toLowerCase().trim();
-        return customers.filter((c) => c.name.toLowerCase().includes(term) ||
+        return realCustomers.filter((c) => c.name.toLowerCase().includes(term) ||
             (c.phone && c.phone.includes(term)) ||
             (c.company && c.company.toLowerCase().includes(term)) ||
             (c.address && c.address.toLowerCase().includes(term)));

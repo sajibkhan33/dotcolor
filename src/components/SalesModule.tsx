@@ -439,22 +439,32 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
     const handleExcelExport = () => {
         exportSalesToExcel(filteredInvoices, profile, dateRangeLabel);
     };
-    // Filtered clients for customer directory
+    // Filtered clients for customer directory (strictly real registered business clients, exclude anonymous walk-in)
     const filteredClients = useMemo(() => {
+        const registered = (customers || []).filter(c =>
+            c.id !== 'walk-in' &&
+            !c.name.toLowerCase().includes('walk-in') &&
+            !c.name.toLowerCase().includes('walk in')
+        );
         if (!customerSearchQuery.trim())
-            return customers;
+            return registered;
         const q = customerSearchQuery.toLowerCase().trim();
-        return customers.filter((c) => c.name.toLowerCase().includes(q) ||
+        return registered.filter((c) => c.name.toLowerCase().includes(q) ||
             (c.phone && c.phone.includes(q)) ||
             (c.company && c.company.toLowerCase().includes(q)) ||
             (c.address && c.address.toLowerCase().includes(q)));
     }, [customers, customerSearchQuery]);
     // Filtered customers for quotation quick-select
     const filteredQuoteCustomers = useMemo(() => {
+        const registered = (customers || []).filter(c =>
+            c.id !== 'walk-in' &&
+            !c.name.toLowerCase().includes('walk-in') &&
+            !c.name.toLowerCase().includes('walk in')
+        );
         if (!quoteCustomerSearch.trim())
-            return customers;
+            return registered;
         const q = quoteCustomerSearch.toLowerCase().trim();
-        return customers.filter((c) => c.name.toLowerCase().includes(q) ||
+        return registered.filter((c) => c.name.toLowerCase().includes(q) ||
             (c.phone && c.phone.includes(q)) ||
             (c.company && c.company.toLowerCase().includes(q)));
     }, [customers, quoteCustomerSearch]);
@@ -1380,7 +1390,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 {'Registered Clients'}
               </h3>
               <span className="text-[11px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
-                {filteredClients.length} {customerSearchQuery ? ` / ${customers.length}` : ''}
+                {filteredClients.length} {customerSearchQuery ? ` / ${(customers || []).filter(c => c.id !== 'walk-in' && !c.name.toLowerCase().includes('walk-in') && !c.name.toLowerCase().includes('walk in')).length}` : ''}
               </span>
             </div>
 
