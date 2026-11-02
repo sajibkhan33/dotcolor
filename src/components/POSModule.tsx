@@ -77,9 +77,8 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
     const [dimNotes, setDimNotes] = useState<string>('');
     // Helper to match product category cleanly (case-insensitive exact match)
     const matchProductCategory = (p: ProductItem, catId: string): boolean => {
-        if (catId === 'ALL') return !p.isRawMaterial;
-        if (catId === 'RAW MATERIAL') return !!p.isRawMaterial;
         if (p.isRawMaterial) return false;
+        if (catId === 'ALL') return true;
 
         const pCat = (p.category || '').trim().toLowerCase();
         const target = (catId || '').trim().toLowerCase();
@@ -499,17 +498,10 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
 
         const activeList = Array.from(catMap.values()).filter(c => c.count > 0);
 
-        const list = [
+        return [
             { id: 'ALL', labelEn: 'All Services', count: nonRawProducts.length },
             ...activeList,
         ];
-
-        const rawCount = products.filter(p => p.isRawMaterial).length;
-        if (rawCount > 0) {
-            list.push({ id: 'RAW MATERIAL', labelEn: 'Raw Media & Stocks', count: rawCount });
-        }
-
-        return list;
     }, [products, productCategories]);
 
     // If active category becomes empty or is deleted, fallback gracefully to ALL
