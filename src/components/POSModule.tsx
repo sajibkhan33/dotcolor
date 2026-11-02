@@ -26,20 +26,12 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
     const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
     const [searchQuery, setSearchQuery] = useState('');
     const [cart, setCart] = useState<InvoiceItem[]>([]);
-    // Checkout form state
-    const [selectedCustomerId, setSelectedCustomerId] = useState<string>(() => {
-        if (customers && customers.length > 0) {
-            // Try to find a walk-in customer first
-            const walkIn = customers.find(c => c.name.toLowerCase().includes('walk-in') || c.name.toLowerCase().includes('walk in'));
-            return walkIn ? walkIn.id : customers[0].id;
-        }
-        return '';
-    });
-    // Ensure selectedCustomerId is always populated with a valid customer ID
+    // Checkout form state - default empty (no pre-selected customer)
+    const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+    // Clear selection if currently selected customer is removed
     useEffect(() => {
-        if ((!selectedCustomerId || !customers.some(c => c.id === selectedCustomerId)) && customers.length > 0) {
-            const walkIn = customers.find(c => c.name.toLowerCase().includes('walk-in') || c.name.toLowerCase().includes('walk in'));
-            setSelectedCustomerId(walkIn ? walkIn.id : customers[0].id);
+        if (selectedCustomerId && !customers.some(c => c.id === selectedCustomerId)) {
+            setSelectedCustomerId('');
         }
     }, [customers, selectedCustomerId]);
     const [checkoutFeedback, setCheckoutFeedback] = useState<{
@@ -234,7 +226,15 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
          selectedCustomer.name.toLowerCase().includes('walk in'))
     );
     const handleSelectWalkIn = () => {
-        const walkIn = (customers || []).find(c => c.name.toLowerCase().includes('walk-in') || c.name.toLowerCase().includes('walk in')) || customers[0];
+        let walkIn = (customers || []).find(c => c.name.toLowerCase().includes('walk-in') || c.name.toLowerCase().includes('walk in'));
+        if (!walkIn) {
+            walkIn = addCustomer({
+                name: 'Walk-in Customer',
+                company: 'Cash / Spot Sale',
+                phone: '01819-000000',
+                address: 'Counter Spot Sale',
+            });
+        }
         if (walkIn) {
             setSelectedCustomerId(walkIn.id);
         }
@@ -370,25 +370,17 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
             });
             return;
         }
+        if (!selectedCustomer) {
+            setCheckoutFeedback({
+                type: 'error',
+                message: 'Please select a Customer or click Walk-In to proceed!',
+            });
+            setIsCustomerSearchOpen(true);
+            return;
+        }
         setIsProcessingCheckout(true);
         try {
-            // Find or fallback to a valid customer
-            let customerToUse = selectedCustomer;
-            if (!customerToUse && customers && customers.length > 0) {
-                customerToUse =
-                    customers.find((c) => c.id === selectedCustomerId) ||
-                        customers.find((c) => c.name.toLowerCase().includes('walk-in') || c.name.toLowerCase().includes('walk in')) ||
-                        customers[0];
-            }
-            if (!customerToUse) {
-                customerToUse = addCustomer({
-                    name: 'Walk-in Customer',
-                    company: 'Cash / Spot Sale',
-                    phone: '01819-000000',
-                    address: 'Chattogram',
-                });
-                setSelectedCustomerId(customerToUse.id);
-            }
+            const customerToUse = selectedCustomer;
             const safeGrandTotal = Math.max(0, Number(grandTotal) || 0);
             let calculatedTotalPaid = 0;
             let maxPaidMethod = activePaymentMethods[0]?.name || 'Cash';
@@ -439,6 +431,8 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
             });
             // Reset Cart and state
             setCart([]);
+            setSelectedCustomerId('');
+            setIsCustomerSearchOpen(false);
             setReferenceNo('');
             setDiscountAmount(0);
             setDiscountType('amount');
@@ -711,69 +705,112 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
               </div>
             </div>
 
-            {/* When search is NOT open: Selected Customer Card */}
+            {/* When search is NOT open: Selected Customer Card or Placeholder */}
             {!isCustomerSearchOpen ? (
-              <div className="bg-slate-50/90 hover:bg-slate-100/90 border border-slate-200/90 rounded-2xl p-3 transition-all shadow-2xs">
-                <div className="flex items-center justify-between gap-2.5">
+              selectedCustomer ? (
+                <div className="bg-slate-50/90 hover:bg-slate-100/90 border border-slate-200/90 rounded-2xl p-3 transition-all shadow-2xs">
+                  <div className="flex items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-black shrink-0 shadow-2xs ${
+                          isWalkIn
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            : 'bg-amber-100 text-amber-800 border border-amber-200'
+                        }`}
+                      >
+                        {isWalkIn ? '🚶' : (selectedCustomer.name.charAt(0) || 'C')}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">
+                            {selectedCustomer.name}
+                          </span>
+                          {selectedCustomer.company && selectedCustomer.company !== selectedCustomer.name && (
+                            <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded truncate max-w-[130px]">
+                              {selectedCustomer.company}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-medium truncate mt-0.5 flex items-center gap-1.5">
+                          <span className="font-mono">{selectedCustomer.phone || '01819-000000'}</span>
+                          {selectedCustomer.address && (
+                            <span className="truncate max-w-[140px] text-slate-400">• {selectedCustomer.address}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCustomerSearchOpen(true);
+                          setCustomerSearchTerm('');
+                        }}
+                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1 cursor-pointer"
+                        title="Search or select another customer"
+                      >
+                        <Search className="w-3.5 h-3.5 text-amber-400"/>
+                        <span>{'Change'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCustomerId('');
+                          setIsCustomerSearchOpen(false);
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                        title="Clear customer selection"
+                      >
+                        <X className="w-3.5 h-3.5"/>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Past Due Alert Banner if selected customer has debt */}
+                  {selectedCustomer.dueAmount > 0 && (
+                    <div className="mt-2.5 pt-2 border-t border-slate-200/80 flex items-center justify-between text-xs">
+                      <span className="text-[11px] font-bold text-rose-700 flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0"/>
+                        <span>{'Previous Account Due:'}</span>
+                      </span>
+                      <span className="font-black text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-lg text-xs">
+                        {profile.currencySymbol}{(Number(selectedCustomer.dueAmount) || 0).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* When NO customer is selected: Placeholder Card */
+                <div
+                  onClick={() => {
+                    setIsCustomerSearchOpen(true);
+                    setCustomerSearchTerm('');
+                  }}
+                  className="border-2 border-dashed border-slate-200 hover:border-amber-400 bg-slate-50/70 hover:bg-amber-50/30 rounded-2xl p-3 flex items-center justify-between gap-2.5 transition-all cursor-pointer group"
+                >
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-black shrink-0 shadow-2xs ${
-                        isWalkIn
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                          : 'bg-amber-100 text-amber-800 border border-amber-200'
-                      }`}
-                    >
-                      {isWalkIn ? '🚶' : (selectedCustomer?.name?.charAt(0) || 'C')}
+                    <div className="w-9 h-9 rounded-xl bg-slate-200 group-hover:bg-amber-100 text-slate-400 group-hover:text-amber-600 flex items-center justify-center shrink-0 transition-colors">
+                      <User className="w-4 h-4"/>
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">
-                          {selectedCustomer?.name || 'Walk-in Customer'}
-                        </span>
-                        {selectedCustomer?.company && selectedCustomer.company !== selectedCustomer.name && (
-                          <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded truncate max-w-[130px]">
-                            {selectedCustomer.company}
-                          </span>
-                        )}
+                      <div className="font-bold text-xs sm:text-sm text-slate-700 group-hover:text-amber-900 transition-colors">
+                        {'Select Customer / Client'}
                       </div>
-                      <div className="text-[11px] text-slate-500 font-medium truncate mt-0.5 flex items-center gap-1.5">
-                        <span className="font-mono">{selectedCustomer?.phone || '01819-000000'}</span>
-                        {selectedCustomer?.address && (
-                          <span className="truncate max-w-[140px] text-slate-400">• {selectedCustomer.address}</span>
-                        )}
+                      <div className="text-[11px] text-slate-400 group-hover:text-slate-500 transition-colors">
+                        {'Click to choose customer or pick Walk-in'}
                       </div>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsCustomerSearchOpen(true);
-                        setCustomerSearchTerm('');
-                      }}
-                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
-                      title="Search or select another customer"
-                    >
-                      <Search className="w-3.5 h-3.5 text-amber-400"/>
-                      <span>{'Change'}</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+                  >
+                    <Search className="w-3.5 h-3.5 text-white"/>
+                    <span>{'Select'}</span>
+                  </button>
                 </div>
-
-                {/* Past Due Alert Banner if selected customer has debt */}
-                {selectedCustomer && selectedCustomer.dueAmount > 0 && (
-                  <div className="mt-2.5 pt-2 border-t border-slate-200/80 flex items-center justify-between text-xs">
-                    <span className="text-[11px] font-bold text-rose-700 flex items-center gap-1">
-                      <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0"/>
-                      <span>{'Previous Account Due:'}</span>
-                    </span>
-                    <span className="font-black text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-lg text-xs">
-                      {profile.currencySymbol}{(Number(selectedCustomer.dueAmount) || 0).toLocaleString()}
-                    </span>
-                  </div>
-                )}
-              </div>
+              )
             ) : (
               /* When search IS open: Interactive Searchable Customer Picker */
               <div className="bg-white border-2 border-amber-500 rounded-2xl p-3 shadow-lg space-y-2.5">
