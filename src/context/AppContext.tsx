@@ -8635,9 +8635,22 @@ export const AppProvider: React.FC<{
         return JSON.stringify(state, null, 2);
     };
 
-    const importDatabase = (jsonString: string, _isCloudSync: boolean = false, isRestore: boolean = !_isCloudSync): boolean => {
+    const importDatabase = (jsonStringOrObj: any, _isCloudSync: boolean = false, isRestore: boolean = !_isCloudSync): boolean => {
         try {
-            const data = JSON.parse(jsonString);
+            let data: any = jsonStringOrObj;
+            while (typeof data === 'string') {
+                try {
+                    const parsed = JSON.parse(data);
+                    if (parsed === data) break;
+                    data = parsed;
+                } catch {
+                    break;
+                }
+            }
+            if (!data || typeof data !== 'object') {
+                console.error('Invalid database state received, skipping import.');
+                return false;
+            }
 
             if (isRestore) {
                 // Admin database backup restore: Clear any active purge quarantine from localStorage
@@ -8895,7 +8908,7 @@ export const AppProvider: React.FC<{
                         serverRevisionRef.current = stateData.revision;
                     }
                     isImportingRef.current = true;
-                    importDatabase(JSON.stringify(stateData.data), true);
+                    importDatabase(stateData.data, true);
                     setCloudSyncStatus('synced');
                     setIsCloudConnected(true);
                     if (stateData.updatedAt) {
@@ -8920,10 +8933,15 @@ export const AppProvider: React.FC<{
     const pushToCloud = async (options?: { force?: boolean; isRestore?: boolean }) => {
         if (!isCloudLoadedRef.current) return;
         if (!options?.force && !options?.isRestore && isSyncingRef.current) return;
+        const currentPayload = latestStateRef.current;
+        if (!options?.force && !options?.isRestore && (!currentPayload?.products || currentPayload.products.length === 0)) {
+            console.warn('[PushToCloud Guard] Blocked auto-push of empty products state.');
+            return;
+        }
         try {
             isSyncingRef.current = true;
             setCloudSyncStatus('syncing');
-            const payload = { ...latestStateRef.current };
+            const payload = { ...currentPayload };
             if (options?.isRestore) {
                 payload.lastPurgedAt = null;
                 payload.lastPurgeMode = null;
@@ -9057,7 +9075,7 @@ export const AppProvider: React.FC<{
                                     }
                                     const remoteTs = cloudState.updatedAt ? new Date(cloudState.updatedAt).getTime() : 0;
                                     isImportingRef.current = true;
-                                    importDatabase(JSON.stringify(cloudState.data), true);
+                                    importDatabase(cloudState.data, true);
                                     setTimeout(() => { isImportingRef.current = false; }, 300);
                                     lastServerUpdatedAtRef.current = remoteTs || Date.now();
                                     if (cloudState.updatedAt) {

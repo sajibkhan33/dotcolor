@@ -102,7 +102,15 @@ app.get("/api/state", requireAuth, async (_req, res) => {
       return res.json({ success: true, data: null, revision: 0 });
     }
     const revision = doc.revision || doc.data?._rev || 1;
-    res.json({ success: true, data: doc.data, revision, updatedAt: doc.updatedAt });
+    let dataPayload = doc.data;
+    if (typeof dataPayload === "string") {
+      try {
+        dataPayload = JSON.parse(dataPayload);
+      } catch (e) {
+        console.warn("Failed to parse doc.data string in /api/state", e);
+      }
+    }
+    res.json({ success: true, data: dataPayload, revision, updatedAt: doc.updatedAt });
   } catch (error) {
     console.error("Error fetching state:", error);
     res.status(500).json({ success: false, message: error.message });
@@ -207,6 +215,15 @@ app.post("/api/state", requireAuth, async (req, res) => {
           updatedAt: existing.updatedAt,
           message: "Conflict detected: Remote state was modified by another session. Please pull before pushing."
         });
+      }
+      if (!force && !isRestoreMode && existing.data) {
+        const existingData = typeof existing.data === "string" ? JSON.parse(existing.data) : existing.data;
+        const prevProdCount = Array.isArray(existingData.products) ? existingData.products.length : 0;
+        const newProdCount = Array.isArray(data.products) ? data.products.length : 0;
+        if (prevProdCount > 5 && newProdCount === 0) {
+          console.warn(`[SERVER GUARD] Blocked push attempting to wipe ${prevProdCount} products with 0 products.`);
+          return res.status(400).json({ success: false, message: "Blocked push: Empty state cannot wipe populated database." });
+        }
       }
     }
     const nextRev = Math.max(currentRev, typeof clientRev === "number" ? clientRev : 0) + 1;
