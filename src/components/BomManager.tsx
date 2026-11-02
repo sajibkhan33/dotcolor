@@ -148,16 +148,29 @@ export const BomManager: React.FC = () => {
 
   // Open Edit Modal
   const handleOpenEdit = (bom: BillOfMaterial) => {
-    setSelectedProductId(bom.finishedProductId);
+    const pId = bom.finishedProductId || (bom as any).targetProductId || (bom as any).productId;
+    const matchedProduct = (products || []).find((p) => p.id === pId || p.code === bom.finishedProductCode || p.name === bom.finishedProductName);
+    setSelectedProductId(matchedProduct ? matchedProduct.id : (pId || ''));
     setAutoDeductOnSale(bom.autoDeductOnSale !== false);
     setNotes(bom.notes || '');
     setFormError(null);
     setEditingBom(bom);
     setComponents(
-      (bom.components || []).map((c) => ({
-        ...c,
-        totalCost: Math.round((Number(c.quantity) || 0) * (Number(c.unitCost) || 0) * 100) / 100,
-      }))
+      (bom.components || []).map((c: any) => {
+        const rId = c.rawMaterialId || c.productId;
+        const matchedRm = (products || []).find((p) => p.id === rId || p.code === c.rawMaterialCode || p.name === c.rawMaterialName);
+        const qty = Number(c.quantity ?? c.requiredQty ?? 1);
+        const uCost = Number(c.unitCost ?? matchedRm?.costPrice ?? 0);
+        return {
+          rawMaterialId: matchedRm ? matchedRm.id : (rId || ''),
+          rawMaterialCode: matchedRm ? matchedRm.code : (c.rawMaterialCode || ''),
+          rawMaterialName: matchedRm ? matchedRm.name : (c.rawMaterialName || ''),
+          quantity: qty,
+          unit: c.unit || matchedRm?.unit || 'pcs',
+          unitCost: uCost,
+          totalCost: Math.round(qty * uCost * 100) / 100,
+        };
+      })
     );
     setShowAddEditModal(true);
   };
@@ -236,7 +249,15 @@ export const BomManager: React.FC = () => {
     e.preventDefault();
     setFormError(null);
 
-    const product = finishedProducts.find((p) => p.id === selectedProductId);
+    let product = finishedProducts.find((p) => p.id === selectedProductId)
+      || (products || []).find((p) => p.id === selectedProductId)
+      || (products || []).find((p) => p.code === selectedProductId || p.name === selectedProductId);
+
+    if (!product && editingBom) {
+      const fallbackId = editingBom.finishedProductId || (editingBom as any).targetProductId || (editingBom as any).productId;
+      product = (products || []).find((p) => p.id === fallbackId || p.code === editingBom.finishedProductCode || p.name === editingBom.finishedProductName);
+    }
+
     if (!product) {
       setFormError('Please select a valid finished product.');
       return;
@@ -470,9 +491,13 @@ export const BomManager: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredBoms.map((bom) => {
-                const finishedProduct = products.find((p) => p.id === bom.finishedProductId);
+                const finishedProduct = products.find((p) => p.id === bom.finishedProductId || p.code === bom.finishedProductCode || p.name === bom.finishedProductName);
+                const fName = bom.finishedProductName || finishedProduct?.name || 'Finished Product';
+                const fCode = bom.finishedProductCode || finishedProduct?.code || '';
+                const fUnit = bom.outputUnit || finishedProduct?.unit || 'pcs';
                 const currentStockTotal = finishedProduct ? (Number(finishedProduct.stock) || 0) : 0;
                 const isAuto = bom.autoDeductOnSale !== false;
+                const totalCostVal = Number(bom.totalCost ?? (bom as any).estimatedUnitCost ?? (bom.components || []).reduce((acc, c: any) => acc + (Number(c.totalCost ?? c.componentCost ?? 0)), 0));
 
                 return (
                   <tr key={bom.id} className="hover:bg-slate-50/60 transition-colors">
@@ -483,15 +508,17 @@ export const BomManager: React.FC = () => {
                         </div>
                         <div>
                           <div className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                            {bom.finishedProductName}
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                              {bom.finishedProductCode}
-                            </span>
+                            {fName}
+                            {fCode && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                                {fCode}
+                              </span>
+                            )}
                           </div>
                           <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
-                            <span>Unit: <strong className="text-slate-600 font-semibold">{bom.outputUnit}</strong></span>
+                            <span>Unit: <strong className="text-slate-600 font-semibold">{fUnit}</strong></span>
                             <span>•</span>
-                            <span>Current Stock: <strong className={currentStockTotal > 0 ? 'text-emerald-600' : 'text-rose-500'}>{currentStockTotal} {bom.outputUnit}</strong></span>
+                            <span>Current Stock: <strong className={currentStockTotal > 0 ? 'text-emerald-600' : 'text-rose-500'}>{currentStockTotal} {fUnit}</strong></span>
                           </div>
                         </div>
                       </div>
@@ -500,15 +527,21 @@ export const BomManager: React.FC = () => {
                     <td className="py-3.5 px-4">
                       <div className="space-y-1">
                         <div className="flex flex-wrap gap-1.5">
-                          {(bom.components || []).slice(0, 3).map((comp, idx) => (
-                            <span
-                              key={idx}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200/70"
-                            >
-                              <span className="font-bold text-blue-700">{comp.quantity} {comp.unit}</span>
-                              <span className="truncate max-w-[120px]">{comp.rawMaterialName}</span>
-                            </span>
-                          ))}
+                          {(bom.components || []).slice(0, 3).map((comp: any, idx) => {
+                            const rm = products.find((p) => p.id === (comp.rawMaterialId || comp.productId) || p.code === comp.rawMaterialCode || p.name === comp.rawMaterialName);
+                            const rmName = comp.rawMaterialName || rm?.name || 'Material';
+                            const rmQty = comp.quantity ?? comp.requiredQty ?? 1;
+                            const rmUnit = comp.unit || rm?.unit || 'pcs';
+                            return (
+                              <span
+                                key={idx}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200/70"
+                              >
+                                <span className="font-bold text-blue-700">{rmQty} {rmUnit}</span>
+                                <span className="truncate max-w-[120px]">{rmName}</span>
+                              </span>
+                            );
+                          })}
                           {(bom.components || []).length > 3 && (
                             <button
                               type="button"
@@ -528,13 +561,13 @@ export const BomManager: React.FC = () => {
                     <td className="py-3.5 px-4 text-right">
                       <div className="font-bold text-slate-900 text-sm">
                         {profile.currencySymbol}
-                        {(Number(bom.totalCost) || 0).toLocaleString(undefined, {
+                        {totalCostVal.toLocaleString(undefined, {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}
                       </div>
                       <div className="text-[10px] text-slate-400">
-                        per 1 {bom.outputUnit}
+                        per 1 {fUnit}
                       </div>
                     </td>
 
@@ -699,10 +732,12 @@ export const BomManager: React.FC = () => {
                     Finished Good / Service Item <span className="text-rose-500">*</span>
                   </label>
                   <select
-                    disabled={Boolean(editingBom)}
                     value={selectedProductId}
-                    onChange={(e) => setSelectedProductId(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:opacity-75 disabled:bg-slate-100"
+                    onChange={(e) => {
+                      setSelectedProductId(e.target.value);
+                      if (formError) setFormError(null);
+                    }}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer font-semibold shadow-2xs"
                     required
                   >
                     <option value="" disabled>-- Select Finished Product --</option>
