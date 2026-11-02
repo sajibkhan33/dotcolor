@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   ResponsiveContainer,
@@ -62,6 +62,7 @@ export const PriceMovementTab: React.FC<PriceMovementTabProps> = ({ onViewPO }) 
 
   // State
   const [selectedProductId, setSelectedProductId] = useState<string>('all');
+  const [hasUserSelectedProduct, setHasUserSelectedProduct] = useState(false);
   const [timeRange, setTimeRange] = useState<TimeRangeFilter>('30d');
   const [customStartDate, setCustomStartDate] = useState<string>(() => {
     const d = new Date();
@@ -101,6 +102,13 @@ export const PriceMovementTab: React.FC<PriceMovementTabProps> = ({ onViewPO }) 
 
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [products, purchaseOrders]);
+
+  // Default to first real raw material for individual item tracking unless user explicitly chose otherwise
+  useEffect(() => {
+    if (!hasUserSelectedProduct && rawMaterialsList.length > 0 && selectedProductId === 'all') {
+      setSelectedProductId(rawMaterialsList[0].id);
+    }
+  }, [rawMaterialsList, hasUserSelectedProduct, selectedProductId]);
 
   // 2. Extract flattened item purchase records
   const allPurchaseRecords = useMemo<FlattenedPurchaseRecord[]>(() => {
@@ -191,6 +199,8 @@ export const PriceMovementTab: React.FC<PriceMovementTabProps> = ({ onViewPO }) 
     );
   }, [dateFilteredRecords, selectedProductId]);
 
+  const isAll = selectedProductId === 'all';
+
   // 5. Calculate KPI Metrics
   const metrics = useMemo(() => {
     if (productFilteredRecords.length === 0) {
@@ -205,6 +215,7 @@ export const PriceMovementTab: React.FC<PriceMovementTabProps> = ({ onViewPO }) 
         totalSpend: 0,
         count: 0,
         primaryUnit: '',
+        isAll,
       };
     }
 
@@ -213,7 +224,6 @@ export const PriceMovementTab: React.FC<PriceMovementTabProps> = ({ onViewPO }) 
     const oldestRec = productFilteredRecords[0];
 
     const latestRate = latestRec.unitCost;
-    const oldestRate = oldestRec.unitCost;
     const lowestRate = Math.min(...rates);
     const highestRate = Math.max(...rates);
 
@@ -221,8 +231,14 @@ export const PriceMovementTab: React.FC<PriceMovementTabProps> = ({ onViewPO }) 
     const totalSpend = productFilteredRecords.reduce((acc, r) => acc + r.totalCost, 0);
     const averageRate = totalQty > 0 ? totalSpend / totalQty : latestRate;
 
-    const rateDelta = latestRate - oldestRate;
-    const rateDeltaPercent = oldestRate > 0 ? (rateDelta / oldestRate) * 100 : 0;
+    // Price change is only meaningful when tracking a single material.
+    // If 'All' is selected, comparing different materials with different units (e.g. 5 Tk paper vs 4200 Tk roll) is misleading.
+    let rateDelta = 0;
+    let rateDeltaPercent = 0;
+    if (!isAll) {
+      rateDelta = latestRate - oldestRec.unitCost;
+      rateDeltaPercent = oldestRec.unitCost > 0 ? (rateDelta / oldestRec.unitCost) * 100 : 0;
+    }
 
     return {
       latestRate,
@@ -234,66 +250,48 @@ export const PriceMovementTab: React.FC<PriceMovementTabProps> = ({ onViewPO }) 
       totalPurchasedQty: totalQty,
       totalSpend,
       count: productFilteredRecords.length,
-      primaryUnit: latestRec.unit,
+      primaryUnit: isAll ? 'mixed units' : latestRec.unit,
+      latestItemName: latestRec.productName,
+      isAll,
     };
-  }, [productFilteredRecords]);
+  }, [productFilteredRecords, isAll]);
 
-  // 6. Chart Data Preparation
+  // 6. Chart Data Preparation - Plotted per purchase order so price fluctuations across POs are clearly visible
   const chartData = useMemo(() => {
     if (productFilteredRecords.length === 0) return [];
 
-    // Group by Date for the chart
-    const byDate = new Map<string, {
-      date: string;
-      formattedDate: string;
-      unitCost: number;
-      qty: number;
-      totalSpend: number;
-      suppliers: string[];
-      items: string[];
-    }>();
-
-    productFilteredRecords.forEach((rec) => {
-      const dKey = rec.date;
-      const existing = byDate.get(dKey);
-
-      if (!existing) {
-        // Format display date: e.g. 02 Nov
-        let displayDate = dKey;
-        try {
-          const dt = new Date(dKey);
-          displayDate = dt.toLocaleDateString(isBn ? 'bn-BD' : 'en-US', {
-            month: 'short',
-            day: 'numeric',
-          });
-        } catch {}
-
-        byDate.set(dKey, {
-          date: dKey,
-          formattedDate: displayDate,
-          unitCost: rec.unitCost,
-          qty: rec.qty,
-          totalSpend: rec.totalCost,
-          suppliers: [rec.supplierName],
-          items: [rec.productName],
-        });
-      } else {
-        existing.qty += rec.qty;
-        existing.totalSpend += rec.totalCost;
-        // Weighted average cost for the date
-        existing.unitCost = Math.round((existing.totalSpend / existing.qty) * 100) / 100;
-        if (!existing.suppliers.includes(rec.supplierName)) {
-          existing.suppliers.push(rec.supplierName);
-        }
-        if (!existing.items.includes(rec.productName)) {
-          existing.items.push(rec.productName);
-        }
-      }
-    });
-
-    return Array.from(byDate.values()).sort(
+    // Sort chronologically ascending
+    const sorted = [...productFilteredRecords].sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
+
+    return sorted.map((rec) => {
+      let displayDate = rec.date;
+      try {
+        const dt = new Date(rec.date);
+        displayDate = dt.toLocaleDateString(isBn ? 'bn-BD' : 'en-US', {
+          month: 'short',
+          day: 'numeric',
+        });
+      } catch {}
+
+      const shortPo = rec.poNo.length > 8 ? rec.poNo.slice(-4) : rec.poNo;
+      const formattedLabel = `${displayDate} (#${shortPo})`;
+
+      return {
+        id: rec.id,
+        date: rec.date,
+        poNo: rec.poNo,
+        formattedDate: formattedLabel,
+        fullDisplayDate: displayDate,
+        unitCost: rec.unitCost,
+        qty: rec.qty,
+        unit: rec.unit,
+        totalSpend: rec.totalCost,
+        supplierName: rec.supplierName,
+        productName: rec.productName,
+      };
+    });
   }, [productFilteredRecords, isBn]);
 
   // 7. Table records with movement delta vs immediate prior purchase of the SAME item
@@ -400,7 +398,10 @@ export const PriceMovementTab: React.FC<PriceMovementTabProps> = ({ onViewPO }) 
             </span>
             <select
               value={selectedProductId}
-              onChange={(e) => setSelectedProductId(e.target.value)}
+              onChange={(e) => {
+                setSelectedProductId(e.target.value);
+                setHasUserSelectedProduct(true);
+              }}
               className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
             >
               <option value="all">{isBn ? 'সকল কাঁচামাল (All Materials)' : 'All Raw Materials (Overall)'}</option>
@@ -555,44 +556,49 @@ export const PriceMovementTab: React.FC<PriceMovementTabProps> = ({ onViewPO }) 
             <span className="text-xs font-bold text-slate-600">
               {isBn ? 'দর পরিবর্তন (Trend)' : 'Net Price Trend'}
             </span>
-            {metrics.rateDelta > 0 ? (
-              <span className="p-1 rounded-lg bg-rose-50 text-rose-600">
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </span>
-            ) : metrics.rateDelta < 0 ? (
-              <span className="p-1 rounded-lg bg-emerald-50 text-emerald-600">
-                <ArrowDownRight className="w-3.5 h-3.5" />
-              </span>
+            {!isAll ? (
+              metrics.rateDelta > 0 ? (
+                <span className="p-1 rounded-lg bg-rose-50 text-rose-600">
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </span>
+              ) : metrics.rateDelta < 0 ? (
+                <span className="p-1 rounded-lg bg-emerald-50 text-emerald-600">
+                  <ArrowDownRight className="w-3.5 h-3.5" />
+                </span>
+              ) : (
+                <span className="p-1 rounded-lg bg-slate-100 text-slate-600">
+                  <Minus className="w-3.5 h-3.5" />
+                </span>
+              )
             ) : (
-              <span className="p-1 rounded-lg bg-slate-100 text-slate-600">
-                <Minus className="w-3.5 h-3.5" />
+              <span className="p-1 rounded-lg bg-amber-50 text-amber-600 font-bold text-[10px]">
+                ITEM
               </span>
             )}
           </div>
           <div
             className={`text-xl sm:text-2xl font-black ${
-              metrics.rateDelta > 0
+              isAll
+                ? 'text-slate-800 text-base sm:text-lg pt-1'
+                : metrics.rateDelta > 0
                 ? 'text-rose-600'
                 : metrics.rateDelta < 0
                 ? 'text-emerald-600'
                 : 'text-slate-700'
             }`}
           >
-            {metrics.rateDelta > 0 ? '+' : ''}
-            {metrics.rateDeltaPercent.toFixed(1)}%
+            {isAll
+              ? (isBn ? 'পণ্য সিলেক্ট করুন' : 'Per-Item Track')
+              : `${metrics.rateDelta > 0 ? '+' : ''}${metrics.rateDeltaPercent.toFixed(1)}%`}
           </div>
           <span className="text-[11px] text-slate-500 mt-1 block font-medium">
-            {metrics.rateDelta > 0
-              ? isBn
-                ? 'মূল্য বৃদ্ধি পেয়েছে (Cost increased)'
-                : 'Price increased over period'
+            {isAll
+              ? (isBn ? 'নির্দিষ্ট পণ্য নির্বাচন করে দর পরিবর্তন দেখুন' : 'Select a material above for item trend')
+              : metrics.rateDelta > 0
+              ? (isBn ? 'মূল্য বৃদ্ধি পেয়েছে (Cost increased)' : 'Price increased over period')
               : metrics.rateDelta < 0
-              ? isBn
-                ? 'মূল্য হ্রাস পেয়েছে (Cost reduced)'
-                : 'Price dropped over period'
-              : isBn
-                ? 'মূল্য অপরিবর্তিত (Stable)'
-                : 'Stable price'}
+              ? (isBn ? 'মূল্য হ্রাস পেয়েছে (Cost reduced)' : 'Price dropped over period')
+              : (isBn ? 'মূল্য অপরিবর্তিত (Stable)' : 'Stable / same price')}
           </span>
         </div>
       </div>
@@ -643,33 +649,35 @@ export const PriceMovementTab: React.FC<PriceMovementTabProps> = ({ onViewPO }) 
                         const data = payload[0].payload;
                         return (
                           <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs space-y-1.5 border border-slate-800">
-                            <div className="font-bold text-amber-400 border-b border-slate-800 pb-1">
-                              {data.formattedDate} ({data.date})
+                            <div className="font-bold text-amber-400 border-b border-slate-800 pb-1 flex items-center justify-between gap-3">
+                              <span>{data.fullDisplayDate || data.date}</span>
+                              <span className="font-mono text-[10px] text-slate-300">PO: {data.poNo}</span>
+                            </div>
+                            <div className="text-slate-200 font-semibold text-[11px]">
+                              {data.productName}
                             </div>
                             <div className="flex justify-between gap-4">
                               <span className="text-slate-400">{isBn ? 'একক দর:' : 'Unit Rate:'}</span>
                               <span className="font-bold text-white">
-                                {currency}
-                                {data.unitCost}
+                                {currency}{data.unitCost} / {data.unit || 'unit'}
                               </span>
                             </div>
                             <div className="flex justify-between gap-4">
-                              <span className="text-slate-400">{isBn ? 'পরিমাণ:' : 'Total Qty:'}</span>
-                              <span className="font-medium text-slate-200">{data.qty}</span>
+                              <span className="text-slate-400">{isBn ? 'পরিমাণ:' : 'Quantity:'}</span>
+                              <span className="font-medium text-slate-200">{data.qty} {data.unit || ''}</span>
                             </div>
                             <div className="flex justify-between gap-4">
                               <span className="text-slate-400">{isBn ? 'মোট খরচ:' : 'Total Cost:'}</span>
                               <span className="font-semibold text-emerald-400">
-                                {currency}
-                                {data.totalSpend.toLocaleString()}
+                                {currency}{data.totalSpend.toLocaleString()}
                               </span>
                             </div>
-                            {data.suppliers && data.suppliers.length > 0 && (
+                            {data.supplierName && (
                               <div className="pt-1 text-[11px] text-slate-400 border-t border-slate-800">
                                 <span className="font-medium text-slate-300">
                                   {isBn ? 'ভেন্ডর: ' : 'Vendor: '}
                                 </span>
-                                {data.suppliers.join(', ')}
+                                {data.supplierName}
                               </div>
                             )}
                           </div>
