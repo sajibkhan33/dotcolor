@@ -531,7 +531,7 @@ export const SupplyChainModule: React.FC = () => {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <span>{language === 'bn' ? '১. রিকুইজিশন (Requisition)' : '1. Procurement Requisition'}</span>
+            <span>{language === 'bn' ? 'রিকুইজিশন (Requisition)' : 'Procurement Requisition'}</span>
             {pendingRequisitionsCount > 0 && (
               <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white">
                 {pendingRequisitionsCount}
@@ -549,7 +549,7 @@ export const SupplyChainModule: React.FC = () => {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            {language === 'bn' ? '২. পারচেজ অর্ডার (Purchase Orders)' : '2. Purchase Orders'}
+            {language === 'bn' ? 'পারচেজ অর্ডার (Purchase Orders)' : 'Purchase Orders'}
           </button>
 
           {/* SubTab 3: Vendor Directory */}
@@ -562,7 +562,7 @@ export const SupplyChainModule: React.FC = () => {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            {language === 'bn' ? '৩. ভেন্ডর ডিরেক্টরি (Vendor Directory)' : '3. Vendor Directory'}
+            {language === 'bn' ? 'ভেন্ডর ডিরেক্টরি (Vendor Directory)' : 'Vendor Directory'}
           </button>
 
           {/* SubTab 4: Price Movement */}
@@ -575,7 +575,7 @@ export const SupplyChainModule: React.FC = () => {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            {language === 'bn' ? '৪. দর গতিধারা (Price Movement)' : '4. Price Movement'}
+            {language === 'bn' ? 'দর গতিধারা (Price Movement)' : 'Price Movement'}
           </button>
         </div>
 
