@@ -4,7 +4,7 @@ import { ProcurementRequisition, ProductItem, Supplier, CompanyProfile, Purchase
 import { 
   Plus, Search, CheckCircle2, XCircle, Clock, Truck, 
   AlertTriangle, Eye, Trash2, ArrowRight, FileText, 
-  Building2, Factory, Calendar, DollarSign, X, Check
+  Building2, Factory, Calendar, DollarSign, X, Check, Edit2
 } from 'lucide-react';
 
 interface ProcurementRequisitionsTabProps {
@@ -48,6 +48,7 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
 
   // Modals
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingRequisition, setEditingRequisition] = useState<ProcurementRequisition | null>(null);
   const [selectedReqForApproval, setSelectedReqForApproval] = useState<ProcurementRequisition | null>(null);
   const [selectedReqForDetails, setSelectedReqForDetails] = useState<ProcurementRequisition | null>(null);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -107,6 +108,7 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
   };
 
   const handleOpenCreateModal = () => {
+    setEditingRequisition(null);
     setFormData({
       department: 'Factory',
       requiredByDate: new Date(Date.now() + 4 * 86400000).toISOString().slice(0, 10),
@@ -118,6 +120,34 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
     setFormItems([
       { productId: rawMaterials[0]?.id || '', name: rawMaterials[0]?.name || '', unit: rawMaterials[0]?.unit || 'pcs', qty: 10, estimatedCost: Number(rawMaterials[0]?.costPrice) || 0 }
     ]);
+    setShowCreateModal(true);
+  };
+
+  const handleOpenEditModal = (req: ProcurementRequisition) => {
+    setEditingRequisition(req);
+    setFormData({
+      department: req.department || 'Factory',
+      requiredByDate: req.requiredByDate || new Date(Date.now() + 4 * 86400000).toISOString().slice(0, 10),
+      requestedBy: req.requestedBy || activeStaff?.name || 'Factory Production Plant',
+      priority: req.priority || 'Medium',
+      preferredSupplierId: req.preferredSupplierId || '',
+      notes: req.notes || '',
+    });
+    if (req.items && req.items.length > 0) {
+      setFormItems(
+        req.items.map((it) => ({
+          productId: it.productId || '',
+          name: it.name || '',
+          unit: it.unit || 'pcs',
+          qty: Number(it.qty) || 1,
+          estimatedCost: Number(it.estimatedCost) || 0,
+        }))
+      );
+    } else {
+      setFormItems([
+        { productId: rawMaterials[0]?.id || '', name: rawMaterials[0]?.name || '', unit: rawMaterials[0]?.unit || 'pcs', qty: 1, estimatedCost: 0 }
+      ]);
+    }
     setShowCreateModal(true);
   };
 
@@ -180,6 +210,25 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
     }));
 
     const totalEst = itemsFormatted.reduce((acc, cur) => acc + cur.totalEstimatedCost, 0);
+
+    if (editingRequisition) {
+      onUpdateRequisition(editingRequisition.id, {
+        requiredByDate: formData.requiredByDate,
+        department: formData.department,
+        requestedBy: formData.requestedBy,
+        priority: formData.priority,
+        preferredSupplierId: formData.preferredSupplierId || undefined,
+        preferredSupplierName: preferredSup ? preferredSup.name : undefined,
+        notes: formData.notes.trim() || undefined,
+        items: itemsFormatted,
+        totalEstimatedCost: totalEst,
+      });
+      setShowCreateModal(false);
+      const prNo = editingRequisition.prNo;
+      setEditingRequisition(null);
+      showToast(`Requisition ${prNo} updated successfully!`);
+      return;
+    }
 
     const created = onAddRequisition({
       date: new Date().toISOString().slice(0, 10),
@@ -511,6 +560,16 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
                             </button>
                           )}
 
+                          {/* Edit Requisition */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditModal(req)}
+                            className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                            title="Edit Requisition"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+
                           <button
                             type="button"
                             onClick={() => setSelectedReqForDetails(req)}
@@ -554,7 +613,7 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
               <div className="flex items-center gap-2">
                 <FileText className="w-4 h-4 text-amber-600" />
                 <h3 className="font-bold text-slate-900 text-sm">
-                  Create Procurement Requisition
+                  {editingRequisition ? `Edit Requisition (${editingRequisition.prNo})` : 'Create Procurement Requisition'}
                 </h3>
               </div>
               <button
@@ -778,7 +837,7 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
                     type="submit"
                     className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-2xs cursor-pointer"
                   >
-                    Submit Requisition
+                    {editingRequisition ? 'Save Changes' : 'Submit Requisition'}
                   </button>
                 </div>
               </div>
