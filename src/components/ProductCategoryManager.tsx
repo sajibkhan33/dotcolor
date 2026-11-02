@@ -415,7 +415,7 @@ export const ProductCategoryManager: React.FC = () => {
                             {item.nameBn && <div className="text-[11px] text-slate-500">{item.nameBn}</div>}
                           </td>
                           <td className="py-2.5 px-3 text-center text-[11px] font-semibold text-slate-600">
-                            {item.stockFactory} / {item.stockOffice} {item.unit}
+                            {Number((item.stockFactory || 0).toFixed(3))} / {Number((item.stockOffice || 0).toFixed(3))} {item.unit}
                           </td>
                           <td className="py-2.5 px-3 text-right font-bold text-slate-800">
                             ৳{item.unitPrice.toLocaleString()}

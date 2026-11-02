@@ -538,7 +538,7 @@ export const UnitManager: React.FC = () => {
                         </div>
                         <div className="text-right shrink-0">
                           <span className="inline-block text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
-                            {p.stockOffice + p.stockFactory} {p.unit}
+                            {Number(((p.stockOffice || 0) + (p.stockFactory || 0)).toFixed(3))} {p.unit}
                           </span>
                         </div>
                       </div>

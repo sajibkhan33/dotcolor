@@ -382,7 +382,8 @@ export const InventoryModule: React.FC = () => {
                         <span className={`font-black text-xs px-2.5 py-1 rounded-full ${isLow
                         ? 'bg-rose-100 text-rose-700 border border-rose-200'
                         : 'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}>
-                          {total} {p.unit}
+                          {/* {total} {p.unit} */}
+                          {Number((total || 0).toFixed(3))} {p.unit}
                         </span>
                         {isLow && (<div className="text-[10px] font-bold text-rose-600 mt-0.5">
                             {'Low Stock'}
@@ -511,14 +512,14 @@ export const InventoryModule: React.FC = () => {
                 <div>
                   <span className="text-slate-400 block text-[10px]">Factory</span>
                   <span className="font-bold text-slate-800">
-                    {adjustModalProduct.stockFactory} {adjustModalProduct.unit}
+                    {Number((adjustModalProduct.stockFactory || 0).toFixed(3))} {adjustModalProduct.unit}
                   </span>
                 </div>
                 <div className="border-r border-slate-200"/>
                 <div>
-                  <span className="text-slate-400 block text-[10px]"></span>
+                  <span className="text-slate-400 block text-[10px]">Office</span>
                   <span className="font-bold text-slate-800">
-                    {adjustModalProduct.stockOffice} {adjustModalProduct.unit}
+                    {Number((adjustModalProduct.stockOffice || 0).toFixed(3))} {adjustModalProduct.unit}
                   </span>
                 </div>
               </div>

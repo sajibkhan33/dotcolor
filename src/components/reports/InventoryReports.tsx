@@ -217,13 +217,13 @@ export const InventoryReports: React.FC<InventoryReportsProps> = ({ reportId, pr
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right font-mono text-slate-700">
-                          {prod.stockOffice} {prod.unit}
+                          {Number((prod.stockOffice || 0).toFixed(3))} {prod.unit}
                         </td>
                         <td className="py-3 px-4 text-right font-mono text-slate-700">
-                          {prod.stockFactory} {prod.unit}
+                          {Number((prod.stockFactory || 0).toFixed(3))} {prod.unit}
                         </td>
                         <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
-                          {totalQty} {prod.unit}
+                          {Number((totalQty || 0).toFixed(3))} {prod.unit}
                         </td>
                         <td className="py-3 px-4 text-right font-mono text-slate-600">
                           {currency} {prod.costPrice.toLocaleString()}
