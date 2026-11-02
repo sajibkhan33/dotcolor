@@ -226,11 +226,10 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
         phone: '01819-000000',
         address: 'Counter Spot Sale',
         email: '',
+        totalPurchased: 0,
         dueAmount: 0,
-        totalSales: 0,
-        totalPaid: 0,
         advanceBalance: 0,
-        invoicesCount: 0,
+        createdAt: new Date().toISOString(),
     };
 
     const selectedCustomer = selectedCustomerId === 'walk-in'
