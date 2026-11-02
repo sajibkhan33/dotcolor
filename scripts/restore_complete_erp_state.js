@@ -474,107 +474,127 @@ async function restore() {
   const bomList = [
     {
       id: 'bom-1',
-      targetProductId: 'prod-1793509566476-992',
-      productName: 'Frontlit Banner Print (340gsm)',
+      finishedProductId: 'prod-1793509566476-992',
+      finishedProductCode: 'DIG-010',
+      finishedProductName: 'Frontlit Banner Print (340gsm)',
+      outputUnit: 'sqft',
       autoDeductOnSale: true,
+      totalCost: 18.60,
+      notes: 'Standard solvent flex print formula with 5% waste allowance',
+      createdAt: '2026-11-01T10:00:00.000Z',
       components: [
         {
-          productId: 'prod-1793510043978-978',
-          productName: 'Solvent Banner Flex Roll (10ft x 164ft)',
-          requiredQty: 0.00062,
+          rawMaterialId: 'prod-1793510043978-978',
+          rawMaterialCode: 'RAW-979',
+          rawMaterialName: 'Solvent Banner Flex Roll (10ft x 164ft)',
+          quantity: 0.00062,
           unit: 'roll',
           unitCost: 4200,
-          componentCost: 2.60
+          totalCost: 2.60
         },
         {
-          productId: 'prod-1793510100000-740',
-          productName: 'Solvent Printing Ink',
-          requiredQty: 0.02,
+          rawMaterialId: 'prod-1793510100000-740',
+          rawMaterialCode: 'RAW-740',
+          rawMaterialName: 'Solvent Printing Ink',
+          quantity: 0.02,
           unit: 'ltr',
           unitCost: 800,
-          componentCost: 16.00
+          totalCost: 16.00
         }
-      ],
-      estimatedUnitCost: 18.60,
-      notes: 'Standard solvent flex print formula with ink allowance'
+      ]
     },
     {
       id: 'bom-2',
-      targetProductId: 'prod-1793509624654-940',
-      productName: 'Park ID Card',
+      finishedProductId: 'prod-1793509624654-940',
+      finishedProductCode: 'BRA-619',
+      finishedProductName: 'Park ID Card',
+      outputUnit: 'pcs',
       autoDeductOnSale: false,
+      totalCost: 70.00,
+      notes: 'High quality PVC digital printed employee ID card',
+      createdAt: '2026-11-01T10:00:00.000Z',
       components: [
         {
-          productId: 'prod-1793510229096-192',
-          productName: 'PVC Foam Board 5mm (8ft x 4ft)',
-          requiredQty: 0.05,
+          rawMaterialId: 'prod-1793510229096-192',
+          rawMaterialCode: 'ACR-511',
+          rawMaterialName: 'PVC Foam Board 5mm (8ft x 4ft)',
+          quantity: 0.05,
           unit: 'pcs',
           unitCost: 1400,
-          componentCost: 70.00
+          totalCost: 70.00
         }
-      ],
-      estimatedUnitCost: 70.00,
-      notes: 'Digital direct printing and CNC cutout per card'
+      ]
     },
     {
       id: 'bom-3',
-      targetProductId: 'prod-1793509485978-631',
-      productName: 'Glossy Vinyl Sticker Print',
+      finishedProductId: 'prod-1793509485978-631',
+      finishedProductCode: 'DIG-015',
+      finishedProductName: 'Glossy Vinyl Sticker Print',
+      outputUnit: 'sqft',
       autoDeductOnSale: true,
+      totalCost: 21.07,
+      notes: '120gsm white glossy PVC self-adhesive vinyl print recipe',
+      createdAt: '2026-11-01T10:00:00.000Z',
       components: [
         {
-          productId: 'prod-1793510114967-357',
-          productName: 'Self Adhesive Vinyl Roll (4.2ft x 164ft)',
-          requiredQty: 0.00145,
+          rawMaterialId: 'prod-1793510114967-357',
+          rawMaterialCode: 'RAW-585',
+          rawMaterialName: 'Self Adhesive Vinyl Roll (4.2ft x 164ft)',
+          quantity: 0.00145,
           unit: 'pcs',
           unitCost: 3500,
-          componentCost: 5.07
+          totalCost: 5.07
         },
         {
-          productId: 'prod-1793510100000-740',
-          productName: 'Solvent Printing Ink',
-          requiredQty: 0.02,
+          rawMaterialId: 'prod-1793510100000-740',
+          rawMaterialCode: 'RAW-740',
+          rawMaterialName: 'Solvent Printing Ink',
+          quantity: 0.02,
           unit: 'ltr',
           unitCost: 800,
-          componentCost: 16.00
+          totalCost: 16.00
         }
-      ],
-      estimatedUnitCost: 21.07,
-      notes: 'High gloss eco solvent vinyl print recipe'
+      ]
     },
     {
       id: 'bom-4',
-      targetProductId: 'prod-1793509699474-738',
-      productName: 'Sublimation Ceramic Mug',
+      finishedProductId: 'prod-1793509699474-738',
+      finishedProductCode: 'BRA-748',
+      finishedProductName: 'Sublimation Ceramic Mug',
+      outputUnit: 'pcs',
       autoDeductOnSale: false,
+      totalCost: 113.00,
+      notes: '11oz premium white ceramic mug with full color heat press and gift packaging box',
+      createdAt: '2026-11-02T10:00:00.000Z',
       components: [
         {
-          productId: 'prod-1793510200000-145',
-          productName: 'Blank Ceramic White Mug 11oz',
-          requiredQty: 1,
+          rawMaterialId: 'prod-1793510200000-145',
+          rawMaterialCode: 'BRA-145',
+          rawMaterialName: 'Blank Ceramic White Mug 11oz',
+          quantity: 1,
           unit: 'pcs',
           unitCost: 100,
-          componentCost: 100.00
+          totalCost: 100.00
         },
         {
-          productId: 'prod-1793594380000-884',
-          productName: 'Mug Packaging Gift Box',
-          requiredQty: 1,
+          rawMaterialId: 'prod-1793594380000-884',
+          rawMaterialCode: 'BRA-884',
+          rawMaterialName: 'Mug Packaging Gift Box',
+          quantity: 1,
           unit: 'box',
           unitCost: 8,
-          componentCost: 8.00
+          totalCost: 8.00
         },
         {
-          productId: 'prod-1793594364069-872',
-          productName: 'Sublimation Transfer Paper & Ink',
-          requiredQty: 1,
+          rawMaterialId: 'prod-1793594364069-872',
+          rawMaterialCode: 'BRA-265',
+          rawMaterialName: 'Sublimation Transfer Paper & Ink',
+          quantity: 1,
           unit: 'set',
           unitCost: 5,
-          componentCost: 5.00
+          totalCost: 5.00
         }
-      ],
-      estimatedUnitCost: 113.00,
-      notes: 'Heat press transfer recipe with mug box packaging'
+      ]
     }
   ];
 
