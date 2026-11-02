@@ -651,19 +651,19 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
         </div>
 
         {/* RIGHT COLUMN: POS Cart & Checkout (5 Cols) */}
-        <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4">
+        <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-sm p-3.5 sm:p-4 space-y-2.5">
           
           {/* Cart Header */}
-          <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
-                <ShoppingCart className="w-4 h-4"/>
+              <div className="w-7 h-7 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
+                <ShoppingCart className="w-3.5 h-3.5"/>
               </div>
               <div>
-                <h3 className="text-sm font-bold text-slate-900">
+                <h3 className="text-xs sm:text-sm font-bold text-slate-900 leading-tight">
                   {'Sales Cart'}
                 </h3>
-                <span className="text-[11px] text-slate-500">
+                <span className="text-[10px] text-slate-500">
                   {cart.length} {'items'}
                 </span>
               </div>
@@ -675,11 +675,11 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
               </button>)}
           </div>
 
-          {/* Customer Selection & Search (Design 1: Interactive Customer Card + Fast Action Buttons) */}
-          <div className="space-y-2 relative">
+          {/* Customer Selection & Search */}
+          <div className="space-y-1.5 relative">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5 text-slate-500"/>
+              <label className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
+                <User className="w-3 h-3 text-slate-500"/>
                 <span>{'Customer / Client'}</span>
               </label>
               <div className="flex items-center gap-1.5">
@@ -687,7 +687,7 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                   <button
                     type="button"
                     onClick={handleSelectWalkIn}
-                    className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                    className="text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                     title="Quick reset to Walk-in Customer"
                   >
                     <span>🚶</span>
@@ -709,9 +709,9 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                     }
                     setShowNewCustomerModal(true);
                   }}
-                  className="text-xs text-amber-600 hover:text-amber-800 font-bold flex items-center gap-1 transition-colors px-1 py-0.5 cursor-pointer"
+                  className="text-[11px] text-amber-600 hover:text-amber-800 font-bold flex items-center gap-1 transition-colors px-1 py-0.5 cursor-pointer"
                 >
-                  <UserPlus className="w-3.5 h-3.5"/>
+                  <UserPlus className="w-3 h-3"/>
                   {'+ New Customer'}
                 </button>
               </div>
@@ -720,11 +720,11 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
             {/* When search is NOT open: Selected Customer Card or Placeholder */}
             {!isCustomerSearchOpen ? (
               selectedCustomer ? (
-                <div className="bg-slate-50/90 hover:bg-slate-100/90 border border-slate-200/90 rounded-2xl p-3 transition-all shadow-2xs">
-                  <div className="flex items-center justify-between gap-2.5">
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <div className="bg-slate-50/90 hover:bg-slate-100/90 border border-slate-200/90 rounded-xl p-2 px-2.5 transition-all shadow-2xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                       <div
-                        className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-black shrink-0 shadow-2xs ${
+                        className={`w-7.5 h-7.5 rounded-lg flex items-center justify-center text-xs font-black shrink-0 shadow-2xs ${
                           isWalkIn
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                             : 'bg-amber-100 text-amber-800 border border-amber-200'
@@ -734,19 +734,19 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">
+                          <span className="font-extrabold text-xs text-slate-900 truncate">
                             {selectedCustomer.name}
                           </span>
                           {selectedCustomer.company && selectedCustomer.company !== selectedCustomer.name && (
-                            <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded truncate max-w-[130px]">
+                            <span className="text-[9px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1 py-0.2 rounded truncate max-w-[120px]">
                               {selectedCustomer.company}
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-slate-500 font-medium truncate mt-0.5 flex items-center gap-1.5">
+                        <div className="text-[10px] text-slate-500 font-medium truncate flex items-center gap-1.5">
                           <span className="font-mono">{selectedCustomer.phone || '01819-000000'}</span>
                           {selectedCustomer.address && (
-                            <span className="truncate max-w-[140px] text-slate-400">• {selectedCustomer.address}</span>
+                            <span className="truncate max-w-[120px] text-slate-400">• {selectedCustomer.address}</span>
                           )}
                         </div>
                       </div>
@@ -759,10 +759,10 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                           setIsCustomerSearchOpen(true);
                           setCustomerSearchTerm('');
                         }}
-                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1 cursor-pointer"
+                        className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[11px] font-bold shadow-2xs transition-all flex items-center gap-1 cursor-pointer"
                         title="Search or select another customer"
                       >
-                        <Search className="w-3.5 h-3.5 text-amber-400"/>
+                        <Search className="w-3 h-3 text-amber-400"/>
                         <span>{'Change'}</span>
                       </button>
                       <button
@@ -771,7 +771,7 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                           setSelectedCustomerId('');
                           setIsCustomerSearchOpen(false);
                         }}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                         title="Clear customer selection"
                       >
                         <X className="w-3.5 h-3.5"/>
@@ -781,12 +781,12 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
 
                   {/* Past Due Alert Banner if selected customer has debt */}
                   {selectedCustomer.dueAmount > 0 && (
-                    <div className="mt-2.5 pt-2 border-t border-slate-200/80 flex items-center justify-between text-xs">
-                      <span className="text-[11px] font-bold text-rose-700 flex items-center gap-1">
-                        <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0"/>
+                    <div className="mt-1.5 pt-1.5 border-t border-slate-200/80 flex items-center justify-between text-[11px]">
+                      <span className="text-[10px] font-bold text-rose-700 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3 text-rose-600 shrink-0"/>
                         <span>{'Previous Account Due:'}</span>
                       </span>
-                      <span className="font-black text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-lg text-xs">
+                      <span className="font-black text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded text-[11px]">
                         {profile.currencySymbol}{(Number(selectedCustomer.dueAmount) || 0).toLocaleString()}
                       </span>
                     </div>
@@ -799,26 +799,26 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                     setIsCustomerSearchOpen(true);
                     setCustomerSearchTerm('');
                   }}
-                  className="border-2 border-dashed border-slate-200 hover:border-amber-400 bg-slate-50/70 hover:bg-amber-50/30 rounded-2xl p-3 flex items-center justify-between gap-2.5 transition-all cursor-pointer group"
+                  className="border-2 border-dashed border-slate-200 hover:border-amber-400 bg-slate-50/70 hover:bg-amber-50/30 rounded-xl p-2 px-2.5 flex items-center justify-between gap-2 transition-all cursor-pointer group"
                 >
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <div className="w-9 h-9 rounded-xl bg-slate-200 group-hover:bg-amber-100 text-slate-400 group-hover:text-amber-600 flex items-center justify-center shrink-0 transition-colors">
-                      <User className="w-4 h-4"/>
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <div className="w-7.5 h-7.5 rounded-lg bg-slate-200 group-hover:bg-amber-100 text-slate-400 group-hover:text-amber-600 flex items-center justify-center shrink-0 transition-colors">
+                      <User className="w-3.5 h-3.5"/>
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="font-bold text-xs sm:text-sm text-slate-700 group-hover:text-amber-900 transition-colors">
+                      <div className="font-bold text-xs text-slate-700 group-hover:text-amber-900 transition-colors">
                         {'Select Customer / Client'}
                       </div>
-                      <div className="text-[11px] text-slate-400 group-hover:text-slate-500 transition-colors">
+                      <div className="text-[10px] text-slate-400 group-hover:text-slate-500 transition-colors leading-tight">
                         {'Click to choose customer or pick Walk-in'}
                       </div>
                     </div>
                   </div>
                   <button
                     type="button"
-                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+                    className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[11px] font-bold shadow-2xs transition-all flex items-center gap-1 shrink-0 cursor-pointer"
                   >
-                    <Search className="w-3.5 h-3.5 text-white"/>
+                    <Search className="w-3 h-3 text-white"/>
                     <span>{'Select'}</span>
                   </button>
                 </div>
@@ -973,42 +973,42 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
           </div>
 
           {/* Location, Delivery & Reference Info */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 text-xs">
             <div>
-              <label className="text-[11px] font-bold text-slate-700 block mb-1">
+              <label className="text-[10px] font-bold text-slate-600 block mb-0.5">
                 {'Dispatch From'}
               </label>
-              <select value={warehouseLocation} onChange={(e) => setWarehouseLocation(e.target.value as any)} className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-xs focus:ring-1 focus:ring-amber-500/30 focus:outline-hidden">
+              <select value={warehouseLocation} onChange={(e) => setWarehouseLocation(e.target.value as any)} className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-medium text-[11px] focus:ring-1 focus:ring-amber-500/30 focus:outline-hidden">
                 <option value="Factory">
-                  {'Central Factory & Production Unit'}
+                  {'Central Factory'}
                 </option>
                 <option value="Office">
-                  {'Central Warehouse & Outlet (Office)'}
+                  {'Central Warehouse'}
                 </option>
               </select>
             </div>
 
             <div>
-              <label className="text-[11px] font-bold text-slate-700 block mb-1">
+              <label className="text-[10px] font-bold text-slate-600 block mb-0.5">
                 {'Delivery Date'}
               </label>
-              <input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-xs focus:ring-1 focus:ring-amber-500/30 focus:outline-hidden"/>
+              <input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-medium text-[11px] focus:ring-1 focus:ring-amber-500/30 focus:outline-hidden"/>
             </div>
 
             <div>
-              <label className="text-[11px] font-bold text-slate-700 block mb-1">
+              <label className="text-[10px] font-bold text-slate-600 block mb-0.5">
                 {'Reference / PO No.'}
               </label>
-              <input type="text" value={referenceNo} onChange={(e) => setReferenceNo(e.target.value)} placeholder={'e.g. PO-8901, REF-12'} className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-xs focus:ring-1 focus:ring-amber-500/30 focus:outline-hidden"/>
+              <input type="text" value={referenceNo} onChange={(e) => setReferenceNo(e.target.value)} placeholder={'e.g. PO-8901'} className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-medium text-[11px] focus:ring-1 focus:ring-amber-500/30 focus:outline-hidden"/>
             </div>
           </div>
 
           {/* Cart Item List */}
-          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-            {cart.map((item, idx) => (<div key={`${item.productId}-${idx}`} className="p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 flex items-start justify-between gap-2">
+          <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+            {cart.map((item, idx) => (<div key={`${item.productId}-${idx}`} className="p-2 bg-slate-50 rounded-xl border border-slate-200/80 flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <div className="font-bold text-xs text-slate-900 truncate">{item.name}</div>
-                  <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                  <div className="text-[10px] text-slate-500 flex items-center gap-1.5 mt-0.5">
                     <span>
                       {profile.currencySymbol}
                       {item.unitPrice} × {item.qty} {item.unit}
@@ -1020,18 +1020,18 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                   {item.notes && (<div className="text-[10px] text-slate-500 italic mt-0.5">{item.notes}</div>)}
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
                   <div className="flex items-center bg-white rounded-lg border border-slate-200 overflow-hidden">
-                    <button type="button" onClick={() => updateCartQty(idx, -1)} className="p-1 text-slate-600 hover:bg-slate-100">
+                    <button type="button" onClick={() => updateCartQty(idx, -1)} className="p-0.5 text-slate-600 hover:bg-slate-100">
                       <Minus className="w-3 h-3"/>
                     </button>
-                    <span className="px-2 text-xs font-bold text-slate-900">{item.qty}</span>
-                    <button type="button" onClick={() => updateCartQty(idx, 1)} className="p-1 text-slate-600 hover:bg-slate-100">
+                    <span className="px-1.5 text-xs font-bold text-slate-900">{item.qty}</span>
+                    <button type="button" onClick={() => updateCartQty(idx, 1)} className="p-0.5 text-slate-600 hover:bg-slate-100">
                       <Plus className="w-3 h-3"/>
                     </button>
                   </div>
 
-                  <span className="text-xs font-extrabold text-slate-900 w-16 text-right">
+                  <span className="text-xs font-extrabold text-slate-900 w-14 text-right">
                     {profile.currencySymbol}
                     {item.totalPrice.toLocaleString()}
                   </span>
@@ -1042,12 +1042,12 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                 </div>
               </div>))}
 
-            {cart.length === 0 && (<div className="py-8 text-center text-slate-400 space-y-1">
-                <ShoppingCart className="w-8 h-8 mx-auto text-slate-300"/>
-                <p className="text-xs font-semibold">
+            {cart.length === 0 && (<div className="py-3 text-center text-slate-400 space-y-0.5">
+                <ShoppingCart className="w-5 h-5 mx-auto text-slate-300"/>
+                <p className="text-xs font-semibold text-slate-600">
                   {'Your cart is empty'}
                 </p>
-                <p className="text-[11px]">
+                <p className="text-[10px]">
                   {'Click any service or product from the catalog'}
                 </p>
               </div>)}
