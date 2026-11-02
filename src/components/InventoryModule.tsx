@@ -87,6 +87,9 @@ export const InventoryModule: React.FC = () => {
     const rawMaterialsValuation = products
         .filter((p) => p.isRawMaterial)
         .reduce((acc, p) => acc + ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0)) * (Number(p.costPrice) || 0), 0);
+    const finishedGoodsValuation = products
+        .filter((p) => !p.isRawMaterial)
+        .reduce((acc, p) => acc + ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0)) * (Number(p.costPrice) || 0), 0);
     const lowStockCount = products.filter((p) => !p.isRawMaterial && ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0)) <= (Number(p.minStockAlert) || 10)).length;
     const selectedCategoryObj = (productCategories || []).find((c) => c.name.toLowerCase() === (formData.category || '').toLowerCase());
 
@@ -228,14 +231,14 @@ export const InventoryModule: React.FC = () => {
     };
     return (<div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5">
       {/* Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
           <span className="text-xs font-bold text-slate-500 block mb-1">
             {'Total Stock Asset Value'}
           </span>
           <div className="text-xl sm:text-2xl font-black text-slate-900">
             {profile.currencySymbol}
-            {totalStockValuation.toLocaleString()}
+            {Number(totalStockValuation.toFixed(2)).toLocaleString()}
           </div>
           <span className="text-[11px] text-slate-400 mt-1 block">
             {products.length} {'SKUs tracked in total'}
@@ -248,10 +251,23 @@ export const InventoryModule: React.FC = () => {
           </span>
           <div className="text-xl sm:text-2xl font-black text-amber-700">
             {profile.currencySymbol}
-            {rawMaterialsValuation.toLocaleString()}
+            {Number(rawMaterialsValuation.toFixed(2)).toLocaleString()}
           </div>
           <span className="text-[11px] text-amber-600/80 mt-1 block font-medium">
             {'Flex, Vinyl, Inks, Acrylic & blanks'}
+          </span>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+          <span className="text-xs font-bold text-emerald-700 block mb-1">
+            {'Finished Goods Inventory Value'}
+          </span>
+          <div className="text-xl sm:text-2xl font-black text-emerald-700">
+            {profile.currencySymbol}
+            {Number(finishedGoodsValuation.toFixed(2)).toLocaleString()}
+          </div>
+          <span className="text-[11px] text-emerald-600/80 mt-1 block font-medium">
+            {'Ready for sale & retail items'}
           </span>
         </div>
 
