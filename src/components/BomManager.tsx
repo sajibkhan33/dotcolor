@@ -1163,10 +1163,10 @@ export const BomManager: React.FC = () => {
                             {c.quantity} {c.unit}
                           </td>
                           <td className="py-2 px-3 text-right font-mono text-slate-700">
-                            {profile.currencySymbol}{c.unitCost.toLocaleString()}
+                            {profile.currencySymbol}{(Number(c.unitCost) || 0).toLocaleString()}
                           </td>
                           <td className="py-2 px-3 text-right font-bold text-slate-800 font-mono">
-                            {profile.currencySymbol}{c.totalCost.toLocaleString()}
+                            {profile.currencySymbol}{(Number(c.totalCost) || 0).toLocaleString()}
                           </td>
                         </tr>
                       ))}

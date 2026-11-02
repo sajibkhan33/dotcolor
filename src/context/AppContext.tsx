@@ -609,7 +609,16 @@ export const AppProvider: React.FC<{
         }
     });
     const [products, setProducts] = useState<ProductItem[]>(() => {
-        return safeGetLocalStorage<ProductItem[]>(`${STORAGE_KEY}_PRODUCTS`, INITIAL_PRODUCTS);
+        const raw = safeGetLocalStorage<ProductItem[]>(`${STORAGE_KEY}_PRODUCTS`, INITIAL_PRODUCTS) || [];
+        return raw.map((p: any) => ({
+            ...p,
+            unitPrice: Number(p.unitPrice ?? p.sellingPrice ?? p.price ?? 0),
+            sellingPrice: Number(p.unitPrice ?? p.sellingPrice ?? p.price ?? 0),
+            costPrice: Number(p.costPrice ?? 0),
+            stockFactory: Number(p.stockFactory ?? p.stock ?? 0),
+            stockOffice: Number(p.stockOffice ?? 0),
+            stock: Number(p.stock ?? ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0))),
+        }));
     });
     const [customers, setCustomers] = useState<Customer[]>(() => {
         return safeGetLocalStorage<Customer[]>(`${STORAGE_KEY}_CUSTOMERS`, INITIAL_CUSTOMERS);
@@ -634,7 +643,9 @@ export const AppProvider: React.FC<{
         return list.map((po: any) => {
             const num = po.poNumber || po.poNo || 'DCC-PO';
             const dest = po.destinationLocation || po.destination || 'Factory';
-            const total = po.grandTotal ?? po.totalAmount ?? 0;
+            const total = Number(po.grandTotal ?? po.totalAmount ?? 0);
+            const paid = Number(po.paidAmount ?? 0);
+            const due = po.dueAmount !== undefined ? Number(po.dueAmount) : Math.max(0, total - paid);
             return {
                 ...po,
                 poNo: num,
@@ -643,10 +654,12 @@ export const AppProvider: React.FC<{
                 destinationLocation: dest,
                 grandTotal: total,
                 totalAmount: total,
-                subtotal: po.subtotal ?? total,
+                subtotal: Number(po.subtotal ?? total),
+                paidAmount: paid,
+                dueAmount: due,
                 paymentStatus: po.status !== 'Received'
                     ? 'Pending'
-                    : (po.paymentStatus && po.paymentStatus !== 'Pending' ? po.paymentStatus : (po.dueAmount <= 0 ? 'Paid' : po.paidAmount > 0 ? 'Partial' : 'Due')),
+                    : (po.paymentStatus && po.paymentStatus !== 'Pending' ? po.paymentStatus : (due <= 0 ? 'Paid' : paid > 0 ? 'Partial' : 'Due')),
             };
         });
     });
@@ -8697,8 +8710,17 @@ export const AppProvider: React.FC<{
                 try { localStorage.setItem(`${STORAGE_KEY}_PROFILE`, JSON.stringify(data.profile)); } catch {}
             }
             if (data.products && Array.isArray(data.products)) {
-                setProducts(data.products);
-                try { localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(data.products)); } catch {}
+                const cleanedProducts = data.products.map((p: any) => ({
+                    ...p,
+                    unitPrice: Number(p.unitPrice ?? p.sellingPrice ?? p.price ?? 0),
+                    sellingPrice: Number(p.unitPrice ?? p.sellingPrice ?? p.price ?? 0),
+                    costPrice: Number(p.costPrice ?? 0),
+                    stockFactory: Number(p.stockFactory ?? p.stock ?? 0),
+                    stockOffice: Number(p.stockOffice ?? 0),
+                    stock: Number(p.stock ?? ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0))),
+                }));
+                setProducts(cleanedProducts);
+                try { localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(cleanedProducts)); } catch {}
             }
             if (data.customers && Array.isArray(data.customers)) {
                 setCustomers(data.customers);
@@ -8764,7 +8786,19 @@ export const AppProvider: React.FC<{
                 try { localStorage.setItem(`${STORAGE_KEY}_QUOTATIONS`, JSON.stringify(qts)); } catch {}
             }
             if (data.purchaseOrders && Array.isArray(data.purchaseOrders)) {
-                let pos = data.purchaseOrders;
+                let pos = data.purchaseOrders.map((po: any) => {
+                    const total = Number(po.grandTotal ?? po.totalAmount ?? 0);
+                    const paid = Number(po.paidAmount ?? 0);
+                    const due = po.dueAmount !== undefined ? Number(po.dueAmount) : Math.max(0, total - paid);
+                    return {
+                        ...po,
+                        grandTotal: total,
+                        totalAmount: total,
+                        subtotal: Number(po.subtotal ?? total),
+                        paidAmount: paid,
+                        dueAmount: due,
+                    };
+                });
                 if (purgeTs > 0 && isPurchasesPurge) {
                     pos = pos.filter((po: any) => {
                         const m = String(po.id || '').match(/po-(\d+)/);

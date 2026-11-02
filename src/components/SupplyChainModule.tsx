@@ -1882,7 +1882,7 @@ export const SupplyChainModule: React.FC = () => {
                     </span>
                     <span className="font-black text-rose-700 text-sm">
                       {profile.currencySymbol}
-                      {poToPay.dueAmount.toLocaleString()}
+                      {(Number(poToPay.dueAmount) || 0).toLocaleString()}
                     </span>
                   </div>
                 </div>
@@ -2083,7 +2083,7 @@ export const SupplyChainModule: React.FC = () => {
                     <span>{'Remaining Due After Pay:'}</span>
                     <span className="font-bold text-slate-900">
                       {profile.currencySymbol}
-                      {Math.max(0, poToPay.dueAmount - poPayAmount).toLocaleString()}
+                      {Math.max(0, (Number(poToPay.dueAmount) || 0) - poPayAmount).toLocaleString()}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">

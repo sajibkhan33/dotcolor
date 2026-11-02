@@ -619,7 +619,7 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                     <div>
                       <span className="text-xs sm:text-sm font-extrabold text-slate-950">
                         {profile.currencySymbol}
-                        {prod.unitPrice.toLocaleString()}
+                        {(Number(prod.unitPrice ?? (prod as any).sellingPrice ?? 0) || 0).toLocaleString()}
                       </span>
                       <span className="text-[10px] text-slate-500 ml-0.5">/{prod.unit}</span>
                     </div>
@@ -777,7 +777,7 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                       <span>{'Previous Account Due:'}</span>
                     </span>
                     <span className="font-black text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-lg text-xs">
-                      {profile.currencySymbol}{selectedCustomer.dueAmount.toLocaleString()}
+                      {profile.currencySymbol}{(Number(selectedCustomer.dueAmount) || 0).toLocaleString()}
                     </span>
                   </div>
                 )}
@@ -890,7 +890,7 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                           <div className="flex items-center gap-2 shrink-0">
                             {c.dueAmount > 0 && (
                               <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-md">
-                                Due: {profile.currencySymbol}{c.dueAmount.toLocaleString()}
+                                Due: {profile.currencySymbol}{(Number(c.dueAmount) || 0).toLocaleString()}
                               </span>
                             )}
                             {isSelected && (
@@ -1270,11 +1270,11 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
             <div className="bg-slate-50 p-3 rounded-xl flex items-center justify-between text-xs">
               <span className="text-slate-600">
                 {profile.currencySymbol}
-                {dimModalProduct.unitPrice}/sqft × {(dimWidth * dimHeight * dimQty).toFixed(2)} sqft
+                {Number(dimModalProduct.unitPrice ?? (dimModalProduct as any).sellingPrice ?? 0)}/sqft × {(dimWidth * dimHeight * dimQty).toFixed(2)} sqft
               </span>
               <span className="text-base font-black text-slate-900">
                 {profile.currencySymbol}
-                {Math.round(dimWidth * dimHeight * dimQty * dimModalProduct.unitPrice).toLocaleString()}
+                {Math.round(dimWidth * dimHeight * dimQty * Number(dimModalProduct.unitPrice ?? (dimModalProduct as any).sellingPrice ?? 0)).toLocaleString()}
               </span>
             </div>
 

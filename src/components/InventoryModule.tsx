@@ -81,13 +81,13 @@ export const InventoryModule: React.FC = () => {
     });
     // Valuations
     const totalStockValuation = products.reduce((acc, p) => {
-        const totalQty = p.stockFactory + p.stockOffice;
-        return acc + totalQty * p.costPrice;
+        const totalQty = (Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0);
+        return acc + totalQty * (Number(p.costPrice) || 0);
     }, 0);
     const rawMaterialsValuation = products
         .filter((p) => p.isRawMaterial)
-        .reduce((acc, p) => acc + (p.stockFactory + p.stockOffice) * p.costPrice, 0);
-    const lowStockCount = products.filter((p) => !p.isRawMaterial && p.stockFactory + p.stockOffice <= p.minStockAlert).length;
+        .reduce((acc, p) => acc + ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0)) * (Number(p.costPrice) || 0), 0);
+    const lowStockCount = products.filter((p) => !p.isRawMaterial && ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0)) <= (Number(p.minStockAlert) || 10)).length;
     const selectedCategoryObj = (productCategories || []).find((c) => c.name.toLowerCase() === (formData.category || '').toLowerCase());
 
     const handleOpenAddCategoryFromItem = () => {
@@ -393,10 +393,10 @@ export const InventoryModule: React.FC = () => {
                         <div className="font-bold text-slate-900">
                           {p.isRawMaterial ? (<span className="text-slate-600 font-medium">:</span>) : (<span className="text-slate-600 font-medium">:</span>)}
                           {profile.currencySymbol}
-                          {(p.isRawMaterial ? p.costPrice : p.unitPrice).toLocaleString()}
+                          {(Number(p.isRawMaterial ? p.costPrice : (p.unitPrice ?? (p as any).sellingPrice ?? 0)) || 0).toLocaleString()}
                         </div>
                         <div className="text-[10px] text-slate-400">:{profile.currencySymbol}
-                          {p.costPrice.toLocaleString()}
+                          {(Number(p.costPrice) || 0).toLocaleString()}
                         </div>
                       </td>
 
