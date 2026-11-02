@@ -4028,20 +4028,22 @@ export const AppProvider: React.FC<{
             const currentProds = latestStateRef.current?.products || products || [];
             const existingProductIds = new Set(currentProds.map(p => p.id));
             const updated = currentProds.map((p) => {
-                const item = data.items.find((i) => i.productId === p.id);
-                if (item) {
+                const matchingItems = data.items.filter((i) => i.productId === p.id);
+                if (matchingItems.length > 0) {
+                    const totalAddedQty = matchingItems.reduce((sum, i) => sum + (Number(i.qty) || 0), 0);
+                    const totalItemCost = matchingItems.reduce((sum, i) => sum + ((Number(i.qty) || 0) * (Number(i.unitCost) || 0)), 0);
+                    const avgNewCost = totalAddedQty > 0 ? Math.round((totalItemCost / totalAddedQty) * 100) / 100 : 0;
                     const locKey = data.destination === 'Factory' ? 'stockFactory' : 'stockOffice';
                     const prevQty = (p.stockFactory || 0) + (p.stockOffice || 0);
-                    const newCost = Number(item.unitCost) || 0;
                     let targetCost = p.costPrice;
-                    if (newCost > 0) {
+                    if (avgNewCost > 0) {
                         if (prevQty <= 0 || !p.costPrice || p.costPrice <= 1) {
-                            targetCost = newCost;
+                            targetCost = avgNewCost;
                         } else {
-                            targetCost = Math.round(((prevQty * p.costPrice) + (item.qty * newCost)) / (prevQty + item.qty) * 100) / 100;
+                            targetCost = Math.round(((prevQty * p.costPrice) + totalItemCost) / (prevQty + totalAddedQty) * 100) / 100;
                         }
                     }
-                    const newLocStock = (p[locKey] || 0) + item.qty;
+                    const newLocStock = (p[locKey] || 0) + totalAddedQty;
                     const otherLocKey = locKey === 'stockFactory' ? 'stockOffice' : 'stockFactory';
                     return { 
                         ...p, 
@@ -4190,21 +4192,25 @@ export const AppProvider: React.FC<{
             const currentProds = latestStateRef.current?.products || products || [];
             const existingProductIds = new Set(currentProds.map((p: any) => p.id));
             const updated = currentProds.map((p: ProductItem) => {
-                const item = updatedItems.find((i) => i.productId === p.id);
-                if (item) {
-                    const rQty = item.receivedQty !== undefined ? item.receivedQty : item.qty;
+                const matchingItems = updatedItems.filter((i) => i.productId === p.id);
+                if (matchingItems.length > 0) {
+                    const totalRQty = matchingItems.reduce((sum, i) => sum + (i.receivedQty !== undefined ? Number(i.receivedQty) || 0 : Number(i.qty) || 0), 0);
+                    const totalItemCost = matchingItems.reduce((sum, i) => {
+                        const rQty = i.receivedQty !== undefined ? Number(i.receivedQty) || 0 : Number(i.qty) || 0;
+                        return sum + (rQty * (Number(i.unitCost) || 0));
+                    }, 0);
+                    const avgNewCost = totalRQty > 0 ? Math.round((totalItemCost / totalRQty) * 100) / 100 : 0;
                     const locKey = po.destination === 'Factory' ? 'stockFactory' : 'stockOffice';
                     const prevQty = (p.stockFactory || 0) + (p.stockOffice || 0);
-                    const newCost = Number(item.unitCost) || 0;
                     let targetCost = p.costPrice;
-                    if (newCost > 0) {
+                    if (avgNewCost > 0) {
                         if (prevQty <= 0 || !p.costPrice || p.costPrice <= 1) {
-                            targetCost = newCost;
+                            targetCost = avgNewCost;
                         } else {
-                            targetCost = Math.round(((prevQty * p.costPrice) + (rQty * newCost)) / (prevQty + rQty) * 100) / 100;
+                            targetCost = Math.round(((prevQty * p.costPrice) + totalItemCost) / (prevQty + totalRQty) * 100) / 100;
                         }
                     }
-                    const newLocStock = (p[locKey] || 0) + rQty;
+                    const newLocStock = (p[locKey] || 0) + totalRQty;
                     const otherLocKey = locKey === 'stockFactory' ? 'stockOffice' : 'stockFactory';
                     return { 
                         ...p, 

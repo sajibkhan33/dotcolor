@@ -261,24 +261,38 @@ export const SupplyChainModule: React.FC = () => {
             setPoFormError('⚠️ Please select a vendor / supplier.');
             return;
         }
-        const validItems: PurchaseItem[] = [];
+        const mergedItemsMap = new Map<string, PurchaseItem>();
         for (const item of poItems) {
             const matchedProd = (products || []).find((p) => p.id === item.productId);
+            const pId = item.productId || matchedProd?.id || `custom-${Date.now()}`;
             const name = (item.name || '').trim() || matchedProd?.name || 'Raw Material Item';
             const unit = (item.unit || matchedProd?.unit || 'roll') as any;
             const qty = Math.max(0, Number(item.qty) || 0);
             const unitCost = Math.max(0, Number(item.unitCost) || 0);
             if (qty > 0) {
-                validItems.push({
-                    productId: item.productId || matchedProd?.id || `custom-${Date.now()}`,
-                    name,
-                    unit,
-                    qty,
-                    unitCost,
-                    totalCost: qty * unitCost,
-                });
+                if (mergedItemsMap.has(pId)) {
+                    const existing = mergedItemsMap.get(pId)!;
+                    const combinedQty = existing.qty + qty;
+                    const combinedTotalCost = existing.totalCost + (qty * unitCost);
+                    mergedItemsMap.set(pId, {
+                        ...existing,
+                        qty: combinedQty,
+                        unitCost: combinedQty > 0 ? Math.round((combinedTotalCost / combinedQty) * 100) / 100 : unitCost,
+                        totalCost: combinedTotalCost,
+                    });
+                } else {
+                    mergedItemsMap.set(pId, {
+                        productId: pId,
+                        name,
+                        unit,
+                        qty,
+                        unitCost,
+                        totalCost: qty * unitCost,
+                    });
+                }
             }
         }
+        const validItems = Array.from(mergedItemsMap.values());
         if (validItems.length === 0) {
             setPoFormError('⚠️ Please provide valid quantity and cost for at least one item.');
             return;
