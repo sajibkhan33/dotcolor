@@ -631,6 +631,36 @@ export const InventoryModule: React.FC = () => {
                 </div>
               </div>
 
+              {/* Item Type / Classification Toggle */}
+              <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                <div>
+                  <span className="font-bold text-slate-800 text-xs block">Item Classification / Type *</span>
+                  <span className="text-[11px] text-slate-500">
+                    {formData.isRawMaterial ? 'Raw Material (কাঁচামাল — BOM রেসিপিতে ব্যবহারের জন্য)' : 'Finished Good / Service (বিক্রয়যোগ্য তৈরি পণ্য)'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, isRawMaterial: false })}
+                    className={`px-3 py-1 rounded text-xs font-bold transition-all ${
+                      !formData.isRawMaterial ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Finished Good
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, isRawMaterial: true })}
+                    className={`px-3 py-1 rounded text-xs font-bold transition-all ${
+                      formData.isRawMaterial ? 'bg-amber-600 text-white shadow-2xs' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Raw Material
+                  </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <div className="flex items-center justify-between mb-1">
