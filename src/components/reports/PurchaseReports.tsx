@@ -167,6 +167,7 @@ export const PurchaseReports: React.FC<PurchaseReportsProps> = ({ reportId, purc
               <option value="ALL">{'All Status'}</option>
               <option value="Received">{'Received'}</option>
               <option value="Ordered">{'Ordered'}</option>
+              <option value="Partially Returned">{'Partially Returned'}</option>
               <option value="Pending">{'Pending'}</option>
             </select>
           </div>
@@ -220,7 +221,7 @@ export const PurchaseReports: React.FC<PurchaseReportsProps> = ({ reportId, purc
                           {currency} {po.dueAmount.toLocaleString()}
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${po.status === 'Received'
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${po.status === 'Partially Returned' ? 'bg-purple-50 text-purple-700 border-purple-200' : po.status === 'Received'
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                     : po.status === 'Ordered'
                         ? 'bg-blue-50 text-blue-700 border-blue-200'

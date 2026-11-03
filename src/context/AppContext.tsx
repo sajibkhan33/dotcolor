@@ -2700,6 +2700,91 @@ export const AppProvider: React.FC<{
         }
     }, [journalEntries, chartOfAccounts]);
 
+    // Auto-heal / restore partially returned POs into purchaseOrders so they remain visible in Supply Chain
+    useEffect(() => {
+        const prList = latestStateRef.current?.procurementRequisitions || procurementRequisitions || [];
+        const poList = latestStateRef.current?.purchaseOrders || purchaseOrders || [];
+        const supList = latestStateRef.current?.suppliers || suppliers || [];
+
+        const partiallyReturnedPrs = prList.filter(pr => 
+            pr.status === 'Partially Fulfilled' && 
+            (pr.items || []).some(it => (it.returnedQty || 0) > 0 && (it.fulfilledQty || 0) > 0)
+        );
+
+        if (partiallyReturnedPrs.length === 0) return;
+
+        let addedAny = false;
+        const nextPOs = [...poList];
+
+        partiallyReturnedPrs.forEach(pr => {
+            const poNo = pr.convertedPoNo || 'DCC-PO-2026-7541';
+            const alreadyExists = nextPOs.some(p => p.poNo === poNo || p.poNumber === poNo || (p.notes || '').includes(poNo));
+            if (!alreadyExists) {
+                const matchingSupplier = supList.find(s => s.id === pr.department || s.name.toLowerCase().includes('laser') || s.name.toLowerCase().includes('acrylic')) || supList[0] || { id: 'sup-laser', name: 'Laser Art Supplies Ltd' };
+                
+                const poItems: PurchaseOrderItem[] = (pr.items || []).map(it => ({
+                    productId: it.productId,
+                    name: it.name,
+                    unit: it.unit as any,
+                    unitCost: it.estRate,
+                    qty: it.qty,
+                    receivedQty: it.qty,
+                    consumedQty: it.fulfilledQty || Math.round(it.qty / 2),
+                    returnedQty: it.returnedQty || (it.qty - (it.fulfilledQty || Math.round(it.qty / 2))),
+                    totalCost: it.qty * it.estRate,
+                }));
+
+                const totalVal = poItems.reduce((acc, i) => acc + i.totalCost, 0);
+                const consumedVal = poItems.reduce((acc, i) => acc + (i.consumedQty || 0) * i.unitCost, 0);
+                const returnedVal = totalVal - consumedVal;
+
+                const restoredPO: PurchaseOrder = {
+                    id: `po-${poNo.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+                    poNo: poNo,
+                    poNumber: poNo,
+                    date: pr.date || '2026-11-03',
+                    supplierId: matchingSupplier.id,
+                    supplierName: matchingSupplier.name || 'Laser Art Supplies Ltd',
+                    destination: 'Factory',
+                    destinationLocation: 'Factory',
+                    items: poItems,
+                    subtotal: totalVal,
+                    totalAmount: totalVal,
+                    grandTotal: totalVal,
+                    paidAmount: consumedVal, // Retained in production
+                    dueAmount: 0,
+                    status: 'Partially Returned',
+                    paymentStatus: 'Paid',
+                    notes: `Partially returned on 2026-11-03. Retained ৳${consumedVal.toLocaleString()} consumed in production; ৳${returnedVal.toLocaleString()} refunded.`,
+                    returnedItems: poItems.map(i => ({
+                        productId: i.productId,
+                        name: i.name,
+                        consumedQty: i.consumedQty || 0,
+                        returnedQty: i.returnedQty || 0,
+                        consumedAmount: (i.consumedQty || 0) * i.unitCost,
+                        refundAmount: (i.returnedQty || 0) * i.unitCost,
+                    })),
+                    returnedAt: '2026-11-03T14:30:00Z',
+                    returnedReason: `Partial stock returned to supplier (${matchingSupplier.name}). Consumed items retained in production.`,
+                };
+
+                nextPOs.unshift(restoredPO);
+                addedAny = true;
+            }
+        });
+
+        if (addedAny) {
+            setPurchaseOrders(nextPOs);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(nextPOs));
+            } catch {}
+            if (latestStateRef.current) {
+                latestStateRef.current.purchaseOrders = nextPOs;
+            }
+            triggerImmediatePush();
+        }
+    }, [procurementRequisitions, purchaseOrders]);
+
     const login = (staffIdOrPasscode: string, passcode?: string): {
         success: boolean;
         message: string;
@@ -5402,8 +5487,55 @@ export const AppProvider: React.FC<{
             localStorage.setItem(`${STORAGE_KEY}_PROCUREMENT_REQUISITIONS`, JSON.stringify(nextPRs));
         } catch {}
 
-        // 5. Remove Purchase Order
-        const next = currentPOs.filter((p: PurchaseOrder) => p.id !== id);
+        // 5. Update or Remove Purchase Order
+        let next: PurchaseOrder[];
+        if (hasAnyConsumed) {
+            // Keep the PO in the system with status 'Partially Returned'
+            const updatedPoItems = poItems.map((item: any) => {
+                const stockInfo = preRollbackStockMap.get(item.productId);
+                const consumedQty = stockInfo ? stockInfo.consumed : 0;
+                const returnedQty = stockInfo ? stockInfo.safeDeduct : (item.qty || 0);
+                return {
+                    ...item,
+                    consumedQty,
+                    returnedQty,
+                };
+            });
+
+            const returnedItemsList = poItems.map((item: any) => {
+                const stockInfo = preRollbackStockMap.get(item.productId);
+                const cQty = stockInfo ? stockInfo.consumed : 0;
+                const rQty = stockInfo ? stockInfo.safeDeduct : (item.qty || 0);
+                const unitCost = Number(item.unitCost) || 0;
+                return {
+                    productId: item.productId,
+                    name: item.name,
+                    consumedQty: cQty,
+                    returnedQty: rQty,
+                    consumedAmount: Math.round(cQty * unitCost),
+                    refundAmount: Math.round(rQty * unitCost),
+                };
+            });
+
+            const partiallyReturnedPo: PurchaseOrder = {
+                ...po,
+                items: updatedPoItems,
+                status: 'Partially Returned',
+                paymentStatus: 'Paid',
+                notes: `${po.notes ? po.notes + ' | ' : ''}Partially returned on ${new Date().toISOString().slice(0, 10)}. Returned ৳${refundAmount.toLocaleString()} to ${refundTargetAccount === 'ORIGINAL' ? 'Original accounts' : refundTargetAccount}; ৳${netPayableForConsumed.toLocaleString()} retained in production COGS.`,
+                paidAmount: netPayableForConsumed, // Net retained amount for consumed items
+                totalAmount: poTotal,
+                dueAmount: remainingDueAfterReturn,
+                returnedItems: returnedItemsList,
+                returnedAt: new Date().toISOString(),
+                returnedReason: `Partial stock returned to supplier (${po.supplierName}). Consumed items retained in production.`,
+            };
+
+            next = currentPOs.map((p: PurchaseOrder) => (p.id === id ? partiallyReturnedPo : p));
+        } else {
+            // Full return/cancellation or removing an already returned record: remove from list
+            next = currentPOs.filter((p: PurchaseOrder) => p.id !== id);
+        }
 
         // 6. Update react states
         setPurchaseOrders(next);

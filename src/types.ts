@@ -392,6 +392,8 @@ export interface PurchaseOrderItem {
   unitCost: number;
   qty: number;
   receivedQty?: number;
+  consumedQty?: number;
+  returnedQty?: number;
   totalCost: number;
 }
 
@@ -413,11 +415,14 @@ export interface PurchaseOrder {
   grandTotal?: number;
   paidAmount: number;
   dueAmount: number;
-  status: 'Pending' | 'Ordered' | 'Received' | 'Cancelled';
+  status: 'Pending' | 'Ordered' | 'Received' | 'Cancelled' | 'Partially Returned';
   paymentMethod?: PaymentMethod;
   paymentStatus?: 'Paid' | 'Partial' | 'Due' | 'Pending';
   invoiceRef?: string;
   notes?: string;
+  returnedItems?: { productId: string; name: string; returnedQty: number; consumedQty: number; refundAmount: number; consumedAmount: number }[];
+  returnedAt?: string;
+  returnedReason?: string;
 }
 
 export interface StockMovement {

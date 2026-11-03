@@ -105,7 +105,20 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
             ))
             .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
-        return poPurchases + retainedConsumedPurchases;
+        // Fallback for Partially Returned POs if retained expense transaction was omitted
+        const retainedFromPOs = purchaseOrders
+            .filter((po) => po.status === 'Partially Returned')
+            .reduce((sum, po) => {
+                const poRef = po.poNo || po.poNumber;
+                const hasTx = (transactions || []).some(t =>
+                    t.refNo === poRef &&
+                    ((t.description || '').toLowerCase().includes('raw material consumed') ||
+                     (t.category || '').toLowerCase().includes('raw material consumed'))
+                );
+                return hasTx ? sum : sum + (po.paidAmount || 0);
+            }, 0);
+
+        return poPurchases + retainedConsumedPurchases + retainedFromPOs;
     }, [purchaseOrders, transactions]);
     // Opening stock (baseline estimation for period)
     const openingStockValuation = useMemo(() => {
