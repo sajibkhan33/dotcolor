@@ -669,8 +669,8 @@ export const AppProvider: React.FC<{
         });
     });
     const [procurementRequisitions, setProcurementRequisitions] = useState<ProcurementRequisition[]>(() => {
-        const raw = safeGetLocalStorage<ProcurementRequisition[]>(`${STORAGE_KEY}_PROCUREMENT_REQUISITIONS`, INITIAL_PROCUREMENT_REQUISITIONS);
-        return Array.isArray(raw) && raw.length > 0 ? raw : INITIAL_PROCUREMENT_REQUISITIONS;
+        const raw = safeGetLocalStorage<ProcurementRequisition[]>(`${STORAGE_KEY}_PROCUREMENT_REQUISITIONS`, []);
+        return Array.isArray(raw) ? raw : [];
     });
     const [transactions, setTransactions] = useState<AccountingTransaction[]>(() => {
         const list = safeGetLocalStorage<AccountingTransaction[]>(`${STORAGE_KEY}_TRANSACTIONS`, INITIAL_TRANSACTIONS);
@@ -777,6 +777,7 @@ export const AppProvider: React.FC<{
         invoices,
         quotations,
         purchaseOrders,
+        procurementRequisitions,
         transactions,
         stockMovements,
         auditLogs,
@@ -800,6 +801,7 @@ export const AppProvider: React.FC<{
         invoices,
         quotations,
         purchaseOrders,
+        procurementRequisitions,
         transactions,
         stockMovements,
         auditLogs,
@@ -908,6 +910,9 @@ export const AppProvider: React.FC<{
             const rawPm = localStorage.getItem(`${STORAGE_KEY}_PAYMENT_METHODS`);
             if (rawPm !== null) setPaymentMethods(JSON.parse(rawPm));
 
+            const rawReqs = localStorage.getItem(`${STORAGE_KEY}_PROCUREMENT_REQUISITIONS`);
+            if (rawReqs !== null) setProcurementRequisitions(JSON.parse(rawReqs));
+
             const rawProfile = localStorage.getItem(`${STORAGE_KEY}_PROFILE`);
             if (rawProfile !== null) setProfile(JSON.parse(rawProfile));
 
@@ -917,6 +922,7 @@ export const AppProvider: React.FC<{
                 ...(rawTxs !== null ? { transactions: JSON.parse(rawTxs) } : {}),
                 ...(rawProjs !== null ? { projects: JSON.parse(rawProjs) } : {}),
                 ...(rawPos !== null ? { purchaseOrders: JSON.parse(rawPos) } : {}),
+                ...(rawReqs !== null ? { procurementRequisitions: JSON.parse(rawReqs) } : {}),
                 ...(rawProds !== null ? { products: JSON.parse(rawProds) } : {}),
                 ...(rawCusts !== null ? { customers: JSON.parse(rawCusts) } : {}),
                 ...(rawSupps !== null ? { suppliers: JSON.parse(rawSupps) } : {}),
@@ -4155,7 +4161,13 @@ export const AppProvider: React.FC<{
             priority: data.priority || 'Medium',
             createdAt: new Date().toISOString(),
         };
-        setProcurementRequisitions((prev) => [newReq, ...prev]);
+        const nextList = [newReq, ...procurementRequisitions];
+        setProcurementRequisitions(nextList);
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            procurementRequisitions: nextList,
+        };
+        triggerImmediatePush();
         addAuditLog({
             staffId: activeStaff?.id || 'admin',
             staffName: activeStaff?.name || 'Super Admin',
@@ -4169,11 +4181,27 @@ export const AppProvider: React.FC<{
     };
 
     const updateProcurementRequisition = (id: string, updates: Partial<ProcurementRequisition>) => {
-        setProcurementRequisitions((prev) => prev.map((pr) => pr.id === id ? { ...pr, ...updates } : pr));
+        setProcurementRequisitions((prev) => {
+            const nextList = prev.map((pr) => pr.id === id ? { ...pr, ...updates } : pr);
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                procurementRequisitions: nextList,
+            };
+            return nextList;
+        });
+        triggerImmediatePush();
     };
 
     const deleteProcurementRequisition = (id: string) => {
-        setProcurementRequisitions((prev) => prev.filter((pr) => pr.id !== id));
+        setProcurementRequisitions((prev) => {
+            const nextList = prev.filter((pr) => pr.id !== id);
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                procurementRequisitions: nextList,
+            };
+            return nextList;
+        });
+        triggerImmediatePush();
     };
 
     const approveAndConvertRequisitionToPO = (requisitionId: string, supplierId: string, supplierName: string, destination?: 'Factory' | 'Office'): PurchaseOrder => {
@@ -8705,6 +8733,7 @@ export const AppProvider: React.FC<{
         invoices,
         quotations,
         purchaseOrders,
+        procurementRequisitions,
         transactions,
         stockMovements,
         auditLogs,
@@ -8730,6 +8759,7 @@ export const AppProvider: React.FC<{
             invoices: s.invoices,
             quotations: s.quotations,
             purchaseOrders: s.purchaseOrders,
+            procurementRequisitions: s.procurementRequisitions || [],
             transactions: s.transactions,
             stockMovements: s.stockMovements,
             auditLogs: s.auditLogs,
@@ -9007,6 +9037,10 @@ export const AppProvider: React.FC<{
             if (data.paymentMethods && Array.isArray(data.paymentMethods)) {
                 setPaymentMethods(data.paymentMethods);
                 try { localStorage.setItem(`${STORAGE_KEY}_PAYMENT_METHODS`, JSON.stringify(data.paymentMethods)); } catch {}
+            }
+            if (data.procurementRequisitions && Array.isArray(data.procurementRequisitions)) {
+                setProcurementRequisitions(data.procurementRequisitions);
+                try { localStorage.setItem(`${STORAGE_KEY}_PROCUREMENT_REQUISITIONS`, JSON.stringify(data.procurementRequisitions)); } catch {}
             }
 
             latestStateRef.current = {
@@ -9309,6 +9343,7 @@ export const AppProvider: React.FC<{
         invoices,
         quotations,
         purchaseOrders,
+        procurementRequisitions,
         transactions,
         stockMovements,
         staffMembers,
