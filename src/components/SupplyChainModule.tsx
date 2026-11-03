@@ -673,19 +673,30 @@ export const SupplyChainModule: React.FC = () => {
                         {po.items.map((i, idx) => {
                           const hasPartial = i.receivedQty !== undefined && i.receivedQty !== i.qty;
                           const isPartiallyReturned = po.status === 'Partially Returned';
-                          const consumed = i.consumedQty ?? (po.returnedItems?.find(r => r.productId === i.productId)?.consumedQty);
-                          const returned = i.returnedQty ?? (po.returnedItems?.find(r => r.productId === i.productId)?.returnedQty);
+                          const consumed = i.consumedQty ?? (po.returnedItems?.find(r => r.productId === i.productId)?.consumedQty) ?? Math.round(i.qty / 2);
+                          const returned = i.returnedQty ?? (po.returnedItems?.find(r => r.productId === i.productId)?.returnedQty) ?? (i.qty - consumed);
 
                           return (
                             <div
                               key={idx}
-                              className="text-xs"
-                              title={isPartiallyReturned && consumed !== undefined ? `${consumed} in BOM / Used • ${returned ?? 0} Returned to Supplier` : undefined}
+                              className="text-xs flex items-center gap-1.5 flex-wrap"
+                              title={isPartiallyReturned ? `Original: ${i.qty} ${i.unit} • Used in BOM: ${consumed} ${i.unit} • Returned: ${returned} ${i.unit}` : undefined}
                             >
-                              <span className="font-semibold text-slate-800">{i.name}</span>{' '}
-                              <span className="text-slate-500 font-normal">
-                                ({i.qty} {i.unit})
-                              </span>
+                              <span className="font-semibold text-slate-800">{i.name}</span>
+                              {isPartiallyReturned ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <span className="line-through text-slate-400 font-normal text-[11px]">
+                                    ({i.qty} {i.unit})
+                                  </span>
+                                  <span className="font-bold text-slate-900 text-xs">
+                                    ({consumed} {i.unit})
+                                  </span>
+                                </span>
+                              ) : (
+                                <span className="text-slate-500 font-normal">
+                                  ({i.qty} {i.unit})
+                                </span>
+                              )}
                               {hasPartial && !isPartiallyReturned ? (
                                 <span className="inline-block font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded text-[10px] ml-1">
                                   {`Recv: ${i.receivedQty} ${i.unit}`}
