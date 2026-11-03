@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ChartOfAccount, AccountingTransaction, SalesInvoice, PurchaseOrder, Product, Customer, Language, CompanyProfile, } from '../../types';
-import { Scale, TrendingUp, FileText, DollarSign, CheckCircle2, AlertCircle, Building, ArrowDownRight, ArrowUpRight, Edit2, } from 'lucide-react';
+import { Scale, TrendingUp, FileText, DollarSign, CheckCircle2, AlertCircle, Building, ArrowDownRight, ArrowUpRight, Edit2, Percent, Coins, ShieldCheck, } from 'lucide-react';
 import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateTotalCustomerAdvances, isSupplierPaymentTransaction, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, isAdvanceDepositTransaction, isAdvanceAdjustmentTransaction, doesTransactionMatchExpenseAccount, isCapitalOrLoanIncome, isDrawingOrLiabilityExpense, doesTransactionMatchEquityOrLiabilityAccount } from '../../utils/accountUtils';
 import { useApp } from '../../context/AppContext';
 interface IFRSStatementsProps {
@@ -13,8 +13,10 @@ interface IFRSStatementsProps {
     customers: Customer[];
     profile: CompanyProfile;
     language: Language;
+    dateRangeFilter?: 'ALL' | 'TODAY' | 'THIS_MONTH' | 'THIS_YEAR';
+    dateRangeText?: string;
 }
-export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartOfAccounts, transactions, invoices, purchaseOrders, products, customers, profile, language, }) => {
+export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartOfAccounts, transactions, invoices, purchaseOrders, products, customers, profile, language, dateRangeFilter = 'THIS_MONTH', dateRangeText, }) => {
     const { updateProfile, journalEntries = [], projects = [], suppliers = [], expenseHeads = [] } = useApp();
     const isBn = language === 'bn';
     const currency = profile.currencySymbol || "Tk";
@@ -38,13 +40,42 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
     // -------------------------------------------------------------
     // CALCULATIONS ACROSS SYSTEM
     // -------------------------------------------------------------
+    // Effective Period Date Range for Profit & Loss and Operating Statements
+    const effectivePeriodDates = useMemo(() => {
+        const now = new Date();
+        const todayStr = now.toISOString().slice(0, 10);
+        if (dateRangeFilter === 'TODAY') {
+            return { start: todayStr, end: todayStr };
+        }
+        if (dateRangeFilter === 'THIS_MONTH') {
+            const y = now.getFullYear();
+            const m = String(now.getMonth() + 1).padStart(2, '0');
+            return { start: `${y}-${m}-01`, end: todayStr };
+        }
+        if (dateRangeFilter === 'THIS_YEAR') {
+            const y = now.getFullYear();
+            return { start: `${y}-01-01`, end: `${y}-12-31` };
+        }
+        return { start: '1970-01-01', end: '2099-12-31' };
+    }, [dateRangeFilter]);
+
+    const isDateInPeriod = (dateStr?: string) => {
+        if (!dateRangeFilter || dateRangeFilter === 'ALL') return true;
+        if (!dateStr) return true;
+        const d = dateStr.slice(0, 10);
+        return d >= effectivePeriodDates.start && d <= effectivePeriodDates.end;
+    };
+
     // Gross Revenue & Discounts
     const grossSalesRevenue = useMemo(() => {
-        const invoiceTotal = invoices.reduce((sum, inv) => sum + (inv.subtotal || inv.grandTotal), 0);
+        const invoiceTotal = invoices
+            .filter((inv) => isDateInPeriod(inv.date))
+            .reduce((sum, inv) => sum + (inv.subtotal || inv.grandTotal), 0);
         
         // Direct non-invoiced operating income transactions from Financial Ledger
         const directIncomeTotal = (transactions || [])
             .filter((t) => {
+                if (!isDateInPeriod(t.date)) return false;
                 if (t.type !== 'INCOME') return false;
                 if (isCapitalOrLoanIncome(t, chartOfAccounts)) return false;
                 if (isDueReceivableTransaction(t)) return false;
@@ -71,10 +102,12 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
             .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
         return invoiceTotal + directIncomeTotal;
-    }, [invoices, transactions, projects]);
+    }, [invoices, transactions, projects, dateRangeFilter, effectivePeriodDates]);
     const salesDiscounts = useMemo(() => {
-        return invoices.reduce((sum, inv) => sum + (inv.discount || 0), 0);
-    }, [invoices]);
+        return invoices
+            .filter((inv) => isDateInPeriod(inv.date))
+            .reduce((sum, inv) => sum + (inv.discount || 0), 0);
+    }, [invoices, dateRangeFilter, effectivePeriodDates]);
     const netSalesRevenue = grossSalesRevenue - salesDiscounts;
     // Inventory & COGS
     const invAcc = useMemo(() => {
@@ -126,25 +159,26 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
     }, [invAcc]);
     const directProductionLabor = useMemo(() => {
         return (transactions || [])
-            .filter((t) => t.type === 'EXPENSE' && ((t.category || '').toLowerCase().includes('production labor') || (t.category || '').toLowerCase().includes('factory labor')))
+            .filter((t) => isDateInPeriod(t.date) && t.type === 'EXPENSE' && ((t.category || '').toLowerCase().includes('production labor') || (t.category || '').toLowerCase().includes('factory labor')))
             .reduce((s, t) => s + t.amount, 0);
-    }, [transactions]);
+    }, [transactions, dateRangeFilter, effectivePeriodDates]);
     // COGS = Opening Stock + Purchases + Direct Labor - Closing Stock
     const costOfGoodsSold = useMemo(() => {
         const cogsFromStock = Math.max(0, openingStockValuation + rawMaterialPurchases + directProductionLabor - closingStockValuation);
         // Only use poExp as a fallback if NO purchase orders and NO inventory tracking exists at all
         if (rawMaterialPurchases === 0 && closingStockValuation === 0 && openingStockValuation === 0) {
-            const poExp = (transactions || []).filter(t => t.type === 'EXPENSE' && !isSupplierPaymentTransaction(t) && (t.category?.toLowerCase().includes('raw') || t.category?.toLowerCase().includes('purchase'))).reduce((s, t) => s + t.amount, 0);
+            const poExp = (transactions || []).filter(t => isDateInPeriod(t.date) && t.type === 'EXPENSE' && !isSupplierPaymentTransaction(t) && (t.category?.toLowerCase().includes('raw') || t.category?.toLowerCase().includes('purchase'))).reduce((s, t) => s + t.amount, 0);
             return poExp;
         }
         return cogsFromStock;
-    }, [openingStockValuation, rawMaterialPurchases, directProductionLabor, closingStockValuation, transactions]);
+    }, [openingStockValuation, rawMaterialPurchases, directProductionLabor, closingStockValuation, transactions, dateRangeFilter, effectivePeriodDates]);
     const grossProfit = netSalesRevenue - costOfGoodsSold;
     const grossMarginPct = netSalesRevenue > 0 ? (grossProfit / netSalesRevenue) * 100 : 0;
     // Itemized Operating Expenses from transactions & chart of accounts
     const operatingExpensesList = useMemo(() => {
         const map = new Map<string, { name: string; nameBn?: string; amount: number }>();
         (transactions || []).filter((t) => {
+            if (!isDateInPeriod(t.date)) return false;
             if (t.type !== 'EXPENSE') return false;
             // 1. Exclude supplier debt payments / PO settlements (they belong to Accounts Payable & COGS, never OPEX)
             if (isSupplierPaymentTransaction(t)) return false;
@@ -171,20 +205,20 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                 map.set(cat, { name: cat, nameBn: t.categoryBn, amount: Number(t.amount) || 0 });
             }
         });
-        if (map.size === 0) {
+        if (map.size === 0 && (!dateRangeFilter || dateRangeFilter === 'ALL' || dateRangeFilter === 'THIS_MONTH' || dateRangeFilter === 'THIS_YEAR')) {
             (chartOfAccounts || []).filter(a => a.classification === 'Expense' && a.code !== '5001' && a.code !== '5010' && !a.name.toLowerCase().includes('cost of goods') && !a.name.toLowerCase().includes('cogs') && (a.openingBalance || a.currentBalance)).forEach(a => {
                 map.set(a.name, { name: a.name, nameBn: a.nameBn, amount: Math.max(0, a.currentBalance || a.openingBalance || 0) });
             });
         }
         return Array.from(map.values());
-    }, [transactions, chartOfAccounts]);
+    }, [transactions, chartOfAccounts, dateRangeFilter, effectivePeriodDates]);
     const totalOperatingExpenses = operatingExpensesList.reduce((s, e) => s + e.amount, 0);
     const operatingProfitEBIT = grossProfit - totalOperatingExpenses;
     const financeCosts = useMemo(() => {
         return (transactions || [])
-            .filter((t) => t.type === 'EXPENSE' && ((t.category || '').toLowerCase().includes('bank') || (t.category || '').toLowerCase().includes('finance') || (t.description || '').toLowerCase().includes('charge')))
+            .filter((t) => isDateInPeriod(t.date) && t.type === 'EXPENSE' && ((t.category || '').toLowerCase().includes('bank') || (t.category || '').toLowerCase().includes('finance') || (t.description || '').toLowerCase().includes('charge')))
             .reduce((s, t) => s + t.amount, 0);
-    }, [transactions]);
+    }, [transactions, dateRangeFilter, effectivePeriodDates]);
     const netProfitBeforeTax = operatingProfitEBIT - financeCosts;
     const taxProvision = Math.max(0, Math.round(netProfitBeforeTax * (taxRate / 100)));
     const netProfitForThePeriod = netProfitBeforeTax - taxProvision;
@@ -683,6 +717,33 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
             totalEquityAndLiabilities: totalEquity + totalLiabilities,
         };
     }, [chartOfAccounts, invoices, purchaseOrders, customers, transactions, closingStockValuation, netProfitForThePeriod, journalEntries, projects, suppliers]);
+
+    // -------------------------------------------------------------
+    // CAPITAL INVESTMENT VS PROFIT (ROI & ROE TRACKER)
+    // -------------------------------------------------------------
+    const capitalRoiData = useMemo(() => {
+        const investedCapital = Math.max(0, balanceSheetData.ownerCapital || 0);
+        const netProfit = netProfitForThePeriod || 0;
+        const totalEquity = Math.max(0, balanceSheetData.totalEquity || 0);
+        
+        // Return on Invested Capital (ROI %)
+        const roiPct = investedCapital > 0 ? (netProfit / investedCapital) * 100 : 0;
+        
+        // Return on Equity (ROE %)
+        const roePct = totalEquity > 0 ? (netProfit / totalEquity) * 100 : 0;
+        
+        // Profit to Capital Ratio
+        const profitPerHundredInvested = investedCapital > 0 ? (netProfit / investedCapital) * 100 : 0;
+
+        return {
+            investedCapital,
+            netProfit,
+            totalEquity,
+            roiPct,
+            roePct,
+            profitPerHundredInvested,
+        };
+    }, [balanceSheetData.ownerCapital, balanceSheetData.totalEquity, netProfitForThePeriod]);
     // -------------------------------------------------------------
     // 19. STATEMENT OF CASH FLOWS (IAS 7)
     // -------------------------------------------------------------
@@ -943,8 +1004,11 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                 <h3 className="text-base font-bold text-slate-900 mt-1">
                   {'Statement of Profit or Loss'}
                 </h3>
+                <span className="text-xs text-slate-500 font-medium block mt-0.5">
+                  {dateRangeText ? `Period: ${dateRangeText}` : (dateRangeFilter === 'TODAY' ? 'Period: Today' : dateRangeFilter === 'THIS_MONTH' ? 'Period: This Month' : dateRangeFilter === 'THIS_YEAR' ? 'Period: This Fiscal Year' : 'Period: All Time')}
+                </span>
               </div>
-              <div className="flex items-center gap-6">
+              <div className="flex flex-wrap items-center gap-6">
                 <div>
                   <span className="text-[11px] text-slate-400 block">{'Gross Margin'}</span>
                   <span className="font-bold text-slate-900 text-base">{grossMarginPct.toFixed(1)}%</span>
@@ -955,11 +1019,99 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
                 </div>
                 <div>
                   <span className="text-[11px] text-slate-400 block">{'Net Profit for Period'}</span>
-                  <span className="font-black text-emerald-700 text-xl">
+                  <span className={`font-black text-xl ${netProfitForThePeriod >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
                     {currency} {netProfitForThePeriod.toLocaleString()}
                   </span>
                 </div>
+                <div className="pl-4 border-l border-slate-200">
+                  <span className="text-[11px] text-indigo-700 font-bold block uppercase tracking-wider">
+                    {'Return on Capital (ROI)'}
+                  </span>
+                  <span className="font-black text-indigo-700 text-xl">
+                    {capitalRoiData.roiPct.toFixed(2)}%
+                  </span>
+                </div>
               </div>
+            </div>
+          </div>
+
+          {/* DEDICATED CAPITAL INVESTMENT VS PROFITABILITY (ROI / ROE) TRACKER */}
+          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 p-5 rounded-2xl text-white shadow-md">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-white/10">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-400/20 border border-amber-400/30 flex items-center justify-center text-amber-400">
+                  <Coins className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white">
+                    Capital Investment & Profitability Tracker (বিনিয়োগ বনাম মুনাফা ট্র্যাকার)
+                  </h4>
+                  <p className="text-[11px] text-slate-300">
+                    Real-time Capital yield, period net profitability, and Return on Equity (ROE / ROI)
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 self-start md:self-auto">
+                <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white/10 text-amber-300 border border-white/10">
+                  {dateRangeFilter === 'TODAY' ? 'Daily Analysis (দৈনিক)' : dateRangeFilter === 'THIS_MONTH' ? 'Monthly Analysis (মাসিক)' : dateRangeFilter === 'THIS_YEAR' ? 'Annual Analysis (বার্ষিক)' : 'All-Time Analysis (সার্বিক)'}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3.5 backdrop-blur-xs">
+                <span className="text-[11px] text-slate-300 font-medium block">
+                  Total Capital Invested (মূলধন)
+                </span>
+                <p className="text-xl font-black text-white mt-1">
+                  {currency} {capitalRoiData.investedCapital.toLocaleString()}
+                </p>
+                <span className="text-[10px] text-slate-400">Owner's equity contribution</span>
+              </div>
+
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3.5 backdrop-blur-xs">
+                <span className="text-[11px] text-emerald-300 font-medium block">
+                  Net Profit Generated (মুনাফা)
+                </span>
+                <p className="text-xl font-black text-emerald-400 mt-1">
+                  {currency} {capitalRoiData.netProfit.toLocaleString()}
+                </p>
+                <span className="text-[10px] text-emerald-300/80">
+                  {dateRangeFilter === 'TODAY' ? "Today's net earnings" : dateRangeFilter === 'THIS_MONTH' ? "This month's net earnings" : dateRangeFilter === 'THIS_YEAR' ? "This year's net earnings" : "Total fiscal net earnings"}
+                </span>
+              </div>
+
+              <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3.5 backdrop-blur-xs">
+                <span className="text-[11px] text-indigo-300 font-medium block">
+                  Return on Capital (ROI / ROE)
+                </span>
+                <p className="text-xl font-black text-indigo-300 mt-1">
+                  {capitalRoiData.roiPct.toFixed(2)}%
+                </p>
+                <span className="text-[10px] text-indigo-200/80">Profit to capital yield</span>
+              </div>
+
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3.5 backdrop-blur-xs">
+                <span className="text-[11px] text-amber-300 font-medium block">
+                  Yield per ৳100 Invested
+                </span>
+                <p className="text-xl font-black text-amber-400 mt-1">
+                  {currency} {capitalRoiData.profitPerHundredInvested.toFixed(2)}
+                </p>
+                <span className="text-[10px] text-amber-300/80">প্রতি ১০০ টাকায় নিট লাভ</span>
+              </div>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-[11px] text-slate-300">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>
+                  বিনিয়োগ কার্যকারিতা: মোট মূলধন <strong>{currency} {capitalRoiData.investedCapital.toLocaleString()}</strong>-এর বিপরীতে নির্বাচিত সময়ে <strong>{currency} {capitalRoiData.netProfit.toLocaleString()}</strong> নিট মুনাফা অর্জিত হয়েছে ({capitalRoiData.roiPct.toFixed(2)}% ROI)।
+                </span>
+              </span>
+              <span className="font-mono text-[10px] text-slate-400 hidden sm:inline">
+                IFRS IAS 1 Compliant
+              </span>
             </div>
           </div>
 

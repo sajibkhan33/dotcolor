@@ -521,7 +521,7 @@ export const ReportModule: React.FC = () => {
 
           {activeReport.category === 'accounting' && (<FinancialReports reportId={activeReport.id} transactions={transactions} chartOfAccounts={chartOfAccounts} profile={profile} language={language}/>)}
 
-          {activeReport.category === 'ifrs' && (<IFRSStatements reportId={activeReport.id} chartOfAccounts={chartOfAccounts} transactions={transactions} invoices={invoices} purchaseOrders={purchaseOrders} products={products} customers={customers} profile={profile} language={language}/>)}
+          {activeReport.category === 'ifrs' && (<IFRSStatements reportId={activeReport.id} chartOfAccounts={chartOfAccounts} transactions={transactions} invoices={invoices} purchaseOrders={purchaseOrders} products={products} customers={customers} profile={profile} language={language} dateRangeFilter={dateRangeFilter} dateRangeText={dateRangeText}/>)}
 
           {/* Official Signatory Box for Printed Reports (visible in print mode & bottom of report) */}
           <div className="pt-10 border-t border-slate-200 mt-10">
