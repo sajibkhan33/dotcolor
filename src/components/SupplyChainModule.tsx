@@ -631,7 +631,7 @@ export const SupplyChainModule: React.FC = () => {
                 <option value="ALL">{'All Status'}</option>
                 <option value="Ordered">Ordered / In Progress</option>
                 <option value="Received">Received / Stock Received</option>
-                <option value="Partially Returned">Partially Returned (আংশিক ফেরত)</option>
+                <option value="Partially Returned">Partially Returned</option>
                 <option value="Draft">Draft</option>
               </select>
             </div>
@@ -677,20 +677,32 @@ export const SupplyChainModule: React.FC = () => {
                           const returned = i.returnedQty ?? (po.returnedItems?.find(r => r.productId === i.productId)?.returnedQty);
 
                           return (
-                            <div key={idx} className="text-xs">
+                            <div key={idx} className="text-xs group relative flex items-center">
                               <span className="font-semibold text-slate-800">{i.name}</span>{' '}
+                              <span className="text-slate-500 font-normal ml-1">
+                                ({i.qty} {i.unit})
+                              </span>
+
                               {isPartiallyReturned && consumed !== undefined ? (
-                                <span className="inline-block font-bold text-purple-800 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded text-[10px] ml-1">
-                                  {consumed} in BOM | {returned ?? 0} Returned
+                                <span
+                                  className="inline-block ml-1.5 px-1.5 py-0.2 rounded text-[10px] font-bold text-purple-700 bg-purple-50 border border-purple-200 cursor-help"
+                                  title={`${consumed} in BOM • ${returned ?? 0} Returned to Supplier`}
+                                >
+                                  ℹ️
                                 </span>
                               ) : hasPartial ? (
                                 <span className="inline-block font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded text-[10px] ml-1">
-                                  {`PO: ${i.qty} | Recv: ${i.receivedQty} ${i.unit}`}
+                                  {`Recv: ${i.receivedQty} ${i.unit}`}
                                 </span>
-                              ) : (
-                                <span className="text-slate-500 font-normal">
-                                  ({i.qty} {i.unit})
-                                </span>
+                              ) : null}
+
+                              {/* Hover tooltip for Partially Returned item details */}
+                              {isPartiallyReturned && consumed !== undefined && (
+                                <div className="hidden group-hover:flex absolute left-0 -top-8 z-30 items-center gap-1.5 bg-slate-900 text-white text-[10px] font-bold px-2.5 py-1 rounded-md shadow-lg pointer-events-none whitespace-nowrap animate-in fade-in duration-150">
+                                  <span className="text-emerald-400">{consumed} in BOM</span>
+                                  <span className="text-slate-400">•</span>
+                                  <span className="text-purple-300">{returned ?? 0} Returned</span>
+                                </div>
                               )}
                             </div>
                           );
@@ -703,13 +715,13 @@ export const SupplyChainModule: React.FC = () => {
                         <div className="space-y-1 text-right">
                           <div className="font-black text-slate-900 text-sm">
                             {profile.currencySymbol}{(Number(po.totalAmount) || 0).toLocaleString()}
-                            <span className="text-[10px] font-semibold text-slate-400 ml-1 font-sans">(অর্ডার)</span>
+                            <span className="text-[10px] font-semibold text-slate-400 ml-1 font-sans">(Order)</span>
                           </div>
                           <div className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 inline-block">
-                            ব্যবহৃত: {profile.currencySymbol}{(Number(po.paidAmount) || 0).toLocaleString()}
+                            Used: {profile.currencySymbol}{(Number(po.paidAmount) || 0).toLocaleString()}
                           </div>
                           <div className="text-[10px] font-bold text-purple-800 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 block">
-                            ফেরত: {profile.currencySymbol}{Math.max(0, (Number(po.totalAmount) || 0) - (Number(po.paidAmount) || 0)).toLocaleString()}
+                            Returned: {profile.currencySymbol}{Math.max(0, (Number(po.totalAmount) || 0) - (Number(po.paidAmount) || 0)).toLocaleString()}
                           </div>
                         </div>
                       ) : (
@@ -741,10 +753,10 @@ export const SupplyChainModule: React.FC = () => {
                               Partial Return Adjusted
                             </span>
                             <div className="text-[10px] font-bold text-slate-800">
-                              রিফান্ড: <span className="text-purple-700 font-extrabold">{profile.currencySymbol}{Math.max(0, (Number(po.totalAmount) || 0) - (Number(po.paidAmount) || 0)).toLocaleString()}</span>
+                              Refund: <span className="text-purple-700 font-extrabold">{profile.currencySymbol}{Math.max(0, (Number(po.totalAmount) || 0) - (Number(po.paidAmount) || 0)).toLocaleString()}</span>
                             </div>
                             <div className="text-[9px] text-emerald-700 font-bold bg-emerald-50/70 px-1.5 py-0.5 rounded">
-                              কারখানায় খরচ: {profile.currencySymbol}{(Number(po.paidAmount) || 0).toLocaleString()}
+                              Cost Retained: {profile.currencySymbol}{(Number(po.paidAmount) || 0).toLocaleString()}
                             </div>
                           </div>
                         ) : po.status !== 'Received' ? (<div className="flex flex-col items-center gap-0.5">
@@ -894,10 +906,10 @@ export const SupplyChainModule: React.FC = () => {
                             <Edit2 className="w-3.5 h-3.5"/>
                           </button>)}
 
-                        {canCreatePO && (<button type="button" onClick={() => {
+                        {canCreatePO && po.status !== 'Partially Returned' && (<button type="button" onClick={() => {
                             setRefundTargetAccount('ORIGINAL');
                             setPoToDelete(po);
-                          }} className="p-1 text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 rounded-lg transition-all inline-flex items-center justify-center cursor-pointer" title={po.status === 'Received' ? 'Rollback & Return' : po.status === 'Partially Returned' ? 'Delete Returned Record' : 'Delete'}>
+                          }} className="p-1 text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 rounded-lg transition-all inline-flex items-center justify-center cursor-pointer" title={po.status === 'Received' ? 'Rollback & Return' : 'Delete'}>
                             <Trash2 className="w-3.5 h-3.5"/>
                           </button>)}
                       </div>
