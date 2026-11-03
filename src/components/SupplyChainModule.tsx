@@ -829,7 +829,7 @@ export const SupplyChainModule: React.FC = () => {
                             <Edit2 className="w-3.5 h-3.5"/>
                           </button>)}
 
-                        {po.status !== 'Received' && canCreatePO && (<button type="button" onClick={() => setPoToDelete(po)} className="p-1 text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 rounded-lg transition-all inline-flex items-center justify-center cursor-pointer" title={'Delete'}>
+                        {canCreatePO && (<button type="button" onClick={() => setPoToDelete(po)} className="p-1 text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 rounded-lg transition-all inline-flex items-center justify-center cursor-pointer" title={po.status === 'Received' ? 'Rollback & Delete' : 'Delete'}>
                             <Trash2 className="w-3.5 h-3.5"/>
                           </button>)}
                       </div>
@@ -2380,33 +2380,164 @@ export const SupplyChainModule: React.FC = () => {
           </div>
         </div>)}
 
-      {/* CUSTOM CONFIRM PO DELETE MODAL */}
-      {poToDelete && (<div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 text-center space-y-4">
-            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-100">
-              <Trash2 className="w-6 h-6"/>
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-900 text-base">
-                {'Confirm Deletion'}
-              </h3>
-              <p className="text-slate-500 text-xs mt-1">
-                {`Are you sure you want to delete this purchase order? This action cannot be undone.`}
-              </p>
-            </div>
-            <div className="flex justify-center gap-2 pt-2">
-              <button type="button" onClick={() => setPoToDelete(null)} className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                {'Cancel'}
-              </button>
-              <button type="button" onClick={() => {
-                deletePurchaseOrder(poToDelete.id);
-                setPoToDelete(null);
-            }} className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-2xs">
-                {'Delete'}
-              </button>
+      {/* CUSTOM CONFIRM PO DELETE MODAL WITH SMART ROLLBACK */}
+      {poToDelete && (() => {
+        const isReceived = poToDelete.status === 'Received';
+        const dest = (poToDelete.destination || poToDelete.destinationLocation || 'Factory') === 'Office' ? 'Office' : 'Factory';
+        const locLabel = dest === 'Factory' ? 'Factory Plant' : 'Central Warehouse (Office)';
+        const poItems = poToDelete.items || [];
+        const poPaid = Number(poToDelete.paidAmount || 0);
+        const poTotal = Number(poToDelete.subtotal || poToDelete.totalAmount || poToDelete.grandTotal || 0);
+        const poDue = Number(poToDelete.dueAmount || 0);
+
+        // Check stock availability and consumption
+        const stockRollbackSummary = poItems.map(item => {
+          const prod = products.find(p => p.id === item.productId);
+          const currentLocStock = dest === 'Factory' ? (prod?.stockFactory ?? 0) : (prod?.stockOffice ?? 0);
+          const recQty = item.receivedQty !== undefined ? Number(item.receivedQty) || 0 : Number(item.qty) || 0;
+          const safeDeduct = Math.min(currentLocStock, recQty);
+          const consumed = Math.max(0, recQty - currentLocStock);
+          return {
+            ...item,
+            recQty,
+            currentLocStock,
+            safeDeduct,
+            consumed,
+          };
+        });
+
+        const hasAnyConsumed = stockRollbackSummary.some(s => s.consumed > 0);
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className={`bg-white rounded-2xl ${isReceived ? 'max-w-lg' : 'max-w-md'} w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto`}>
+              <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+                <div className="w-10 h-10 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center border border-rose-100 shrink-0">
+                  <Trash2 className="w-5 h-5"/>
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">
+                    {isReceived ? 'Rollback & Delete Received PO' : 'Delete Purchase Order'}
+                  </h3>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="font-mono text-xs font-semibold text-slate-600">{poToDelete.poNo}</span>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isReceived ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-700'}`}>
+                      {poToDelete.status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {isReceived ? (
+                <div className="space-y-3 text-xs">
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-amber-800 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                      <AlertCircle className="w-4 h-4 text-amber-600" />
+                      <span>Smart Inventory & Accounts Rollback</span>
+                    </div>
+                    <p className="text-[11px] text-amber-700 leading-relaxed">
+                      Deleting this received order will automatically reverse physical stock from warehouse, deduct supplier payable, and restore cash/bank balances.
+                    </p>
+                  </div>
+
+                  {/* Stock rollback breakdown */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                    <div className="flex justify-between items-center font-bold text-slate-700 pb-1 border-b border-slate-200 text-[11px]">
+                      <span>Warehouse Stock to Deduct ({locLabel})</span>
+                      <span>Status</span>
+                    </div>
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                      {stockRollbackSummary.map((item, idx) => (
+                        <div key={idx} className="flex items-start justify-between bg-white p-2 rounded-lg border border-slate-200/60">
+                          <div>
+                            <div className="font-semibold text-slate-800">{item.name}</div>
+                            <div className="text-[10px] text-slate-500">
+                              Received: {item.recQty} {item.unit} | Current Stock: {item.currentLocStock} {item.unit}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            {item.consumed > 0 ? (
+                              <span className="inline-block text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                -{item.safeDeduct} {item.unit} ({item.consumed} in BOM/Sold)
+                              </span>
+                            ) : (
+                              <span className="inline-block text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                                -{item.safeDeduct} {item.unit}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {hasAnyConsumed && (
+                      <div className="text-[10px] text-amber-700 bg-amber-50/60 p-2 rounded-lg border border-amber-200/50">
+                        * Note: Some materials were already used in BOM production or sales. Available stock will be deducted safely down to 0 without causing negative inventory.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Financial rollback */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5">
+                    <div className="font-bold text-slate-700 pb-1 border-b border-slate-200 text-[11px]">
+                      Supplier & Payment Reversal
+                    </div>
+                    <div className="flex justify-between items-center text-[11px]">
+                      <span className="text-slate-500">Supplier:</span>
+                      <span className="font-bold text-slate-800">{poToDelete.supplierName}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[11px]">
+                      <span className="text-slate-500">Purchases to Deduct:</span>
+                      <span className="font-bold text-slate-800">৳{poTotal.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[11px]">
+                      <span className="text-slate-500">Supplier Payable Due to Clear:</span>
+                      <span className="font-bold text-slate-800">৳{poDue.toLocaleString()}</span>
+                    </div>
+                    {poPaid > 0 && (
+                      <div className="flex justify-between items-center text-[11px] text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-200">
+                        <span className="font-semibold">Refund to Cash/Bank:</span>
+                        <span className="font-bold">৳{poPaid.toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3 text-xs">
+                  <p className="text-slate-600 text-xs">
+                    Are you sure you want to delete purchase order <strong className="text-slate-900">{poToDelete.poNo}</strong>?
+                  </p>
+                  {poPaid > 0 && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-emerald-800 text-[11px]">
+                      Advance payment of <strong>৳{poPaid.toLocaleString()}</strong> will be restored back to Cash/Bank ledger.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setPoToDelete(null)}
+                  className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    deletePurchaseOrder(poToDelete.id);
+                    setPoToDelete(null);
+                  }}
+                  className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5"/>
+                  <span>{isReceived ? 'Confirm Rollback & Delete' : 'Delete'}</span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>)}
+        );
+      })()}
 
       {supplierToDelete && (<div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 text-center space-y-4 animate-in fade-in zoom-in duration-200">

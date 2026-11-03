@@ -419,13 +419,20 @@ export const InventoryModule: React.FC = () => {
 
                       <td className="py-3 px-4 text-center">
                         <div className="flex items-center justify-center gap-1.5">
-                          {/* Stock In/Out/Transfer Adjust button (Disabled) */}
+                          {/* Stock In/Out/Transfer Adjust button */}
                           {canAdjustStock && (
                             <button
                               type="button"
-                              disabled
-                              className="p-1.5 text-amber-500/40 bg-amber-50/40 rounded-lg border border-amber-200/40 text-[10px] font-bold cursor-not-allowed opacity-50"
-                              title="Stock adjustment / transfer is disabled"
+                              onClick={() => {
+                                setAdjustModalProduct(p);
+                                setAdjustQty(1);
+                                setAdjustLocation(p.stockFactory > 0 ? 'Factory' : 'Office');
+                                setAdjustTargetLocation(p.stockFactory > 0 ? 'Office' : 'Factory');
+                                setAdjustType('IN');
+                                setAdjustReason('');
+                              }}
+                              className="p-1.5 text-amber-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200 text-[10px] font-bold transition-all cursor-pointer"
+                              title="Stock adjustment / warehouse transfer"
                             >
                               <ArrowRightLeft className="w-3.5 h-3.5"/>
                             </button>
@@ -560,42 +567,80 @@ export const InventoryModule: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="font-bold text-slate-700 block mb-1">
-                    {adjustType === 'TRANSFER'
-                ?
-                    'From'
-                :
-                    'Location'}
+                    {adjustType === 'TRANSFER' ? 'From Warehouse' : 'Warehouse Location'}
                   </label>
-                  <select value={adjustLocation} onChange={(e) => setAdjustLocation(e.target.value as any)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium">
-                    <option value="Office">
-                      {'Central Warehouse'}
-                    </option>
+                  <select
+                    value={adjustLocation}
+                    onChange={(e) => {
+                      const newLoc = e.target.value as 'Factory' | 'Office';
+                      setAdjustLocation(newLoc);
+                      if (adjustType === 'TRANSFER' && adjustTargetLocation === newLoc) {
+                        setAdjustTargetLocation(newLoc === 'Factory' ? 'Office' : 'Factory');
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium"
+                  >
+                    <option value="Factory">Factory Plant</option>
+                    <option value="Office">Central Warehouse (Office)</option>
                   </select>
                 </div>
 
-                {adjustType === 'TRANSFER' ? (<div>
+                {adjustType === 'TRANSFER' ? (
+                  <div>
                     <label className="font-bold text-slate-700 block mb-1">
-                      {'To Branch'}
+                      {'To Warehouse'}
                     </label>
-                    <select value={adjustTargetLocation} onChange={(e) => setAdjustTargetLocation(e.target.value as any)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium">
-                      <option value="Office">
-                        {'Central Warehouse'}
-                      </option>
+                    <select
+                      value={adjustTargetLocation}
+                      onChange={(e) => setAdjustTargetLocation(e.target.value as any)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium"
+                    >
+                      <option value="Office">Central Warehouse (Office)</option>
+                      <option value="Factory">Factory Plant</option>
                     </select>
-                  </div>) : (<div>
+                  </div>
+                ) : (
+                  <div>
                     <label className="font-bold text-slate-700 block mb-1">
                       {'Quantity'}
+                      {adjustType === 'OUT' && (
+                        <span className="text-[10px] text-slate-500 font-normal ml-1">
+                          (Available: {adjustLocation === 'Factory' ? (adjustModalProduct.stockFactory || 0) : (adjustModalProduct.stockOffice || 0)} {adjustModalProduct.unit})
+                        </span>
+                      )}
                     </label>
-                    <input type="number" step="any" min="1" required value={adjustQty} onChange={(e) => setAdjustQty(Math.max(1, Number(e.target.value)))} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold"/>
-                  </div>)}
+                    <input
+                      type="number"
+                      step="any"
+                      min="0.001"
+                      required
+                      value={adjustQty}
+                      onChange={(e) => setAdjustQty(Math.max(0.001, Number(e.target.value)))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold"
+                    />
+                  </div>
+                )}
               </div>
 
-              {adjustType === 'TRANSFER' && (<div>
+              {adjustType === 'TRANSFER' && (
+                <div>
                   <label className="font-bold text-slate-700 block mb-1">
                     {'Transfer Quantity'}
+                    <span className="text-[10px] text-slate-500 font-normal ml-1">
+                      (Available in {adjustLocation}: {adjustLocation === 'Factory' ? (adjustModalProduct.stockFactory || 0) : (adjustModalProduct.stockOffice || 0)} {adjustModalProduct.unit})
+                    </span>
                   </label>
-                  <input type="number" step="any" min="1" required value={adjustQty} onChange={(e) => setAdjustQty(Math.max(1, Number(e.target.value)))} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold"/>
-                </div>)}
+                  <input
+                    type="number"
+                    step="any"
+                    min="0.001"
+                    required
+                    value={adjustQty}
+                    onChange={(e) => setAdjustQty(Math.max(0.001, Number(e.target.value)))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold"
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="font-bold text-slate-700 block mb-1">

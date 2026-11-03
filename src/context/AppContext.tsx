@@ -3930,22 +3930,38 @@ export const AppProvider: React.FC<{
             if (p.id !== productId)
                 return p;
             if (type === 'IN') {
-                return location === 'Factory'
-                    ? { ...p, stockFactory: p.stockFactory + qty }
-                    : { ...p, stockOffice: p.stockOffice + qty };
+                const newFactory = location === 'Factory' ? (p.stockFactory || 0) + qty : (p.stockFactory || 0);
+                const newOffice = location === 'Office' ? (p.stockOffice || 0) + qty : (p.stockOffice || 0);
+                return {
+                    ...p,
+                    stockFactory: newFactory,
+                    stockOffice: newOffice,
+                    stock: newFactory + newOffice,
+                };
             }
             else if (type === 'OUT' || type === 'ADJUSTMENT') {
-                return location === 'Factory'
-                    ? { ...p, stockFactory: Math.max(0, p.stockFactory - qty) }
-                    : { ...p, stockOffice: Math.max(0, p.stockOffice - qty) };
+                const newFactory = location === 'Factory' ? Math.max(0, (p.stockFactory || 0) - qty) : (p.stockFactory || 0);
+                const newOffice = location === 'Office' ? Math.max(0, (p.stockOffice || 0) - qty) : (p.stockOffice || 0);
+                return {
+                    ...p,
+                    stockFactory: newFactory,
+                    stockOffice: newOffice,
+                    stock: newFactory + newOffice,
+                };
             }
             else if (type === 'TRANSFER' && targetLocation) {
                 const fromKey = location === 'Factory' ? 'stockFactory' : 'stockOffice';
                 const toKey = targetLocation === 'Factory' ? 'stockFactory' : 'stockOffice';
-                return {
+                const newFrom = Math.max(0, (p[fromKey] || 0) - qty);
+                const newTo = (p[toKey] || 0) + qty;
+                const updated = {
                     ...p,
-                    [fromKey]: Math.max(0, p[fromKey] - qty),
-                    [toKey]: p[toKey] + qty,
+                    [fromKey]: newFrom,
+                    [toKey]: newTo,
+                };
+                return {
+                    ...updated,
+                    stock: (updated.stockFactory || 0) + (updated.stockOffice || 0),
                 };
             }
             return p;
@@ -5014,30 +5030,155 @@ export const AppProvider: React.FC<{
         const po = currentPOs.find((p: PurchaseOrder) => p.id === id);
         if (!po)
             return;
+
+        let nextProducts = latestStateRef.current.products || products || [];
+        let nextMovements = latestStateRef.current.stockMovements || stockMovements || [];
+        let nextSuppliers = latestStateRef.current.suppliers || suppliers || [];
+        let nextTransactions = latestStateRef.current.transactions || transactions || [];
+        let nextJournals = latestStateRef.current.journalEntries || journalEntries || [];
+
+        const isReceived = po.status === 'Received';
+        const poItems = po.items || [];
+        const poTotal = Number(po.subtotal || po.totalAmount || po.grandTotal || 0);
+        const poDue = Number(po.dueAmount || 0);
+        const poPaid = Number(po.paidAmount || 0);
+        const dest = (po.destination || po.destinationLocation || 'Factory') === 'Office' ? 'Office' : 'Factory';
+        const locKey = dest === 'Factory' ? 'stockFactory' : 'stockOffice';
+        const otherLocKey = dest === 'Factory' ? 'stockOffice' : 'stockFactory';
+
+        // 1. Rollback inventory stock if goods were received
+        if (isReceived && poItems.length > 0) {
+            const rollbackMovements: StockMovement[] = [];
+            nextProducts = nextProducts.map((p: ProductItem) => {
+                const matchingItems = poItems.filter((i: any) => i.productId === p.id);
+                if (matchingItems.length > 0) {
+                    const totalRecQty = matchingItems.reduce((sum: number, i: any) =>
+                        sum + (i.receivedQty !== undefined ? Number(i.receivedQty) || 0 : Number(i.qty) || 0), 0);
+                    const currentLocStock = Number(p[locKey]) || 0;
+                    const deductedQty = Math.min(currentLocStock, totalRecQty);
+                    const newLocStock = Math.max(0, currentLocStock - totalRecQty);
+                    const otherLocStock = Number(p[otherLocKey]) || 0;
+
+                    matchingItems.forEach((item: any, idx: number) => {
+                        const rQty = item.receivedQty !== undefined ? Number(item.receivedQty) || 0 : Number(item.qty) || 0;
+                        const itemDeduct = Math.min(rQty, currentLocStock);
+                        if (itemDeduct > 0) {
+                            rollbackMovements.push({
+                                id: generateUniqueId(`sm-rev-${idx}-${item.productId}`),
+                                date: new Date().toISOString().replace('T', ' ').slice(0, 16),
+                                productId: item.productId,
+                                productName: item.name,
+                                type: 'ADJUSTMENT',
+                                qty: itemDeduct,
+                                unit: (item.unit as any) || 'pcs',
+                                sourceLocation: dest,
+                                refNo: po.poNo,
+                                reason: `PO #${po.poNo} Deleted: Stock reversed (Supplier: ${po.supplierName})`,
+                            });
+                        }
+                    });
+
+                    return {
+                        ...p,
+                        [locKey]: newLocStock,
+                        stock: newLocStock + otherLocStock,
+                    };
+                }
+                return p;
+            });
+
+            if (rollbackMovements.length > 0) {
+                nextMovements = [...rollbackMovements, ...nextMovements];
+            }
+        }
+
+        // 2. Rollback Supplier accounts (total purchased and due balance)
+        const poSupName = po.supplierName?.toLowerCase().trim();
+        const poSupPhone = (po.supplierPhone || '').replace(/\D/g, '');
+        nextSuppliers = nextSuppliers.map((s: Supplier) => {
+            const sName = s.name?.toLowerCase().trim();
+            const sCompany = s.company?.toLowerCase().trim();
+            const sPhone = (s.phone || '').replace(/\D/g, '');
+            const matches = (po.supplierId && s.id === po.supplierId) ||
+                (poSupName && sName && (sName === poSupName || sName.includes(poSupName) || poSupName.includes(sName))) ||
+                (poSupName && sCompany && (sCompany === poSupName || sCompany.includes(poSupName) || poSupName.includes(sCompany))) ||
+                (poSupPhone && sPhone && poSupPhone === sPhone);
+
+            if (matches) {
+                const prevPurchased = Number(s.totalPurchased) || 0;
+                const prevDue = Number(s.dueAmount ?? s.balancePayable ?? 0);
+                const newPurchased = isReceived ? Math.max(0, prevPurchased - poTotal) : prevPurchased;
+                const newDue = Math.max(0, prevDue - poDue);
+                return {
+                    ...s,
+                    totalPurchased: newPurchased,
+                    dueAmount: newDue,
+                    balancePayable: newDue,
+                };
+            }
+            return s;
+        });
+
+        // 3. Rollback Payments and Journals (if any payment was made for this PO)
+        if (poPaid > 0) {
+            nextTransactions = nextTransactions.filter((tx: AccountingTransaction) =>
+                tx.refNo !== po.poNo && tx.refNo !== po.poNumber);
+            nextJournals = nextJournals.filter((j: JournalEntry) =>
+                j.refNo !== po.poNo && j.refNo !== po.poNumber);
+        }
+
+        // 4. Remove Purchase Order
         const next = currentPOs.filter((p: PurchaseOrder) => p.id !== id);
+
+        // 5. Update react states
         setPurchaseOrders(next);
+        setProducts(nextProducts);
+        setStockMovements(nextMovements);
+        setSuppliers(nextSuppliers);
+        setTransactions(nextTransactions);
+        setJournalEntries(nextJournals);
+
+        // 6. Update local storage
         try {
             localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(next));
+            localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(nextProducts));
+            localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(nextMovements));
+            localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(nextSuppliers));
+            localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(nextTransactions));
+            localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(nextJournals));
         } catch {}
+
+        // 7. Update latestStateRef
         latestStateRef.current = {
             ...latestStateRef.current,
             purchaseOrders: next,
+            products: nextProducts,
+            stockMovements: nextMovements,
+            suppliers: nextSuppliers,
+            transactions: nextTransactions,
+            journalEntries: nextJournals,
         };
+
+        // 8. Audit Log
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
             staffRole: activeStaff.role,
-            location: po.destination || 'Factory',
+            location: dest,
             actionType: 'PO_CREATED',
             entityType: 'Supply Chain',
             refNo: po.poNo,
-            details: `Deleted purchase order ${po.poNo} for supplier ${po.supplierName}`,
+            details: `Deleted PO #${po.poNo} (${isReceived ? 'Received' : po.status}): Stock reversed=${isReceived}, Payments reversed=${poPaid > 0 ? `৳${poPaid.toLocaleString()}` : 'None'}, Supplier=${po.supplierName}`,
             detailsBn: undefined,
             amount: po.totalAmount,
             severity: 'warning',
         });
+
         isCloudLoadedRef.current = true;
         triggerImmediatePush();
+        if (pushToCloudRef.current) {
+            pushToCloudRef.current({ force: true }).catch(() => {});
+        }
     };
     const updatePurchaseOrder = (id: string, updates: Partial<PurchaseOrder>) => {
         const currentPOs = latestStateRef.current.purchaseOrders || purchaseOrders;
