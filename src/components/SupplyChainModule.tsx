@@ -699,37 +699,53 @@ export const SupplyChainModule: React.FC = () => {
                     </td>
 
                     <td className="py-3.5 px-4 text-right">
-                      <div className="font-black text-slate-900 text-sm">
-                        {profile.currencySymbol}
-                        {(po.grandTotal ?? po.totalAmount ?? 0).toLocaleString()}
-                      </div>
                       {po.status === 'Partially Returned' ? (
-                        <div className="text-[10px] font-semibold text-purple-700">
-                          {`Retained: ${profile.currencySymbol}${(po.paidAmount || 0).toLocaleString()}`}
+                        <div className="space-y-1 text-right">
+                          <div className="font-black text-slate-900 text-sm">
+                            {profile.currencySymbol}{(Number(po.totalAmount) || 0).toLocaleString()}
+                            <span className="text-[10px] font-semibold text-slate-400 ml-1 font-sans">(অর্ডার)</span>
+                          </div>
+                          <div className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 inline-block">
+                            ব্যবহৃত: {profile.currencySymbol}{(Number(po.paidAmount) || 0).toLocaleString()}
+                          </div>
+                          <div className="text-[10px] font-bold text-purple-800 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 block">
+                            ফেরত: {profile.currencySymbol}{Math.max(0, (Number(po.totalAmount) || 0) - (Number(po.paidAmount) || 0)).toLocaleString()}
+                          </div>
                         </div>
-                      ) : po.status === 'Received' && po.dueAmount > 0 ? (
-                        <div className="text-[11px] font-bold text-amber-700">
-                          {'Due: '}
-                          {profile.currencySymbol}
-                          {po.dueAmount.toLocaleString()}
-                        </div>
-                      ) : po.status !== 'Received' ? (
-                        <div className="text-[10px] font-medium text-slate-400 mt-0.5">
-                          {'Awaiting Receipt'}
-                        </div>
-                      ) : null}
+                      ) : (
+                        <>
+                          <div className="font-black text-slate-900 text-sm">
+                            {profile.currencySymbol}
+                            {(po.grandTotal ?? po.totalAmount ?? 0).toLocaleString()}
+                          </div>
+                          {po.status === 'Received' && po.dueAmount > 0 ? (
+                            <div className="text-[11px] font-bold text-amber-700">
+                              {'Due: '}
+                              {profile.currencySymbol}
+                              {po.dueAmount.toLocaleString()}
+                            </div>
+                          ) : po.status !== 'Received' ? (
+                            <div className="text-[10px] font-medium text-slate-400 mt-0.5">
+                              {'Awaiting Receipt'}
+                            </div>
+                          ) : null}
+                        </>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4 text-center">
                       <div className="flex flex-col items-center gap-1">
                         {po.status === 'Partially Returned' ? (
-                          <div className="flex flex-col items-center gap-0.5">
-                            <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-50 text-purple-700 border border-purple-200">
-                              Adjusted (Partial Refund)
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-800 border border-purple-200">
+                              Partial Return Adjusted
                             </span>
-                            <span className="text-[9px] text-purple-600 font-medium">
-                              Refund: {profile.currencySymbol}{Math.max(0, (po.totalAmount || 0) - (po.paidAmount || 0)).toLocaleString()}
-                            </span>
+                            <div className="text-[10px] font-bold text-slate-800">
+                              রিফান্ড: <span className="text-purple-700 font-extrabold">{profile.currencySymbol}{Math.max(0, (Number(po.totalAmount) || 0) - (Number(po.paidAmount) || 0)).toLocaleString()}</span>
+                            </div>
+                            <div className="text-[9px] text-emerald-700 font-bold bg-emerald-50/70 px-1.5 py-0.5 rounded">
+                              কারখানায় খরচ: {profile.currencySymbol}{(Number(po.paidAmount) || 0).toLocaleString()}
+                            </div>
                           </div>
                         ) : po.status !== 'Received' ? (<div className="flex flex-col items-center gap-0.5">
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-100 text-slate-700 border border-slate-200">
