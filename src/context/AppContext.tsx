@@ -5047,6 +5047,9 @@ export const AppProvider: React.FC<{
         const otherLocKey = dest === 'Factory' ? 'stockOffice' : 'stockFactory';
 
         // 1. Rollback inventory stock if goods were received
+        let totalAvailableValue = 0;
+        let totalConsumedValue = 0;
+
         if (isReceived && poItems.length > 0) {
             const rollbackMovements: StockMovement[] = [];
             nextProducts = nextProducts.map((p: ProductItem) => {
@@ -5054,14 +5057,20 @@ export const AppProvider: React.FC<{
                 if (matchingItems.length > 0) {
                     const totalRecQty = matchingItems.reduce((sum: number, i: any) =>
                         sum + (i.receivedQty !== undefined ? Number(i.receivedQty) || 0 : Number(i.qty) || 0), 0);
-                    const currentLocStock = Number(p[locKey]) || 0;
-                    const deductedQty = Math.min(currentLocStock, totalRecQty);
-                    const newLocStock = Math.max(0, currentLocStock - totalRecQty);
-                    const otherLocStock = Number(p[otherLocKey]) || 0;
+                    const currentLocStock = Number((Number(p[locKey]) || 0).toFixed(4));
+                    const safeRecQty = Number(totalRecQty.toFixed(4));
+                    const deductedQty = Number(Math.min(currentLocStock, safeRecQty).toFixed(4));
+                    const newLocStock = Number(Math.max(0, currentLocStock - safeRecQty).toFixed(4));
+                    const otherLocStock = Number((Number(p[otherLocKey]) || 0).toFixed(4));
 
                     matchingItems.forEach((item: any, idx: number) => {
-                        const rQty = item.receivedQty !== undefined ? Number(item.receivedQty) || 0 : Number(item.qty) || 0;
-                        const itemDeduct = Math.min(rQty, currentLocStock);
+                        const rQty = Number((item.receivedQty !== undefined ? Number(item.receivedQty) || 0 : Number(item.qty) || 0).toFixed(4));
+                        const itemDeduct = Number(Math.min(rQty, currentLocStock).toFixed(4));
+                        const itemConsumed = Number(Math.max(0, rQty - currentLocStock).toFixed(4));
+                        const unitCost = Number(item.unitCost) || 0;
+                        totalAvailableValue += Math.round(itemDeduct * unitCost);
+                        totalConsumedValue += Math.round(itemConsumed * unitCost);
+
                         if (itemDeduct > 0) {
                             rollbackMovements.push({
                                 id: generateUniqueId(`sm-rev-${idx}-${item.productId}`),
@@ -5081,7 +5090,7 @@ export const AppProvider: React.FC<{
                     return {
                         ...p,
                         [locKey]: newLocStock,
-                        stock: newLocStock + otherLocStock,
+                        stock: Number((newLocStock + otherLocStock).toFixed(4)),
                     };
                 }
                 return p;
@@ -5091,6 +5100,17 @@ export const AppProvider: React.FC<{
                 nextMovements = [...rollbackMovements, ...nextMovements];
             }
         }
+
+        const hasAnyConsumed = isReceived && totalConsumedValue > 0;
+        const netPayableForConsumed = hasAnyConsumed ? Math.min(poTotal, totalConsumedValue) : 0;
+        const refundAmount = isReceived
+            ? (hasAnyConsumed ? Math.max(0, poPaid - netPayableForConsumed) : poPaid)
+            : poPaid;
+        const purchaseDeduction = isReceived
+            ? (hasAnyConsumed ? Math.min(poTotal, totalAvailableValue) : poTotal)
+            : 0;
+        const remainingDueAfterReturn = hasAnyConsumed ? Math.max(0, netPayableForConsumed - poPaid) : 0;
+        const dueReduction = Math.max(0, poDue - remainingDueAfterReturn);
 
         // 2. Rollback Supplier accounts (total purchased and due balance)
         const poSupName = po.supplierName?.toLowerCase().trim();
@@ -5107,8 +5127,8 @@ export const AppProvider: React.FC<{
             if (matches) {
                 const prevPurchased = Number(s.totalPurchased) || 0;
                 const prevDue = Number(s.dueAmount ?? s.balancePayable ?? 0);
-                const newPurchased = isReceived ? Math.max(0, prevPurchased - poTotal) : prevPurchased;
-                const newDue = Math.max(0, prevDue - poDue);
+                const newPurchased = Math.max(0, prevPurchased - purchaseDeduction);
+                const newDue = Math.max(0, prevDue - dueReduction);
                 return {
                     ...s,
                     totalPurchased: newPurchased,
@@ -5121,10 +5141,51 @@ export const AppProvider: React.FC<{
 
         // 3. Rollback Payments and Journals (if any payment was made for this PO)
         if (poPaid > 0) {
-            nextTransactions = nextTransactions.filter((tx: AccountingTransaction) =>
-                tx.refNo !== po.poNo && tx.refNo !== po.poNumber);
-            nextJournals = nextJournals.filter((j: JournalEntry) =>
-                j.refNo !== po.poNo && j.refNo !== po.poNumber);
+            if (refundAmount >= poPaid || !hasAnyConsumed) {
+                // Full refund: Remove all expense transactions & journals for this PO
+                nextTransactions = nextTransactions.filter((tx: AccountingTransaction) =>
+                    tx.refNo !== po.poNo && tx.refNo !== po.poNumber);
+                nextJournals = nextJournals.filter((j: JournalEntry) =>
+                    j.refNo !== po.poNo && j.refNo !== po.poNumber);
+            } else if (refundAmount > 0) {
+                // Partial refund: Retain netPayableForConsumed as production expense, refund the difference
+                const retainedExpense = poPaid - refundAmount;
+                let remainingToRetain = retainedExpense;
+                nextTransactions = nextTransactions.map((tx: AccountingTransaction) => {
+                    if (tx.refNo === po.poNo || tx.refNo === po.poNumber) {
+                        const txAmt = Number(tx.amount) || 0;
+                        if (remainingToRetain > 0) {
+                            const keepAmt = Math.min(txAmt, remainingToRetain);
+                            remainingToRetain -= keepAmt;
+                            return {
+                                ...tx,
+                                amount: keepAmt,
+                                description: `Raw Material Consumed in Production: ${po.poNo} (Partial return refund: ৳${refundAmount.toLocaleString()})`,
+                            };
+                        }
+                        return null;
+                    }
+                    return tx;
+                }).filter(Boolean) as AccountingTransaction[];
+
+                let remainingJnlToRetain = retainedExpense;
+                nextJournals = nextJournals.map((j: JournalEntry) => {
+                    if (j.refNo === po.poNo || j.refNo === po.poNumber) {
+                        const jAmt = Number(j.amount) || 0;
+                        if (remainingJnlToRetain > 0) {
+                            const keepAmt = Math.min(jAmt, remainingJnlToRetain);
+                            remainingJnlToRetain -= keepAmt;
+                            return {
+                                ...j,
+                                amount: keepAmt,
+                                narration: `Raw Material Consumed in Production: ${po.poNo} (Partial return refund: ৳${refundAmount.toLocaleString()})`,
+                            };
+                        }
+                        return null;
+                    }
+                    return j;
+                }).filter(Boolean) as JournalEntry[];
+            }
         }
 
         // 4. Remove Purchase Order

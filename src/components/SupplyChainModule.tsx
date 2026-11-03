@@ -2390,23 +2390,53 @@ export const SupplyChainModule: React.FC = () => {
         const poTotal = Number(poToDelete.subtotal || poToDelete.totalAmount || poToDelete.grandTotal || 0);
         const poDue = Number(poToDelete.dueAmount || 0);
 
-        // Check stock availability and consumption
+        // Check stock availability and consumption with clean decimal formatting
         const stockRollbackSummary = poItems.map(item => {
           const prod = products.find(p => p.id === item.productId);
-          const currentLocStock = dest === 'Factory' ? (prod?.stockFactory ?? 0) : (prod?.stockOffice ?? 0);
-          const recQty = item.receivedQty !== undefined ? Number(item.receivedQty) || 0 : Number(item.qty) || 0;
-          const safeDeduct = Math.min(currentLocStock, recQty);
-          const consumed = Math.max(0, recQty - currentLocStock);
+          const currentLocStock = Number((dest === 'Factory' ? (prod?.stockFactory ?? 0) : (prod?.stockOffice ?? 0)).toFixed(4));
+          const recQty = Number((item.receivedQty !== undefined ? Number(item.receivedQty) || 0 : Number(item.qty) || 0).toFixed(4));
+          const safeDeduct = Number(Math.min(currentLocStock, recQty).toFixed(4));
+          const consumed = Number(Math.max(0, recQty - currentLocStock).toFixed(4));
+          const unitCost = Number(item.unitCost) || 0;
+          const safeDeductValue = Math.round(safeDeduct * unitCost);
+          const consumedValue = Math.round(consumed * unitCost);
+
           return {
             ...item,
             recQty,
             currentLocStock,
             safeDeduct,
             consumed,
+            unitCost,
+            safeDeductValue,
+            consumedValue,
           };
         });
 
         const hasAnyConsumed = stockRollbackSummary.some(s => s.consumed > 0);
+        const totalAvailableValue = stockRollbackSummary.reduce((sum, s) => sum + s.safeDeductValue, 0);
+        const totalConsumedValue = stockRollbackSummary.reduce((sum, s) => sum + s.consumedValue, 0);
+
+        // Pro-rata financial calculations:
+        // Consumed goods cost is retained in factory production expense
+        const netPayableForConsumed = hasAnyConsumed ? Math.min(poTotal, totalConsumedValue) : 0;
+        
+        // Refund amount to cash/bank:
+        const refundAmount = isReceived 
+          ? (hasAnyConsumed ? Math.max(0, poPaid - netPayableForConsumed) : poPaid)
+          : poPaid;
+        
+        // Purchases deduction from supplier:
+        const purchaseDeduction = isReceived 
+          ? (hasAnyConsumed ? Math.min(poTotal, totalAvailableValue) : poTotal)
+          : 0;
+        
+        // Supplier due reduction:
+        const remainingDueAfterReturn = hasAnyConsumed ? Math.max(0, netPayableForConsumed - poPaid) : 0;
+        const dueReduction = Math.max(0, poDue - remainingDueAfterReturn);
+
+        // Payment channels breakdown
+        const poPayments = getPurchaseOrderPayments(poToDelete, transactions, journalEntries, paymentMethods);
 
         return (
           <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -2433,10 +2463,12 @@ export const SupplyChainModule: React.FC = () => {
                   <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-amber-800 space-y-1">
                     <div className="font-bold flex items-center gap-1.5 text-amber-900">
                       <AlertCircle className="w-4 h-4 text-amber-600" />
-                      <span>Smart Inventory & Accounts Rollback</span>
+                      <span>{hasAnyConsumed ? 'Partial Stock Return & Pro-Rata Refund' : 'Smart Inventory & Accounts Rollback'}</span>
                     </div>
                     <p className="text-[11px] text-amber-700 leading-relaxed">
-                      Deleting this received order will automatically reverse physical stock from warehouse, deduct supplier payable, and restore cash/bank balances.
+                      {hasAnyConsumed 
+                        ? 'Some materials were consumed in BOM production. Only the remaining available warehouse stock will be deducted and refunded. Consumed materials cost is retained in factory production.'
+                        : 'Deleting this received order will automatically reverse physical stock from warehouse, deduct supplier payable, and restore cash/bank balances.'}
                     </p>
                   </div>
 
@@ -2462,7 +2494,7 @@ export const SupplyChainModule: React.FC = () => {
                               </span>
                             ) : (
                               <span className="inline-block text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
-                                -{item.safeDeduct} {item.unit}
+                                -{item.safeDeduct} {item.unit} (100% Returned)
                               </span>
                             )}
                           </div>
@@ -2471,15 +2503,24 @@ export const SupplyChainModule: React.FC = () => {
                     </div>
                     {hasAnyConsumed && (
                       <div className="text-[10px] text-amber-700 bg-amber-50/60 p-2 rounded-lg border border-amber-200/50">
-                        * Note: Some materials were already used in BOM production or sales. Available stock will be deducted safely down to 0 without causing negative inventory.
+                        * Note: Consumed materials were used in finished goods production or sales. Available stock will be deducted safely without causing negative inventory.
                       </div>
                     )}
                   </div>
 
                   {/* Financial rollback */}
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5">
-                    <div className="font-bold text-slate-700 pb-1 border-b border-slate-200 text-[11px]">
-                      Supplier & Payment Reversal
+                    <div className="font-bold text-slate-700 pb-1 border-b border-slate-200 text-[11px] flex justify-between items-center">
+                      <span>Supplier & Financial Reversal</span>
+                      {hasAnyConsumed ? (
+                        <span className="text-[10px] text-amber-700 bg-amber-100/70 font-semibold px-1.5 py-0.5 rounded">
+                          Partial Return & Refund
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-emerald-700 bg-emerald-100/70 font-semibold px-1.5 py-0.5 rounded">
+                          Full 100% Refund
+                        </span>
+                      )}
                     </div>
                     <div className="flex justify-between items-center text-[11px]">
                       <span className="text-slate-500">Supplier:</span>
@@ -2487,16 +2528,54 @@ export const SupplyChainModule: React.FC = () => {
                     </div>
                     <div className="flex justify-between items-center text-[11px]">
                       <span className="text-slate-500">Purchases to Deduct:</span>
-                      <span className="font-bold text-slate-800">৳{poTotal.toLocaleString()}</span>
+                      <span className="font-bold text-slate-800">
+                        ৳{purchaseDeduction.toLocaleString()}
+                        {hasAnyConsumed && <span className="text-[10px] font-normal text-slate-500 ml-1">(Remaining stock value)</span>}
+                      </span>
                     </div>
+                    {hasAnyConsumed && (
+                      <div className="flex justify-between items-center text-[11px] text-amber-800 bg-amber-50/80 px-2 py-1 rounded-md border border-amber-200/60">
+                        <span className="font-semibold">Retained in Production Cost:</span>
+                        <span className="font-bold">৳{netPayableForConsumed.toLocaleString()} (Consumed in BOM)</span>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center text-[11px]">
                       <span className="text-slate-500">Supplier Payable Due to Clear:</span>
-                      <span className="font-bold text-slate-800">৳{poDue.toLocaleString()}</span>
+                      <span className="font-bold text-slate-800">৳{dueReduction.toLocaleString()}</span>
                     </div>
-                    {poPaid > 0 && (
-                      <div className="flex justify-between items-center text-[11px] text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-200">
-                        <span className="font-semibold">Refund to Cash/Bank:</span>
-                        <span className="font-bold">৳{poPaid.toLocaleString()}</span>
+
+                    {/* Refund to Cash/Bank Section */}
+                    {refundAmount > 0 ? (
+                      <div className="pt-1 border-t border-slate-200/60 space-y-1.5">
+                        <div className="flex justify-between items-center text-[11px] text-emerald-800 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200">
+                          <span className="font-bold">
+                            {hasAnyConsumed ? 'Partial Refund to Cash / Bank:' : 'Full Refund to Cash / Bank:'}
+                          </span>
+                          <span className="font-extrabold text-xs">৳{refundAmount.toLocaleString()}</span>
+                        </div>
+
+                        {/* Channels Breakdown */}
+                        {poPayments.length > 0 && (
+                          <div className="space-y-1 bg-white p-2 rounded-lg border border-emerald-100">
+                            <span className="text-[10px] font-bold text-slate-500 block">Refund Distribution by Account:</span>
+                            {poPayments.map((p, pIdx) => {
+                              const chRefund = poPaid > 0 ? Math.round((p.amount / poPaid) * refundAmount) : 0;
+                              return (
+                                <div key={pIdx} className="flex justify-between items-center text-[10px] text-slate-700 py-0.5">
+                                  <span className="flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                    <span>{p.channel}:</span>
+                                  </span>
+                                  <span className="font-bold text-slate-900">৳{chRefund.toLocaleString()}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-slate-500 bg-slate-100 p-2 rounded-lg border border-slate-200">
+                        {poPaid === 0 ? 'No payment made on this PO (no cash refund required).' : 'Paid amount covers consumed materials (no cash refund applicable).'}
                       </div>
                     )}
                   </div>
