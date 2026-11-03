@@ -43,6 +43,7 @@ export const SupplyChainModule: React.FC = () => {
         receivedQty: number;
     }[]>([]);
     const [poToDelete, setPoToDelete] = useState<PurchaseOrder | null>(null);
+    const [refundTargetAccount, setRefundTargetAccount] = useState<string>('ORIGINAL');
     const [showSupplierModal, setShowSupplierModal] = useState(false);
     const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
     const [supplierToDelete, setSupplierToDelete] = useState<Supplier | null>(null);
@@ -829,7 +830,10 @@ export const SupplyChainModule: React.FC = () => {
                             <Edit2 className="w-3.5 h-3.5"/>
                           </button>)}
 
-                        {canCreatePO && (<button type="button" onClick={() => setPoToDelete(po)} className="p-1 text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 rounded-lg transition-all inline-flex items-center justify-center cursor-pointer" title={po.status === 'Received' ? 'Rollback & Delete' : 'Delete'}>
+                        {canCreatePO && (<button type="button" onClick={() => {
+                            setRefundTargetAccount('ORIGINAL');
+                            setPoToDelete(po);
+                          }} className="p-1 text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 rounded-lg transition-all inline-flex items-center justify-center cursor-pointer" title={po.status === 'Received' ? 'Rollback & Delete' : 'Delete'}>
                             <Trash2 className="w-3.5 h-3.5"/>
                           </button>)}
                       </div>
@@ -2572,6 +2576,34 @@ export const SupplyChainModule: React.FC = () => {
                             })}
                           </div>
                         )}
+
+                        {/* Refund Destination Account Selector */}
+                        <div className="bg-white p-2.5 rounded-lg border border-emerald-200/80 space-y-1 mt-2">
+                          <label className="text-[10px] font-bold text-slate-700 block">
+                            Refund Destination Account (টাকা কোন অ্যাকাউন্টে জমা হবে):
+                          </label>
+                          <select
+                            value={refundTargetAccount}
+                            onChange={(e) => setRefundTargetAccount(e.target.value)}
+                            className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                          >
+                            <option value="ORIGINAL">
+                              {poPayments.length > 1
+                                ? `Original Payment Accounts (${poPayments.map(p => p.channel).join(', ')})`
+                                : `Original Payment Account (${poPayments[0]?.channel || poToDelete.paymentMethod || 'Cash in Hand'})`}
+                            </option>
+                            {activePaymentMethods.map((pm) => (
+                              <option key={pm.id} value={pm.name}>
+                                {pm.name} {pm.nameBn ? `(${pm.nameBn})` : ''}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-[9px] text-emerald-700 leading-tight">
+                            {refundTargetAccount === 'ORIGINAL'
+                              ? '* টাকা সরাসরি যে অ্যাকাউন্ট থেকে পরিশোধ হয়েছিল সেখানেই ফেরত যাবে।'
+                              : `* সাপ্লায়ারের ফেরত দেওয়া ৳${refundAmount.toLocaleString()} সরাসরি "${refundTargetAccount}" লেজারে জমা হবে।`}
+                          </p>
+                        </div>
                       </div>
                     ) : (
                       <div className="text-[11px] text-slate-500 bg-slate-100 p-2 rounded-lg border border-slate-200">
@@ -2604,7 +2636,7 @@ export const SupplyChainModule: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    deletePurchaseOrder(poToDelete.id);
+                    deletePurchaseOrder(poToDelete.id, refundTargetAccount);
                     setPoToDelete(null);
                   }}
                   className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-2xs flex items-center gap-1.5 cursor-pointer"

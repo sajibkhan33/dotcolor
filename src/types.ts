@@ -370,7 +370,7 @@ export interface ProcurementRequisition {
   requestedBy: string;
   items: ProcurementRequisitionItem[];
   totalEstimatedCost: number;
-  status: 'Pending' | 'Approved' | 'Rejected' | 'Converted to PO';
+  status: 'Pending' | 'Approved' | 'Rejected' | 'Converted to PO' | 'Cancelled';
   priority?: 'Low' | 'Medium' | 'High' | 'Urgent';
   preferredSupplierId?: string;
   preferredSupplierName?: string;

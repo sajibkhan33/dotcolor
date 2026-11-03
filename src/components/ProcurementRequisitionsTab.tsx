@@ -369,6 +369,7 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
             <option value="Pending">Pending Approval</option>
             <option value="Converted to PO">Converted to PO</option>
             <option value="Rejected">Rejected</option>
+            <option value="Cancelled">Cancelled (PO Rolled Back)</option>
           </select>
 
           {/* Dept filter */}
@@ -421,8 +422,9 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
               ) : (
                 filteredRequisitions.map((req) => {
                   const isPending = req.status === 'Pending';
-                  const isConverted = req.status === 'Converted to PO';
+                  const isConverted = req.status === 'Converted to PO' || req.status === 'Approved';
                   const isRejected = req.status === 'Rejected';
+                  const isCancelled = req.status === 'Cancelled';
 
                   return (
                     <tr key={req.id} className="hover:bg-slate-50/70 transition-colors">
@@ -502,7 +504,7 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
                             <span>Pending</span>
                           </span>
                         )}
-                        {isConverted && (
+                        {isConverted && !isCancelled && (
                           <div className="inline-flex flex-col items-center">
                             <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full">
                               <CheckCircle2 className="w-3 h-3 text-emerald-600" />
@@ -513,6 +515,15 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
                                 PO: {req.convertedPoNo}
                               </span>
                             )}
+                          </div>
+                        )}
+                        {isCancelled && (
+                          <div className="inline-flex flex-col items-center">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-300 px-2 py-0.5 rounded-full">
+                              <XCircle className="w-3 h-3 text-slate-500" />
+                              <span>Cancelled</span>
+                            </span>
+                            <span className="text-[9px] text-slate-400 mt-0.5 font-medium">PO Rolled Back</span>
                           </div>
                         )}
                         {isRejected && (
@@ -548,7 +559,19 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
                             </>
                           )}
 
-                          {isConverted && req.convertedPoNo && onViewPO && (
+                          {isCancelled && canCreatePO && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenApprovalModal(req)}
+                              className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
+                              title="Re-issue & create new Purchase Order"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>Re-issue PO</span>
+                            </button>
+                          )}
+
+                          {isConverted && !isCancelled && req.convertedPoNo && onViewPO && (
                             <button
                               type="button"
                               onClick={() => onViewPO(req.convertedPoNo!)}

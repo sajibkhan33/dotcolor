@@ -118,7 +118,7 @@ interface AppContextType {
     approveAndConvertRequisitionToPO: (requisitionId: string, supplierId: string, supplierName: string, destination?: 'Factory' | 'Office') => PurchaseOrder;
     addPurchaseOrder: (po: Omit<PurchaseOrder, 'id' | 'poNo'>) => PurchaseOrder;
     updatePurchaseOrder: (id: string, updates: Partial<PurchaseOrder>) => void;
-    deletePurchaseOrder: (id: string) => void;
+    deletePurchaseOrder: (id: string, refundTargetAccount?: string) => void;
     receivePurchaseOrder: (poId: string, receivedItems?: {
         productId: string;
         receivedQty: number;
@@ -5025,7 +5025,7 @@ export const AppProvider: React.FC<{
         isCloudLoadedRef.current = true;
         triggerImmediatePush();
     };
-    const deletePurchaseOrder = (id: string) => {
+    const deletePurchaseOrder = (id: string, refundTargetAccount: string = 'ORIGINAL') => {
         const currentPOs = latestStateRef.current.purchaseOrders || purchaseOrders;
         const po = currentPOs.find((p: PurchaseOrder) => p.id === id);
         if (!po)
@@ -5140,58 +5140,115 @@ export const AppProvider: React.FC<{
         });
 
         // 3. Rollback Payments and Journals (if any payment was made for this PO)
-        if (poPaid > 0) {
-            if (refundAmount >= poPaid || !hasAnyConsumed) {
-                // Full refund: Remove all expense transactions & journals for this PO
-                nextTransactions = nextTransactions.filter((tx: AccountingTransaction) =>
-                    tx.refNo !== po.poNo && tx.refNo !== po.poNumber);
-                nextJournals = nextJournals.filter((j: JournalEntry) =>
-                    j.refNo !== po.poNo && j.refNo !== po.poNumber);
-            } else if (refundAmount > 0) {
-                // Partial refund: Retain netPayableForConsumed as production expense, refund the difference
-                const retainedExpense = poPaid - refundAmount;
-                let remainingToRetain = retainedExpense;
-                nextTransactions = nextTransactions.map((tx: AccountingTransaction) => {
-                    if (tx.refNo === po.poNo || tx.refNo === po.poNumber) {
-                        const txAmt = Number(tx.amount) || 0;
-                        if (remainingToRetain > 0) {
-                            const keepAmt = Math.min(txAmt, remainingToRetain);
-                            remainingToRetain -= keepAmt;
-                            return {
-                                ...tx,
-                                amount: keepAmt,
-                                description: `Raw Material Consumed in Production: ${po.poNo} (Partial return refund: ৳${refundAmount.toLocaleString()})`,
-                            };
+        if (poPaid > 0 && refundAmount > 0) {
+            if (!refundTargetAccount || refundTargetAccount === 'ORIGINAL') {
+                if (refundAmount >= poPaid || !hasAnyConsumed) {
+                    // Full refund: Remove all expense transactions & journals for this PO
+                    nextTransactions = nextTransactions.filter((tx: AccountingTransaction) =>
+                        tx.refNo !== po.poNo && tx.refNo !== po.poNumber);
+                    nextJournals = nextJournals.filter((j: JournalEntry) =>
+                        j.refNo !== po.poNo && j.refNo !== po.poNumber);
+                } else {
+                    // Partial refund: Retain netPayableForConsumed as production expense, refund the difference to original accounts
+                    const retainedExpense = poPaid - refundAmount;
+                    let remainingToRetain = retainedExpense;
+                    nextTransactions = nextTransactions.map((tx: AccountingTransaction) => {
+                        if (tx.refNo === po.poNo || tx.refNo === po.poNumber) {
+                            const txAmt = Number(tx.amount) || 0;
+                            if (remainingToRetain > 0) {
+                                const keepAmt = Math.min(txAmt, remainingToRetain);
+                                remainingToRetain -= keepAmt;
+                                return {
+                                    ...tx,
+                                    amount: keepAmt,
+                                    description: `Raw Material Consumed in Production: ${po.poNo} (Partial return refund: ৳${refundAmount.toLocaleString()})`,
+                                };
+                            }
+                            return null;
                         }
-                        return null;
-                    }
-                    return tx;
-                }).filter(Boolean) as AccountingTransaction[];
+                        return tx;
+                    }).filter(Boolean) as AccountingTransaction[];
 
-                let remainingJnlToRetain = retainedExpense;
-                nextJournals = nextJournals.map((j: JournalEntry) => {
-                    if (j.refNo === po.poNo || j.refNo === po.poNumber) {
-                        const jAmt = Number(j.amount) || 0;
-                        if (remainingJnlToRetain > 0) {
-                            const keepAmt = Math.min(jAmt, remainingJnlToRetain);
-                            remainingJnlToRetain -= keepAmt;
-                            return {
-                                ...j,
-                                amount: keepAmt,
-                                narration: `Raw Material Consumed in Production: ${po.poNo} (Partial return refund: ৳${refundAmount.toLocaleString()})`,
-                            };
+                    let remainingJnlToRetain = retainedExpense;
+                    nextJournals = nextJournals.map((j: JournalEntry) => {
+                        if (j.refNo === po.poNo || j.refNo === po.poNumber) {
+                            const jAmt = Number(j.amount) || 0;
+                            if (remainingJnlToRetain > 0) {
+                                const keepAmt = Math.min(jAmt, remainingJnlToRetain);
+                                remainingJnlToRetain -= keepAmt;
+                                return {
+                                    ...j,
+                                    amount: keepAmt,
+                                    narration: `Raw Material Consumed in Production: ${po.poNo} (Partial return refund: ৳${refundAmount.toLocaleString()})`,
+                                };
+                            }
+                            return null;
                         }
-                        return null;
-                    }
-                    return j;
-                }).filter(Boolean) as JournalEntry[];
+                        return j;
+                    }).filter(Boolean) as JournalEntry[];
+                }
+            } else {
+                // User chose a specific destination account for the refund (e.g. Cash in Hand)
+                const refundIncomeTx: AccountingTransaction = {
+                    id: generateUniqueId('tx-po-refund'),
+                    date: new Date().toISOString().slice(0, 10),
+                    type: 'INCOME',
+                    category: 'Purchase Return / PO Refund',
+                    amount: refundAmount,
+                    paymentAccount: refundTargetAccount,
+                    refNo: po.poNo,
+                    customerOrSupplier: po.supplierName,
+                    description: `Refund for PO #${po.poNo} received into ${refundTargetAccount} (Supplier: ${po.supplierName})`,
+                };
+                nextTransactions = ensureUniqueTransactions([refundIncomeTx, ...nextTransactions]);
+
+                // Also double-entry journal if applicable
+                const currentCoa = latestStateRef.current?.chartOfAccounts || chartOfAccounts || [];
+                const apAcc = currentCoa.find(a => a.id === 'coa-2001' || a.id === 'coa-2010' || a.code === '2001' || a.code === '2010' || a.name.toLowerCase().includes('payable')) || currentCoa[0];
+                const destAssetAcc = matchChannelToAccount(refundTargetAccount, currentCoa, paymentMethods) || currentCoa[0];
+                if (destAssetAcc && apAcc) {
+                    const refundJournal: JournalEntry = {
+                        id: generateUniqueId('jnl-po-refund'),
+                        entryNo: `JNL-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`,
+                        date: new Date().toISOString().slice(0, 10),
+                        refNo: po.poNo,
+                        debitAccountId: destAssetAcc.id,
+                        debitAccountName: destAssetAcc.name,
+                        creditAccountId: apAcc.id,
+                        creditAccountName: apAcc.name,
+                        amount: refundAmount,
+                        narration: `PO #${po.poNo} refund received into ${destAssetAcc.name} from ${po.supplierName}`,
+                        source: 'PURCHASE',
+                        createdBy: activeStaff?.name || 'Authorized Staff',
+                    };
+                    nextJournals = [refundJournal, ...nextJournals];
+                }
             }
         }
 
-        // 4. Remove Purchase Order
+        // 4. Update linked Procurement Requisition(s) to 'Cancelled'
+        const currentPRs = latestStateRef.current.procurementRequisitions || procurementRequisitions || [];
+        const nextPRs = currentPRs.map((pr: ProcurementRequisition) => {
+            if (pr.convertedPoId === id || pr.convertedPoNo === po.poNo || pr.convertedPoNo === po.poNumber) {
+                return {
+                    ...pr,
+                    status: 'Cancelled' as const,
+                    notes: `${pr.notes ? pr.notes + ' | ' : ''}Linked PO #${po.poNo} was rolled back & deleted on ${new Date().toISOString().slice(0, 10)}.`,
+                    convertedPoId: undefined,
+                    convertedPoNo: undefined,
+                };
+            }
+            return pr;
+        });
+        setProcurementRequisitions(nextPRs);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_PROCUREMENT_REQUISITIONS`, JSON.stringify(nextPRs));
+        } catch {}
+
+        // 5. Remove Purchase Order
         const next = currentPOs.filter((p: PurchaseOrder) => p.id !== id);
 
-        // 5. Update react states
+        // 6. Update react states
         setPurchaseOrders(next);
         setProducts(nextProducts);
         setStockMovements(nextMovements);
@@ -5199,7 +5256,7 @@ export const AppProvider: React.FC<{
         setTransactions(nextTransactions);
         setJournalEntries(nextJournals);
 
-        // 6. Update local storage
+        // 7. Update local storage
         try {
             localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(next));
             localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(nextProducts));
@@ -5209,7 +5266,7 @@ export const AppProvider: React.FC<{
             localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(nextJournals));
         } catch {}
 
-        // 7. Update latestStateRef
+        // 8. Update latestStateRef
         latestStateRef.current = {
             ...latestStateRef.current,
             purchaseOrders: next,
@@ -5218,9 +5275,10 @@ export const AppProvider: React.FC<{
             suppliers: nextSuppliers,
             transactions: nextTransactions,
             journalEntries: nextJournals,
+            procurementRequisitions: nextPRs,
         };
 
-        // 8. Audit Log
+        // 9. Audit Log
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
@@ -5229,7 +5287,7 @@ export const AppProvider: React.FC<{
             actionType: 'PO_CREATED',
             entityType: 'Supply Chain',
             refNo: po.poNo,
-            details: `Deleted PO #${po.poNo} (${isReceived ? 'Received' : po.status}): Stock reversed=${isReceived}, Payments reversed=${poPaid > 0 ? `৳${poPaid.toLocaleString()}` : 'None'}, Supplier=${po.supplierName}`,
+            details: `Deleted PO #${po.poNo} (${isReceived ? 'Received' : po.status}): Stock reversed=${isReceived}, ${hasAnyConsumed ? `Partial refund: ৳${refundAmount.toLocaleString()} (৳${netPayableForConsumed.toLocaleString()} retained for consumed BOM materials)` : `Full refund: ৳${refundAmount.toLocaleString()}`}, Refund account=${refundTargetAccount === 'ORIGINAL' ? 'Original accounts' : refundTargetAccount}, Linked Requisition marked Cancelled`,
             detailsBn: undefined,
             amount: po.totalAmount,
             severity: 'warning',
