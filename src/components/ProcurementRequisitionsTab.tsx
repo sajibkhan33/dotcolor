@@ -4,7 +4,7 @@ import { ProcurementRequisition, ProductItem, Supplier, CompanyProfile, Purchase
 import { 
   Plus, Search, CheckCircle2, XCircle, Clock, Truck, 
   AlertTriangle, Eye, Trash2, ArrowRight, FileText, 
-  Building2, Factory, Calendar, DollarSign, X, Check, Edit2
+  Building2, Factory, Calendar, DollarSign, X, Check, Edit2, Layers
 } from 'lucide-react';
 
 interface ProcurementRequisitionsTabProps {
@@ -25,6 +25,7 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
   const app = useApp();
 
   const requisitions = props.requisitions || app.procurementRequisitions || [];
+  const purchaseOrders = app.purchaseOrders || [];
   const products = props.products || app.products || [];
   const suppliers = props.suppliers || app.suppliers || [];
   const profile = props.profile || app.profile;
@@ -81,9 +82,32 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
     return products.filter(p => p.isRawMaterial);
   }, [products]);
 
+  // Reactive self-healing: If an approved requisition points to a deleted PO, immediately treat as Cancelled or Partially Fulfilled
+  const healedRequisitions = useMemo(() => {
+    const poNoSet = new Set(purchaseOrders.map(p => (p.poNo || p.poNumber || '').toLowerCase().trim()).filter(Boolean));
+    const poIdSet = new Set(purchaseOrders.map(p => (p.id || '').toLowerCase().trim()).filter(Boolean));
+
+    return requisitions.map(req => {
+      const isApprovedOrConverted = req.status === 'Converted to PO' || req.status === 'Approved';
+      if (isApprovedOrConverted && (req.convertedPoNo || req.convertedPoId)) {
+        const ref = (req.convertedPoNo || '').toLowerCase().trim();
+        const idRef = (req.convertedPoId || '').toLowerCase().trim();
+        const poExists = (ref && poNoSet.has(ref)) || (idRef && poIdSet.has(idRef));
+        if (!poExists) {
+          const hasConsumed = (req.items || []).some(it => (it.fulfilledQty ?? 0) > 0);
+          return {
+            ...req,
+            status: (hasConsumed ? 'Partially Fulfilled' : 'Cancelled') as any,
+          };
+        }
+      }
+      return req;
+    });
+  }, [requisitions, purchaseOrders]);
+
   // Filtered Requisitions
   const filteredRequisitions = useMemo(() => {
-    return requisitions.filter(req => {
+    return healedRequisitions.filter(req => {
       if (filterStatus !== 'ALL' && req.status !== filterStatus) return false;
       if (filterDept !== 'ALL' && req.department !== filterDept) return false;
 
@@ -95,12 +119,13 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
       const matchItems = (req.items || []).some(it => it.name.toLowerCase().includes(q));
       return matchNo || matchReq || matchNotes || matchItems;
     });
-  }, [requisitions, filterStatus, filterDept, searchQuery]);
+  }, [healedRequisitions, filterStatus, filterDept, searchQuery]);
 
   // Metrics
-  const pendingCount = requisitions.filter(r => r.status === 'Pending').length;
-  const approvedCount = requisitions.filter(r => r.status === 'Approved' || r.status === 'Converted to PO').length;
-  const totalEstVal = requisitions.reduce((sum, r) => sum + (Number(r.totalEstimatedCost) || 0), 0);
+  const pendingCount = healedRequisitions.filter(r => r.status === 'Pending').length;
+  const approvedCount = healedRequisitions.filter(r => r.status === 'Approved' || r.status === 'Converted to PO').length;
+  const partialCount = healedRequisitions.filter(r => r.status === 'Partially Fulfilled').length;
+  const totalEstVal = healedRequisitions.reduce((sum, r) => sum + (Number(r.totalEstimatedCost) || 0), 0);
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
     setToastMessage({ text, type });
@@ -306,13 +331,13 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
       )}
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className={`grid grid-cols-1 ${partialCount > 0 ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'} gap-3`}>
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
           <span className="text-xs font-bold text-slate-500 block mb-1">
             Total Requisitions
           </span>
           <div className="text-2xl font-black text-slate-900">
-            {requisitions.length}
+            {healedRequisitions.length}
           </div>
           <span className="text-[11px] text-slate-400 mt-0.5 block">
             {currencySymbol}{totalEstVal.toLocaleString()} estimated value
@@ -333,15 +358,29 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
 
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
           <span className="text-xs font-bold text-emerald-700 block mb-1">
-            Approved & Converted to PO
+            Approved & Active PO
           </span>
           <div className="text-2xl font-black text-emerald-700">
             {approvedCount}
           </div>
           <span className="text-[11px] text-emerald-600/80 mt-0.5 block font-medium">
-            Purchase Orders issued automatically
+            Purchase Orders active in system
           </span>
         </div>
+
+        {partialCount > 0 && (
+          <div className="bg-white p-4 rounded-2xl border border-purple-200 shadow-2xs bg-purple-50/20">
+            <span className="text-xs font-bold text-purple-700 block mb-1">
+              Partially Fulfilled
+            </span>
+            <div className="text-2xl font-black text-purple-700">
+              {partialCount}
+            </div>
+            <span className="text-[11px] text-purple-600 mt-0.5 block font-medium">
+              BOM consumed • Re-order remaining
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Filter and Action Header */}
@@ -367,9 +406,10 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
           >
             <option value="ALL">All Status</option>
             <option value="Pending">Pending Approval</option>
-            <option value="Converted to PO">Converted to PO</option>
-            <option value="Rejected">Rejected</option>
+            <option value="Converted to PO">Approved & Converted to PO</option>
+            <option value="Partially Fulfilled">Partially Fulfilled (BOM Used)</option>
             <option value="Cancelled">Cancelled (PO Rolled Back)</option>
+            <option value="Rejected">Rejected</option>
           </select>
 
           {/* Dept filter */}
@@ -422,9 +462,10 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
               ) : (
                 filteredRequisitions.map((req) => {
                   const isPending = req.status === 'Pending';
-                  const isConverted = req.status === 'Converted to PO' || req.status === 'Approved';
-                  const isRejected = req.status === 'Rejected';
+                  const isPartiallyFulfilled = req.status === 'Partially Fulfilled';
                   const isCancelled = req.status === 'Cancelled';
+                  const isRejected = req.status === 'Rejected';
+                  const isConverted = (req.status === 'Converted to PO' || req.status === 'Approved') && !isCancelled && !isPartiallyFulfilled;
 
                   return (
                     <tr key={req.id} className="hover:bg-slate-50/70 transition-colors">
@@ -460,12 +501,19 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
 
                       {/* Required Materials */}
                       <td className="py-3 px-4">
-                        <div className="space-y-0.5">
+                        <div className="space-y-1">
                           {req.items.slice(0, 2).map((it, idx) => (
-                            <div key={idx} className="text-xs font-semibold text-slate-800 flex items-center gap-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-                              <span className="truncate max-w-[200px]">{it.name}</span>
-                              <span className="text-[10px] text-slate-400 font-mono">({it.qty} {it.unit})</span>
+                            <div key={idx} className="text-xs font-semibold text-slate-800 flex items-center justify-between gap-1.5">
+                              <div className="flex items-center gap-1 truncate max-w-[190px]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                                <span className="truncate">{it.name}</span>
+                                <span className="text-[10px] text-slate-400 font-mono">({it.qty} {it.unit})</span>
+                              </div>
+                              {it.fulfilledQty !== undefined && it.fulfilledQty > 0 && (
+                                <span className="text-[9px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 shrink-0">
+                                  {it.fulfilledQty} in BOM
+                                </span>
+                              )}
                             </div>
                           ))}
                           {req.items.length > 2 && (
@@ -504,7 +552,7 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
                             <span>Pending</span>
                           </span>
                         )}
-                        {isConverted && !isCancelled && (
+                        {isConverted && (
                           <div className="inline-flex flex-col items-center">
                             <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full">
                               <CheckCircle2 className="w-3 h-3 text-emerald-600" />
@@ -515,6 +563,15 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
                                 PO: {req.convertedPoNo}
                               </span>
                             )}
+                          </div>
+                        )}
+                        {isPartiallyFulfilled && (
+                          <div className="inline-flex flex-col items-center">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-purple-50 text-purple-800 border border-purple-200 px-2 py-0.5 rounded-full">
+                              <Layers className="w-3 h-3 text-purple-600" />
+                              <span>Partially Fulfilled</span>
+                            </span>
+                            <span className="text-[9px] text-purple-700 mt-0.5 font-medium">BOM Used | Re-order</span>
                           </div>
                         )}
                         {isCancelled && (
@@ -559,6 +616,18 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
                             </>
                           )}
 
+                          {isPartiallyFulfilled && canCreatePO && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenApprovalModal(req)}
+                              className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
+                              title="Re-order remaining materials returned to supplier"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>Re-order Remaining</span>
+                            </button>
+                          )}
+
                           {isCancelled && canCreatePO && (
                             <button
                               type="button"
@@ -571,7 +640,7 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
                             </button>
                           )}
 
-                          {isConverted && !isCancelled && req.convertedPoNo && onViewPO && (
+                          {isConverted && req.convertedPoNo && onViewPO && (
                             <button
                               type="button"
                               onClick={() => onViewPO(req.convertedPoNo!)}
@@ -602,7 +671,7 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
                             <Eye className="w-3.5 h-3.5" />
                           </button>
 
-                          {(isPending || isRejected) && (
+                          {(isPending || isRejected || isCancelled) && (
                             <button
                               type="button"
                               onClick={() => {
@@ -895,6 +964,16 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
             </div>
 
             <div className="p-5 space-y-4 text-xs">
+              {selectedReqForApproval.status === 'Partially Fulfilled' && (
+                <div className="bg-purple-50 p-3 rounded-xl border border-purple-200 text-purple-900 text-xs leading-relaxed">
+                  <div className="font-bold flex items-center gap-1.5 mb-1 text-purple-800">
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>Partial Re-order Workflow</span>
+                  </div>
+                  Raw materials already consumed in production via BOM will remain credited. The new Purchase Order will automatically be created <strong>only for the returned/unfulfilled balance</strong>.
+                </div>
+              )}
+
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Requested Items:</span>
@@ -1034,8 +1113,22 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
                       <div>
                         <div className="font-bold text-slate-900">{it.name}</div>
                         <div className="text-[10px] text-slate-400">
-                          Qty: {it.qty} {it.unit} • Est. Rate: ৳{it.estimatedCost}
+                          Total Requisition Qty: {it.qty} {it.unit} • Est. Rate: ৳{it.estimatedCost}
                         </div>
+                        {((it.fulfilledQty !== undefined && it.fulfilledQty > 0) || (it.returnedQty !== undefined && it.returnedQty > 0)) && (
+                          <div className="text-[10px] font-bold mt-1 flex flex-wrap gap-2">
+                            {it.fulfilledQty !== undefined && it.fulfilledQty > 0 && (
+                              <span className="text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                                Consumed in BOM: {it.fulfilledQty} {it.unit}
+                              </span>
+                            )}
+                            {it.returnedQty !== undefined && (
+                              <span className="text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                Returned / Remaining: {it.returnedQty} {it.unit}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div className="font-mono font-bold text-slate-900 text-xs">
                         ৳{it.totalEstimatedCost.toLocaleString()}

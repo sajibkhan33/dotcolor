@@ -359,6 +359,8 @@ export interface ProcurementRequisitionItem {
   qty: number;
   estimatedCost: number;
   totalEstimatedCost: number;
+  fulfilledQty?: number;
+  returnedQty?: number;
 }
 
 export interface ProcurementRequisition {
@@ -370,7 +372,7 @@ export interface ProcurementRequisition {
   requestedBy: string;
   items: ProcurementRequisitionItem[];
   totalEstimatedCost: number;
-  status: 'Pending' | 'Approved' | 'Rejected' | 'Converted to PO' | 'Cancelled';
+  status: 'Pending' | 'Approved' | 'Rejected' | 'Converted to PO' | 'Cancelled' | 'Partially Fulfilled';
   priority?: 'Low' | 'Medium' | 'High' | 'Urgent';
   preferredSupplierId?: string;
   preferredSupplierName?: string;

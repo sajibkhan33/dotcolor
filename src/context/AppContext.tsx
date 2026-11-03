@@ -2598,6 +2598,50 @@ export const AppProvider: React.FC<{
         }
     }, [invoices]);
 
+    // Auto-heal orphaned procurement requisitions whose linked PO was deleted or rolled back
+    useEffect(() => {
+        if (!procurementRequisitions || procurementRequisitions.length === 0) return;
+        const currentPOs = purchaseOrders || [];
+        const poNoSet = new Set(currentPOs.map(p => (p.poNo || p.poNumber || '').toLowerCase().trim()).filter(Boolean));
+        const poIdSet = new Set(currentPOs.map(p => (p.id || '').toLowerCase().trim()).filter(Boolean));
+
+        const hasOrphanPR = procurementRequisitions.some(pr => {
+            const isApproved = pr.status === 'Converted to PO' || pr.status === 'Approved';
+            if (!isApproved || !pr.convertedPoNo) return false;
+            const ref = pr.convertedPoNo.toLowerCase().trim();
+            const idRef = (pr.convertedPoId || '').toLowerCase().trim();
+            return !poNoSet.has(ref) && (!idRef || !poIdSet.has(idRef));
+        });
+
+        if (hasOrphanPR) {
+            const healed = procurementRequisitions.map(pr => {
+                const isApproved = pr.status === 'Converted to PO' || pr.status === 'Approved';
+                if (!isApproved || !pr.convertedPoNo) return pr;
+                const ref = pr.convertedPoNo.toLowerCase().trim();
+                const idRef = (pr.convertedPoId || '').toLowerCase().trim();
+                if (!poNoSet.has(ref) && (!idRef || !poIdSet.has(idRef))) {
+                    const hasConsumed = (pr.items || []).some(it => (it.fulfilledQty ?? 0) > 0);
+                    return {
+                        ...pr,
+                        status: (hasConsumed ? 'Partially Fulfilled' : 'Cancelled') as any,
+                        notes: `${pr.notes ? pr.notes + ' | ' : ''}Auto-healed: Linked PO #${pr.convertedPoNo} was deleted/rolled back.`,
+                        convertedPoId: undefined,
+                        convertedPoNo: undefined,
+                    };
+                }
+                return pr;
+            });
+            setProcurementRequisitions(healed);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_PROCUREMENT_REQUISITIONS`, JSON.stringify(healed));
+            } catch {}
+            if (latestStateRef.current) {
+                latestStateRef.current.procurementRequisitions = healed;
+            }
+            triggerImmediatePush();
+        }
+    }, [procurementRequisitions, purchaseOrders]);
+
     const login = (staffIdOrPasscode: string, passcode?: string): {
         success: boolean;
         message: string;
@@ -4224,15 +4268,22 @@ export const AppProvider: React.FC<{
         const req = procurementRequisitions.find((r) => r.id === requisitionId);
         if (!req) throw new Error('Requisition not found');
 
-        const poItems = (req.items || []).map((it) => ({
-            productId: it.productId,
-            name: it.name,
-            unit: it.unit,
-            unitCost: Number(it.estimatedCost) || 0,
-            qty: Number(it.qty) || 0,
-            receivedQty: 0,
-            totalCost: Number(it.totalEstimatedCost) || (Number(it.qty) * Number(it.estimatedCost)) || 0,
-        }));
+        const isPartialReorder = req.status === 'Partially Fulfilled';
+        const poItems = (req.items || []).map((it) => {
+            const neededQty = isPartialReorder && it.returnedQty !== undefined && it.returnedQty > 0
+                ? it.returnedQty
+                : (Number(it.qty) || 0);
+            const unitCost = Number(it.estimatedCost) || 0;
+            return {
+                productId: it.productId,
+                name: it.name,
+                unit: it.unit,
+                unitCost,
+                qty: neededQty,
+                receivedQty: 0,
+                totalCost: neededQty * unitCost,
+            };
+        }).filter(it => it.qty > 0);
 
         const totalCost = poItems.reduce((sum, it) => sum + it.totalCost, 0);
 
@@ -4250,7 +4301,7 @@ export const AppProvider: React.FC<{
             dueAmount: totalCost,
             status: 'Ordered',
             paymentStatus: 'Pending',
-            notes: `Converted from Procurement Requisition #${req.prNo}. ${req.notes || ''}`.trim(),
+            notes: `${isPartialReorder ? `Re-order for remaining returned materials from PR #${req.prNo}.` : `Converted from Procurement Requisition #${req.prNo}.`} ${req.notes || ''}`.trim(),
         });
 
         // Mark requisition as converted
@@ -4260,6 +4311,7 @@ export const AppProvider: React.FC<{
             approvedAt: new Date().toISOString(),
             convertedPoId: newPO.id,
             convertedPoNo: newPO.poNo,
+            notes: `${req.notes ? req.notes + ' | ' : ''}PO #${newPO.poNo} created on ${new Date().toISOString().slice(0, 10)}.`,
         });
 
         addAuditLog({
@@ -4268,7 +4320,7 @@ export const AppProvider: React.FC<{
             action: 'APPROVE',
             entityType: 'Procurement',
             refNo: req.prNo,
-            details: `Approved Procurement Requisition ${req.prNo} and generated Purchase Order ${newPO.poNo} for ${supplierName}`,
+            details: `${isPartialReorder ? 'Re-ordered remaining materials for' : 'Approved'} Procurement Requisition ${req.prNo} and generated Purchase Order ${newPO.poNo} for ${supplierName}`,
             severity: 'info',
         });
 
@@ -5226,17 +5278,52 @@ export const AppProvider: React.FC<{
             }
         }
 
-        // 4. Update linked Procurement Requisition(s) to 'Cancelled'
+        // 4. Update linked Procurement Requisition(s) to 'Cancelled' or 'Partially Fulfilled'
         const currentPRs = latestStateRef.current.procurementRequisitions || procurementRequisitions || [];
         const nextPRs = currentPRs.map((pr: ProcurementRequisition) => {
-            if (pr.convertedPoId === id || pr.convertedPoNo === po.poNo || pr.convertedPoNo === po.poNumber) {
-                return {
-                    ...pr,
-                    status: 'Cancelled' as const,
-                    notes: `${pr.notes ? pr.notes + ' | ' : ''}Linked PO #${po.poNo} was rolled back & deleted on ${new Date().toISOString().slice(0, 10)}.`,
-                    convertedPoId: undefined,
-                    convertedPoNo: undefined,
-                };
+            const matchesPo = (pr.convertedPoId && pr.convertedPoId === id) ||
+                (pr.convertedPoNo && (pr.convertedPoNo === po.poNo || pr.convertedPoNo === po.poNumber));
+            if (matchesPo) {
+                if (hasAnyConsumed) {
+                    const updatedItems = (pr.items || []).map((it) => {
+                        const matchingPoItem = poItems.find((pi: any) => pi.productId === it.productId);
+                        if (matchingPoItem) {
+                            const recQty = Number(matchingPoItem.receivedQty !== undefined ? Number(matchingPoItem.receivedQty) || 0 : Number(matchingPoItem.qty) || 0);
+                            const prod = nextProducts.find((p: ProductItem) => p.id === it.productId);
+                            const curStock = Number((dest === 'Factory' ? (prod?.stockFactory ?? 0) : (prod?.stockOffice ?? 0)).toFixed(4));
+                            const safeDeduct = Number(Math.min(curStock, recQty).toFixed(4));
+                            const consumed = Number(Math.max(0, recQty - curStock).toFixed(4));
+                            return {
+                                ...it,
+                                fulfilledQty: consumed,
+                                returnedQty: safeDeduct,
+                            };
+                        }
+                        return it;
+                    });
+                    return {
+                        ...pr,
+                        status: 'Partially Fulfilled' as const,
+                        items: updatedItems,
+                        notes: `${pr.notes ? pr.notes + ' | ' : ''}PO #${po.poNo} partially rolled back on ${new Date().toISOString().slice(0, 10)}. Materials consumed in BOM retained; remaining returned.`,
+                        convertedPoId: undefined,
+                        convertedPoNo: undefined,
+                    };
+                } else {
+                    const updatedItems = (pr.items || []).map((it) => ({
+                        ...it,
+                        fulfilledQty: 0,
+                        returnedQty: it.qty,
+                    }));
+                    return {
+                        ...pr,
+                        status: 'Cancelled' as const,
+                        items: updatedItems,
+                        notes: `${pr.notes ? pr.notes + ' | ' : ''}Linked PO #${po.poNo} was rolled back & deleted on ${new Date().toISOString().slice(0, 10)}.`,
+                        convertedPoId: undefined,
+                        convertedPoNo: undefined,
+                    };
+                }
             }
             return pr;
         });
