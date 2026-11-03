@@ -1035,83 +1035,51 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
             </div>
           </div>
 
-          {/* DEDICATED CAPITAL INVESTMENT VS PROFITABILITY (ROI / ROE) TRACKER */}
-          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 p-5 rounded-2xl text-white shadow-md">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-white/10">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-400/20 border border-amber-400/30 flex items-center justify-center text-amber-400">
-                  <Coins className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-white">
-                    Capital Investment & Profitability Tracker (বিনিয়োগ বনাম মুনাফা ট্র্যাকার)
-                  </h4>
-                  <p className="text-[11px] text-slate-300">
-                    Real-time Capital yield, period net profitability, and Return on Equity (ROE / ROI)
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 self-start md:self-auto">
-                <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white/10 text-amber-300 border border-white/10">
-                  {dateRangeFilter === 'TODAY' ? 'Daily Analysis (দৈনিক)' : dateRangeFilter === 'THIS_MONTH' ? 'Monthly Analysis (মাসিক)' : dateRangeFilter === 'THIS_YEAR' ? 'Annual Analysis (বার্ষিক)' : 'All-Time Analysis (সার্বিক)'}
-                </span>
-              </div>
+          {/* CAPITAL INVESTMENT & PROFITABILITY (ROI / ROE) TRACKER */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-xs text-slate-500 font-medium block">
+                Total Capital Invested
+              </span>
+              <p className="text-xl font-bold text-slate-900 mt-1">
+                {currency} {capitalRoiData.investedCapital.toLocaleString()}
+              </p>
+              <span className="text-[11px] text-slate-400">Owner's equity capital</span>
             </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
-              <div className="bg-white/5 border border-white/10 rounded-xl p-3.5 backdrop-blur-xs">
-                <span className="text-[11px] text-slate-300 font-medium block">
-                  Total Capital Invested (মূলধন)
-                </span>
-                <p className="text-xl font-black text-white mt-1">
-                  {currency} {capitalRoiData.investedCapital.toLocaleString()}
-                </p>
-                <span className="text-[10px] text-slate-400">Owner's equity contribution</span>
-              </div>
-
-              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3.5 backdrop-blur-xs">
-                <span className="text-[11px] text-emerald-300 font-medium block">
-                  Net Profit Generated (মুনাফা)
-                </span>
-                <p className="text-xl font-black text-emerald-400 mt-1">
-                  {currency} {capitalRoiData.netProfit.toLocaleString()}
-                </p>
-                <span className="text-[10px] text-emerald-300/80">
-                  {dateRangeFilter === 'TODAY' ? "Today's net earnings" : dateRangeFilter === 'THIS_MONTH' ? "This month's net earnings" : dateRangeFilter === 'THIS_YEAR' ? "This year's net earnings" : "Total fiscal net earnings"}
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-500 font-medium">Net Profit for Period</span>
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  {dateRangeFilter === 'TODAY' ? 'Daily' : dateRangeFilter === 'THIS_MONTH' ? 'Monthly' : dateRangeFilter === 'THIS_YEAR' ? 'Annual' : 'All-Time'}
                 </span>
               </div>
-
-              <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3.5 backdrop-blur-xs">
-                <span className="text-[11px] text-indigo-300 font-medium block">
-                  Return on Capital (ROI / ROE)
-                </span>
-                <p className="text-xl font-black text-indigo-300 mt-1">
-                  {capitalRoiData.roiPct.toFixed(2)}%
-                </p>
-                <span className="text-[10px] text-indigo-200/80">Profit to capital yield</span>
-              </div>
-
-              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3.5 backdrop-blur-xs">
-                <span className="text-[11px] text-amber-300 font-medium block">
-                  Yield per ৳100 Invested
-                </span>
-                <p className="text-xl font-black text-amber-400 mt-1">
-                  {currency} {capitalRoiData.profitPerHundredInvested.toFixed(2)}
-                </p>
-                <span className="text-[10px] text-amber-300/80">প্রতি ১০০ টাকায় নিট লাভ</span>
-              </div>
+              <p className={`text-xl font-bold mt-1 ${capitalRoiData.netProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                {currency} {capitalRoiData.netProfit.toLocaleString()}
+              </p>
+              <span className="text-[11px] text-slate-400">
+                {dateRangeFilter === 'TODAY' ? "Today's net earnings" : dateRangeFilter === 'THIS_MONTH' ? "This month's net earnings" : dateRangeFilter === 'THIS_YEAR' ? "This year's net earnings" : "Total fiscal net earnings"}
+              </span>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-[11px] text-slate-300">
-              <span className="flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span>
-                  বিনিয়োগ কার্যকারিতা: মোট মূলধন <strong>{currency} {capitalRoiData.investedCapital.toLocaleString()}</strong>-এর বিপরীতে নির্বাচিত সময়ে <strong>{currency} {capitalRoiData.netProfit.toLocaleString()}</strong> নিট মুনাফা অর্জিত হয়েছে ({capitalRoiData.roiPct.toFixed(2)}% ROI)।
-                </span>
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-xs text-slate-500 font-medium block">
+                Return on Capital (ROI)
               </span>
-              <span className="font-mono text-[10px] text-slate-400 hidden sm:inline">
-                IFRS IAS 1 Compliant
+              <p className="text-xl font-bold text-indigo-600 mt-1">
+                {capitalRoiData.roiPct.toFixed(2)}%
+              </p>
+              <span className="text-[11px] text-slate-400">Profit to capital yield</span>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-xs text-slate-500 font-medium block">
+                Yield per ৳100 Invested
               </span>
+              <p className="text-xl font-bold text-slate-900 mt-1">
+                {currency} {capitalRoiData.profitPerHundredInvested.toFixed(2)}
+              </p>
+              <span className="text-[11px] text-slate-400">Net return per 100 capital</span>
             </div>
           </div>
 
