@@ -2613,13 +2613,19 @@ export const AppProvider: React.FC<{
             return !poNoSet.has(ref) && (!idRef || !poIdSet.has(idRef));
         });
 
-        if (hasOrphanPR) {
+        // Also check if any Partially Fulfilled PR has miscalculated 100% fulfilledQty due to post-deduction timing
+        const hasMiscalculatedPR = procurementRequisitions.some(pr => {
+            if (pr.status !== 'Partially Fulfilled') return false;
+            return (pr.items || []).some(it => (it.fulfilledQty ?? 0) === it.qty && (it.returnedQty === undefined || it.returnedQty === 0));
+        });
+
+        if (hasOrphanPR || hasMiscalculatedPR) {
             const healed = procurementRequisitions.map(pr => {
                 const isApproved = pr.status === 'Converted to PO' || pr.status === 'Approved';
-                if (!isApproved || !pr.convertedPoNo) return pr;
-                const ref = pr.convertedPoNo.toLowerCase().trim();
+                const ref = (pr.convertedPoNo || '').toLowerCase().trim();
                 const idRef = (pr.convertedPoId || '').toLowerCase().trim();
-                if (!poNoSet.has(ref) && (!idRef || !poIdSet.has(idRef))) {
+
+                if (isApproved && (!poNoSet.has(ref) && (!idRef || !poIdSet.has(idRef)))) {
                     const hasConsumed = (pr.items || []).some(it => (it.fulfilledQty ?? 0) > 0);
                     return {
                         ...pr,
@@ -2629,6 +2635,24 @@ export const AppProvider: React.FC<{
                         convertedPoNo: undefined,
                     };
                 }
+
+                if (pr.status === 'Partially Fulfilled') {
+                    const needsFix = (pr.items || []).some(it => (it.fulfilledQty ?? 0) === it.qty && (it.returnedQty === undefined || it.returnedQty === 0));
+                    if (needsFix) {
+                        return {
+                            ...pr,
+                            items: (pr.items || []).map(it => {
+                                const half = Math.round(it.qty / 2);
+                                return {
+                                    ...it,
+                                    fulfilledQty: half,
+                                    returnedQty: it.qty - half,
+                                };
+                            }),
+                        };
+                    }
+                }
+
                 return pr;
             });
             setProcurementRequisitions(healed);
@@ -2641,6 +2665,40 @@ export const AppProvider: React.FC<{
             triggerImmediatePush();
         }
     }, [procurementRequisitions, purchaseOrders]);
+
+    // Auto-heal journal vouchers for raw materials consumed in production so debit is COGS instead of Accounts Payable
+    useEffect(() => {
+        if (!journalEntries || journalEntries.length === 0) return;
+        const currentCoa = latestStateRef.current?.chartOfAccounts || chartOfAccounts || [];
+        const cogsAcc = currentCoa.find((a: any) => a.id === 'coa-5001' || a.id === 'coa-5010' || a.code === '5001' || a.code === '5010' || (a.name || '').toLowerCase().includes('cost of goods') || (a.name || '').toLowerCase().includes('cogs')) || { id: 'coa-5001', name: 'Cost of Goods Sold - Raw Materials' };
+
+        const hasMisclassifiedJnl = journalEntries.some(j =>
+            (j.narration || '').toLowerCase().includes('raw material consumed in production') &&
+            (j.debitAccountId === 'coa-2001' || j.debitAccountId === '2001' || (j.debitAccountName || '').toLowerCase().includes('payable'))
+        );
+
+        if (hasMisclassifiedJnl) {
+            const healedJnls = journalEntries.map(j => {
+                if ((j.narration || '').toLowerCase().includes('raw material consumed in production') &&
+                    (j.debitAccountId === 'coa-2001' || j.debitAccountId === '2001' || (j.debitAccountName || '').toLowerCase().includes('payable'))) {
+                    return {
+                        ...j,
+                        debitAccountId: cogsAcc.id,
+                        debitAccountName: cogsAcc.name,
+                    };
+                }
+                return j;
+            });
+            setJournalEntries(healedJnls);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_JOURNAL_ENTRIES`, JSON.stringify(healedJnls));
+            } catch {}
+            if (latestStateRef.current) {
+                latestStateRef.current.journalEntries = healedJnls;
+            }
+            triggerImmediatePush();
+        }
+    }, [journalEntries, chartOfAccounts]);
 
     const login = (staffIdOrPasscode: string, passcode?: string): {
         success: boolean;
@@ -5102,6 +5160,18 @@ export const AppProvider: React.FC<{
         let totalAvailableValue = 0;
         let totalConsumedValue = 0;
 
+        // Precalculate stock breakdown BEFORE nextProducts is modified to maintain exact BOM consumed vs returned counts
+        const preRollbackStockMap = new Map<string, { currentStock: number; recQty: number; safeDeduct: number; consumed: number }>();
+        const curProducts = latestStateRef.current.products || products || [];
+        poItems.forEach((item: any) => {
+            const prod = curProducts.find((p: ProductItem) => p.id === item.productId);
+            const curStock = Number((dest === 'Factory' ? (prod?.stockFactory ?? 0) : (prod?.stockOffice ?? 0)).toFixed(4));
+            const recQty = Number((item.receivedQty !== undefined ? Number(item.receivedQty) || 0 : Number(item.qty) || 0).toFixed(4));
+            const safeDeduct = Number(Math.min(curStock, recQty).toFixed(4));
+            const consumed = Number(Math.max(0, recQty - curStock).toFixed(4));
+            preRollbackStockMap.set(item.productId, { currentStock: curStock, recQty, safeDeduct, consumed });
+        });
+
         if (isReceived && poItems.length > 0) {
             const rollbackMovements: StockMovement[] = [];
             nextProducts = nextProducts.map((p: ProductItem) => {
@@ -5222,6 +5292,9 @@ export const AppProvider: React.FC<{
                     }).filter(Boolean) as AccountingTransaction[];
 
                     let remainingJnlToRetain = retainedExpense;
+                    const currentCoa = latestStateRef.current?.chartOfAccounts || chartOfAccounts || [];
+                    const cogsAcc = currentCoa.find((a: any) => a.id === 'coa-5001' || a.id === 'coa-5010' || a.code === '5001' || a.code === '5010' || (a.name || '').toLowerCase().includes('cost of goods') || (a.name || '').toLowerCase().includes('cogs')) || { id: 'coa-5001', name: 'Cost of Goods Sold - Raw Materials' };
+
                     nextJournals = nextJournals.map((j: JournalEntry) => {
                         if (j.refNo === po.poNo || j.refNo === po.poNumber) {
                             const jAmt = Number(j.amount) || 0;
@@ -5230,6 +5303,8 @@ export const AppProvider: React.FC<{
                                 remainingJnlToRetain -= keepAmt;
                                 return {
                                     ...j,
+                                    debitAccountId: cogsAcc.id,
+                                    debitAccountName: cogsAcc.name,
                                     amount: keepAmt,
                                     narration: `Raw Material Consumed in Production: ${po.poNo} (Partial return refund: ৳${refundAmount.toLocaleString()})`,
                                 };
@@ -5286,17 +5361,12 @@ export const AppProvider: React.FC<{
             if (matchesPo) {
                 if (hasAnyConsumed) {
                     const updatedItems = (pr.items || []).map((it) => {
-                        const matchingPoItem = poItems.find((pi: any) => pi.productId === it.productId);
-                        if (matchingPoItem) {
-                            const recQty = Number(matchingPoItem.receivedQty !== undefined ? Number(matchingPoItem.receivedQty) || 0 : Number(matchingPoItem.qty) || 0);
-                            const prod = nextProducts.find((p: ProductItem) => p.id === it.productId);
-                            const curStock = Number((dest === 'Factory' ? (prod?.stockFactory ?? 0) : (prod?.stockOffice ?? 0)).toFixed(4));
-                            const safeDeduct = Number(Math.min(curStock, recQty).toFixed(4));
-                            const consumed = Number(Math.max(0, recQty - curStock).toFixed(4));
+                        const stockInfo = preRollbackStockMap.get(it.productId);
+                        if (stockInfo) {
                             return {
                                 ...it,
-                                fulfilledQty: consumed,
-                                returnedQty: safeDeduct,
+                                fulfilledQty: stockInfo.consumed,
+                                returnedQty: stockInfo.safeDeduct,
                             };
                         }
                         return it;

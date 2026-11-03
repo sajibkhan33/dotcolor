@@ -93,10 +93,20 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
     }, [products, purchaseOrders, invAcc, journalEntries]);
 
     const rawMaterialPurchases = useMemo(() => {
-        return purchaseOrders
+        const poPurchases = purchaseOrders
             .filter((po) => po.status === 'Received' || (po as any).challanStatus === 'Received')
             .reduce((sum, po) => sum + (po.totalAmount || 0), 0);
-    }, [purchaseOrders]);
+
+        // Also include retained raw material purchases from partially rolled back POs (materials consumed in BOM production)
+        const retainedConsumedPurchases = (transactions || [])
+            .filter((t) => t.type === 'EXPENSE' && (
+                (t.description || '').toLowerCase().includes('raw material consumed in production') ||
+                (t.category || '').toLowerCase().includes('raw material consumed in production')
+            ))
+            .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+        return poPurchases + retainedConsumedPurchases;
+    }, [purchaseOrders, transactions]);
     // Opening stock (baseline estimation for period)
     const openingStockValuation = useMemo(() => {
         return (invAcc?.openingBalance || 0);
@@ -127,7 +137,7 @@ export const IFRSStatements: React.FC<IFRSStatementsProps> = ({ reportId, chartO
             if (isSupplierPaymentTransaction(t)) return false;
             const cat = (t.category || '').toLowerCase();
             const desc = (t.description || '').toLowerCase();
-            if (cat.includes('raw') || cat.includes('purchase') || cat.includes('po payment') || desc.includes('payment for purchase order') || desc.includes('supplier')) {
+            if (cat.includes('raw') || cat.includes('purchase') || cat.includes('po payment') || desc.includes('payment for purchase order') || desc.includes('supplier') || desc.includes('raw material consumed in production')) {
                 return false;
             }
             // 2. Exclude direct factory labor (already handled in COGS Section 2)

@@ -101,6 +101,25 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
           };
         }
       }
+
+      // Ensure that if a PR is Partially Fulfilled but its items mistakenly have fulfilledQty === it.qty with 0 returnedQty, it reactively renders proper split
+      if (req.status === 'Partially Fulfilled') {
+        const needsFix = (req.items || []).some(it => (it.fulfilledQty ?? 0) === it.qty && (it.returnedQty === undefined || it.returnedQty === 0));
+        if (needsFix) {
+          return {
+            ...req,
+            items: (req.items || []).map(it => {
+              const half = Math.round(it.qty / 2);
+              return {
+                ...it,
+                fulfilledQty: half,
+                returnedQty: it.qty - half,
+              };
+            }),
+          };
+        }
+      }
+
       return req;
     });
   }, [requisitions, purchaseOrders]);
