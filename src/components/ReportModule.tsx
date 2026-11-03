@@ -7,7 +7,7 @@ import { InventoryReports } from './reports/InventoryReports';
 import { FinancialReports } from './reports/FinancialReports';
 import { IFRSStatements } from './reports/IFRSStatements';
 import { exportTableToExcel } from '../utils/reportExportUtils';
-import { BarChart3, ShoppingCart, Truck, Package, BookOpen, FileCheck, Calendar, Filter, Search, CheckCircle, Download, Printer, ChevronRight, TrendingUp, Receipt, PiggyBank, Wallet, Scale, DollarSign, FolderKanban, } from 'lucide-react';
+import { BarChart3, ShoppingCart, Truck, Package, BookOpen, FileCheck, Calendar, Filter, Search, CheckCircle, Download, Printer, ChevronRight, TrendingUp, Receipt, PiggyBank, Wallet, Scale, DollarSign, FolderKanban, RotateCcw } from 'lucide-react';
 export type ReportCategory = 'sales' | 'purchases' | 'inventory' | 'accounting' | 'ifrs';
 export interface ReportDefinition {
     id: string;
@@ -134,6 +134,17 @@ export const REPORT_REGISTRY: ReportDefinition[] = [
         descEn: 'Outstanding vendor liabilities, bills due, and supplier aging brackets.',
         descBn: "Accounts Payable  Payment \u0964",
         icon: Wallet,
+    },
+    {
+        id: 'purchase-return',
+        category: 'purchases',
+        titleEn: 'Purchase Returns & Refund Report',
+        titleBn: 'ক্রয় ফেরত ও রিফান্ড রিপোর্ট',
+        categoryEn: 'Purchases & Procurement',
+        categoryBn: 'ক্রয় ও সংগ্রহ',
+        descEn: 'Audit log of returned procurement POs, consumed BOM items, and supplier refunds.',
+        descBn: 'আংশিক বা সম্পূর্ণ ফেরতকৃত ক্রয় আদেশ, কারখানায় ব্যবহৃত পণ্য এবং রিফান্ডের অডিট রিপোর্ট।',
+        icon: RotateCcw,
     },
     // 3. INVENTORY
     {
@@ -349,6 +360,33 @@ export const ReportModule: React.FC = () => {
             });
             exportTableToExcel('Inventory_Movement', 'Stock Movement', headerInfo, cols, rows);
         }
+        else if (activeReportId === 'purchase-return') {
+            const cols = ['PO Ref', 'Return Date', 'Supplier Name', 'Phone', 'Original PO Amount (BDT)', 'Retained in Production (BDT)', 'Refund Received (BDT)', 'Status', 'Audit Notes'];
+            const rows = purchaseOrders
+                .filter(po => po.status === 'Partially Returned' || po.status === 'Cancelled' || Boolean(po.returnedAt) || (po.returnedItems && po.returnedItems.length > 0) || (po.notes && po.notes.toLowerCase().includes('return')))
+                .map(po => {
+                    let refundAmt = 0;
+                    let consumedAmt = po.paidAmount || 0;
+                    if (po.returnedItems && po.returnedItems.length > 0) {
+                        refundAmt = po.returnedItems.reduce((s, it) => s + (it.refundAmount || 0), 0);
+                        consumedAmt = po.returnedItems.reduce((s, it) => s + (it.consumedAmount || 0), 0);
+                    } else {
+                        refundAmt = Math.max(0, (po.totalAmount || 0) - consumedAmt);
+                    }
+                    return [
+                        po.poNo,
+                        po.returnedAt ? po.returnedAt.slice(0, 10) : po.date,
+                        po.supplierName,
+                        po.supplierPhone || '-',
+                        po.totalAmount,
+                        consumedAmt,
+                        refundAmt,
+                        po.status,
+                        po.notes || po.returnedReason || '-'
+                    ];
+                });
+            exportTableToExcel('Purchase_Returns_Report', 'Purchase Returns', headerInfo, cols, rows);
+        }
         else {
             // General fallback export
             const cols = ['Report ID', 'Report Name', 'Generated Time', 'Organization'];
@@ -368,7 +406,7 @@ export const ReportModule: React.FC = () => {
               {'Enterprise Reporting & Financial Analytics'}
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              {'Complete suite of 19 ERP reports covering Sales, Purchases, Stock Movement, Ledger, and IFRS Statements'}
+              {`Complete suite of ${REPORT_REGISTRY.length} ERP reports covering Sales, Purchases, Stock Movement, Ledger, and IFRS Statements`}
             </p>
           </div>
 
@@ -401,32 +439,32 @@ export const ReportModule: React.FC = () => {
           <button type="button" onClick={() => setSelectedCategoryTab('ALL')} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${selectedCategoryTab === 'ALL'
             ? 'bg-slate-900 text-white shadow-2xs'
             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-            {'All 19 Reports'}
+            {`All ${REPORT_REGISTRY.length} Reports`}
           </button>
           <button type="button" onClick={() => setSelectedCategoryTab('sales')} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${selectedCategoryTab === 'sales'
             ? 'bg-amber-600 text-white shadow-2xs'
             : 'bg-amber-50 text-amber-800 hover:bg-amber-100'}`}>
-            {'Sales & Customer (7)'}
+            {`Sales & Customer (${REPORT_REGISTRY.filter(r => r.category === 'sales').length})`}
           </button>
           <button type="button" onClick={() => setSelectedCategoryTab('purchases')} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${selectedCategoryTab === 'purchases'
             ? 'bg-blue-600 text-white shadow-2xs'
             : 'bg-blue-50 text-blue-800 hover:bg-blue-100'}`}>
-            {'Purchases & Vendor (3)'}
+            {`Purchases & Vendor (${REPORT_REGISTRY.filter(r => r.category === 'purchases').length})`}
           </button>
           <button type="button" onClick={() => setSelectedCategoryTab('inventory')} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${selectedCategoryTab === 'inventory'
             ? 'bg-emerald-600 text-white shadow-2xs'
             : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'}`}>
-            {'Inventory & Movement (2)'}
+            {`Inventory & Movement (${REPORT_REGISTRY.filter(r => r.category === 'inventory').length})`}
           </button>
           <button type="button" onClick={() => setSelectedCategoryTab('accounting')} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${selectedCategoryTab === 'accounting'
             ? 'bg-purple-600 text-white shadow-2xs'
             : 'bg-purple-50 text-purple-800 hover:bg-purple-100'}`}>
-            {'Ledger & Day Book (3)'}
+            {`Ledger & Day Book (${REPORT_REGISTRY.filter(r => r.category === 'accounting').length})`}
           </button>
           <button type="button" onClick={() => setSelectedCategoryTab('ifrs')} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${selectedCategoryTab === 'ifrs'
             ? 'bg-rose-600 text-white shadow-2xs'
             : 'bg-rose-50 text-rose-800 hover:bg-rose-100'}`}>
-            {'IFRS Statements (4)'}
+            {`IFRS Statements (${REPORT_REGISTRY.filter(r => r.category === 'ifrs').length})`}
           </button>
         </div>
       </div>
