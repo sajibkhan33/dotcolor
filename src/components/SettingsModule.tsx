@@ -619,13 +619,19 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
         else if (moduleKey === 'projects') {
             mappedKey = 'PROJECTS';
         }
+        else if (moduleKey === 'RESET_OPERATIONS') {
+            mappedKey = 'RESET_OPERATIONS';
+        }
         else if (moduleKey === 'WIPE_ALL_EXCEPT_PRODUCTS' || moduleKey === 'RESET_ALL_TRANSACTIONS') {
             mappedKey = 'RESET_ALL_TRANSACTIONS';
         }
         try {
             await cleanModuleData(mappedKey);
             setCleanConfirmModule(null);
-            if (moduleKey === 'WIPE_ALL_EXCEPT_PRODUCTS' || moduleKey === 'RESET_ALL_TRANSACTIONS') {
+            if (moduleKey === 'RESET_OPERATIONS') {
+                setCleanFeedback('All operational data (POS counter sales, invoices, inventory products, categories, BOM recipes, purchase orders, requisitions & dues) reset successfully across all devices.');
+            }
+            else if (moduleKey === 'WIPE_ALL_EXCEPT_PRODUCTS' || moduleKey === 'RESET_ALL_TRANSACTIONS') {
                 setCleanFeedback('All transactional data (sales, purchases, cash txns, journals, projects, stock, dues & advances) reset successfully across all devices.');
             }
             else if (moduleKey === 'invoices' || moduleKey === 'SALES_RESET' || moduleKey === 'SALES') {
@@ -1961,6 +1967,30 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                 </span>
               </button>
             </div>
+
+            {/* 7. Reset Operations (POS, Sales, Inventory & Supply) */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                  <Trash2 className="w-4 h-4 text-rose-600"/>
+                  {'7. Reset Operational & Inventory Data'}
+                </span>
+                <span className="text-xs font-mono text-slate-500">
+                  Operations &amp; Stock
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                {'Deletes all POS counter sales, sales invoices, quotations, inventory products, categories, BOMs, stock movements, and purchase orders. All operational reports reset to 0.'}
+              </p>
+              <button
+                type="button"
+                onClick={() => setCleanConfirmModule('RESET_OPERATIONS')}
+                className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-xl border border-rose-200 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5"/>
+                <span>{'Reset Operations Data'}</span>
+              </button>
+            </div>
           </div>
 
           {/* Master Reset */}
@@ -2449,14 +2479,25 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
             </div>
             <div className="text-center space-y-2">
               <h3 className="font-extrabold text-slate-900 text-base">
-                {cleanConfirmModule === 'invoices' || cleanConfirmModule === 'SALES_RESET' || cleanConfirmModule === 'SALES'
+                {cleanConfirmModule === 'RESET_OPERATIONS'
+                  ? 'Confirm All Operational Data Reset'
+                  : cleanConfirmModule === 'invoices' || cleanConfirmModule === 'SALES_RESET' || cleanConfirmModule === 'SALES'
                   ? 'Confirm Sales Data Reset'
                   : cleanConfirmModule === 'RESET_ALL_TRANSACTIONS' || cleanConfirmModule === 'WIPE_ALL_EXCEPT_PRODUCTS'
                   ? 'Confirm All Transactional Data Reset'
                   : 'Confirm Data Deletion'}
               </h3>
               <div className="text-xs text-slate-600 space-y-1.5 leading-relaxed text-left sm:text-center">
-                {cleanConfirmModule === 'RESET_ALL_TRANSACTIONS' || cleanConfirmModule === 'WIPE_ALL_EXCEPT_PRODUCTS' ? (
+                {cleanConfirmModule === 'RESET_OPERATIONS' ? (
+                  <>
+                    <p className="font-semibold text-rose-900 text-center">
+                      {'Are you sure you want to permanently reset all operational data?'}
+                    </p>
+                    <p className="text-slate-500 text-[11px] text-center leading-relaxed">
+                      {'This will permanently remove all POS counter orders, sales invoices, quotations, inventory products, category lists, BOM recipe formulas, stock movements, supplier purchase orders, and procurement requisitions. Customer & supplier dues will be zeroed out. All operational reports will reset to 0 in real-time.'}
+                    </p>
+                  </>
+                ) : cleanConfirmModule === 'RESET_ALL_TRANSACTIONS' || cleanConfirmModule === 'WIPE_ALL_EXCEPT_PRODUCTS' ? (
                   <>
                     <p className="font-semibold text-slate-800 text-center">
                       {'Are you sure you want to permanently reset all transactional data?'}
@@ -2502,7 +2543,9 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ onNavigateTab })
                   <>
                     <RotateCcw className="w-3.5 h-3.5"/>
                     <span>
-                      {cleanConfirmModule === 'invoices' || cleanConfirmModule === 'SALES_RESET' || cleanConfirmModule === 'SALES'
+                      {cleanConfirmModule === 'RESET_OPERATIONS'
+                        ? 'Yes, Reset Operations'
+                        : cleanConfirmModule === 'invoices' || cleanConfirmModule === 'SALES_RESET' || cleanConfirmModule === 'SALES'
                         ? 'Yes, Reset'
                         : cleanConfirmModule === 'RESET_ALL_TRANSACTIONS' || cleanConfirmModule === 'WIPE_ALL_EXCEPT_PRODUCTS'
                         ? 'Yes, Reset All'

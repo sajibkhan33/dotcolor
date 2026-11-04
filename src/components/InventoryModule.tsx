@@ -176,12 +176,13 @@ export const InventoryModule: React.FC = () => {
     const handleOpenAdd = () => {
         setEditingProduct(null);
         const defaultCat = productCategories && productCategories.length > 0 ? productCategories[0] : null;
+        const defaultUnit = productUnits && productUnits.length > 0 ? productUnits[0] : null;
         setFormData({
             name: '',
             nameBn: '',
-            category: (defaultCat ? defaultCat.name : 'DIGITAL PRINTING') as any,
+            category: (defaultCat ? defaultCat.name : '') as any,
             isRawMaterial: defaultCat ? Boolean(defaultCat.isRawMaterialGroup ?? defaultCat.isRawMaterial) : false,
-            unit: 'pcs',
+            unit: (defaultUnit ? (defaultUnit.code || defaultUnit.symbol) : '') as any,
             unitPrice: 100,
             costPrice: 60,
             stockFactory: 10,
@@ -210,8 +211,15 @@ export const InventoryModule: React.FC = () => {
     };
     const handleSaveProduct = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!formData.name)
+        if (!formData.name.trim()) return;
+        if (!formData.category) {
+            alert('Please select or create a category first.');
             return;
+        }
+        if (!formData.unit) {
+            alert('Please select or create a unit first.');
+            return;
+        }
         if (editingProduct) {
             updateProduct(editingProduct.id, formData);
         }
@@ -762,29 +770,25 @@ export const InventoryModule: React.FC = () => {
                         setFormData({
                           ...formData,
                           category: selectedVal as any,
-                          isRawMaterial: matchedCat ? Boolean(matchedCat.isRawMaterialGroup ?? matchedCat.isRawMaterial) : selectedVal === 'RAW MATERIAL',
+                          isRawMaterial: matchedCat ? Boolean(matchedCat.isRawMaterialGroup ?? matchedCat.isRawMaterial) : false,
                         });
                       }}
                       className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all text-xs"
+                      required
                     >
                       {productCategories && productCategories.length > 0 ? (
-                        productCategories.map((c) => (
-                          <option key={c.id} value={c.name}>
-                            {c.name} {c.isRawMaterialGroup || c.isRawMaterial ? ' [Raw Material]' : ''}
-                          </option>
-                        ))
-                      ) : (
                         <>
-                          <option value="DIGITAL PRINTING">DIGITAL PRINTING</option>
-                          <option value="SIGN MAKING & LETTERING">SIGN MAKING & LETTERING</option>
-                          <option value="BRANDED PROMOTIONAL GIFTS">BRANDED PROMOTIONAL GIFTS</option>
-                          <option value="PRINTING & PACKAGING">PRINTING & PACKAGING</option>
-                          <option value="GRAPHIC DESIGN">GRAPHIC DESIGN</option>
-                          <option value="EXHIBITION">EXHIBITION</option>
-                          <option value="EVENTS MANAGEMENT">EVENTS MANAGEMENT</option>
-                          <option value="VENUE SOURCING">VENUE SOURCING</option>
-                          <option value="RAW MATERIAL">RAW MATERIAL</option>
+                          <option value="">{'-- Select Category --'}</option>
+                          {productCategories.map((c) => (
+                            <option key={c.id} value={c.name}>
+                              {c.name} {c.isRawMaterialGroup || c.isRawMaterial ? ' [Raw Material]' : ''}
+                            </option>
+                          ))}
                         </>
+                      ) : (
+                        <option value="" disabled>
+                          {'-- No categories found (Click + New Category) --'}
+                        </option>
                       )}
                     </select>
 
@@ -812,26 +816,27 @@ export const InventoryModule: React.FC = () => {
 
                 <div>
                   <label className="font-bold text-slate-700 block mb-1">
-                    {'Unit'}
+                    {'Unit *'}
                   </label>
-                  <select value={formData.unit} onChange={(e) => setFormData({ ...formData, unit: e.target.value as any })} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium">
+                  <select
+                    value={formData.unit}
+                    onChange={(e) => setFormData({ ...formData, unit: e.target.value as any })}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium text-xs"
+                    required
+                  >
                     {productUnits && productUnits.length > 0 ? (
-                      productUnits.map((u) => (
-                        <option key={u.id} value={u.code}>
-                          {u.name} ({u.symbol || u.code})
-                        </option>
-                      ))
-                    ) : (
                       <>
-                        <option value="pcs">Pieces (pcs)</option>
-                        <option value="sqft">Square Feet (sqft)</option>
-                        <option value="roll">Rolls (roll)</option>
-                        <option value="box">Boxes (box)</option>
-                        <option value="set">Sets (set)</option>
-                        <option value="job">Per Job (job)</option>
-                        <option value="ream">Ream (ream)</option>
-                        <option value="ltr">Liter (ltr)</option>
+                        <option value="">{'-- Select Unit --'}</option>
+                        {productUnits.map((u) => (
+                          <option key={u.id} value={u.code}>
+                            {u.name} ({u.symbol || u.code})
+                          </option>
+                        ))}
                       </>
+                    ) : (
+                      <option value="" disabled>
+                        {'-- No units found (Add in Unit Manager) --'}
+                      </option>
                     )}
                   </select>
                 </div>

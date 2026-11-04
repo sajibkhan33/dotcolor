@@ -186,7 +186,7 @@ interface AppContextType {
     generateInvoiceForProject: (projectId: string, options?: { title?: string; date?: string; skipLedgerTransaction?: boolean }) => SalesInvoice | null;
     syncProjectInvoice: (projectId: string) => boolean;
     // Utilities & Module Data Cleanup
-    cleanModuleData: (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS' | 'RESET_ALL_TRANSACTIONS') => Promise<void>;
+    cleanModuleData: (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS' | 'RESET_ALL_TRANSACTIONS' | 'RESET_OPERATIONS') => Promise<void>;
     resetSalesData: () => Promise<void>;
     resetAllTransactionalData: () => Promise<void>;
     resetToDefaultData: () => void;
@@ -500,12 +500,12 @@ export const AppProvider: React.FC<{
 
                 const isModulePurged = (idPrefix: string): boolean => {
                     if (!purgeTs) return false;
-                    if (!purgeMode || purgeMode === 'RESET_ALL_TRANSACTIONS' || purgeMode === 'WIPE_ALL_EXCEPT_PRODUCTS' || purgeMode === 'ALL') return true;
-                    if (idPrefix === 'inv' && (purgeMode === 'SALES' || purgeMode === 'SALES_RESET')) return true;
-                    if (idPrefix === 'qt' && (purgeMode === 'QUOTATIONS' || purgeMode === 'SALES' || purgeMode === 'SALES_RESET')) return true;
-                    if (idPrefix === 'po' && purgeMode === 'PURCHASES') return true;
+                    if (!purgeMode || purgeMode === 'RESET_ALL_TRANSACTIONS' || purgeMode === 'WIPE_ALL_EXCEPT_PRODUCTS' || purgeMode === 'ALL' || purgeMode === 'RESET_OPERATIONS') return true;
+                    if (idPrefix === 'inv' && (purgeMode === 'SALES' || purgeMode === 'SALES_RESET' || purgeMode === 'RESET_OPERATIONS')) return true;
+                    if (idPrefix === 'qt' && (purgeMode === 'QUOTATIONS' || purgeMode === 'SALES' || purgeMode === 'SALES_RESET' || purgeMode === 'RESET_OPERATIONS')) return true;
+                    if (idPrefix === 'po' && (purgeMode === 'PURCHASES' || purgeMode === 'RESET_OPERATIONS')) return true;
                     if (idPrefix === 'tx' && purgeMode === 'TRANSACTIONS') return true;
-                    if (idPrefix === 'sm' && purgeMode === 'INVENTORY_STOCK') return true;
+                    if (idPrefix === 'sm' && (purgeMode === 'INVENTORY_STOCK' || purgeMode === 'RESET_OPERATIONS')) return true;
                     if (idPrefix === 'jnl' && (purgeMode === 'JOURNALS' || purgeMode === 'TRANSACTIONS')) return true;
                     if (idPrefix === 'prj' && purgeMode === 'PROJECTS') return true;
                     return false;
@@ -842,15 +842,15 @@ export const AppProvider: React.FC<{
         } catch {}
     };
 
-    const triggerImmediatePush = () => {
+    const triggerImmediatePush = (options?: { force?: boolean }) => {
         if (isImportingRef.current) return;
         broadcastCrossTabSync();
         if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
         syncTimeoutRef.current = setTimeout(() => {
             if (pushToCloudRef.current) {
-                pushToCloudRef.current();
+                pushToCloudRef.current(options);
             }
-        }, 150);
+        }, 80);
     };
 
     const reloadAllStateFromStorage = () => {
@@ -4112,7 +4112,7 @@ export const AppProvider: React.FC<{
             products: next,
         };
         isCloudLoadedRef.current = true;
-        triggerImmediatePush();
+        triggerImmediatePush({ force: true });
     };
     const deleteProduct = (id: string) => {
         const currentProducts = latestStateRef.current.products || products;
@@ -4141,7 +4141,7 @@ export const AppProvider: React.FC<{
             });
         }
         isCloudLoadedRef.current = true;
-        triggerImmediatePush();
+        triggerImmediatePush({ force: true });
     };
     const adjustStock = (productId: string, type: 'IN' | 'OUT' | 'TRANSFER' | 'ADJUSTMENT', qty: number, location: 'Factory' | 'Office', targetLocation?: 'Factory' | 'Office', reason: string = 'Stock manual entry') => {
         const currentProducts = latestStateRef.current.products || products;
@@ -4228,7 +4228,7 @@ export const AppProvider: React.FC<{
             severity: 'info',
         });
         isCloudLoadedRef.current = true;
-        triggerImmediatePush();
+        triggerImmediatePush({ force: true });
     };
     // Supply Chain & Purchase Orders
     const addPurchaseOrder = (data: Omit<PurchaseOrder, 'id' | 'poNo'>): PurchaseOrder => {
@@ -4978,7 +4978,7 @@ export const AppProvider: React.FC<{
             customers: (latestStateRef.current.customers || []).map((c) => (c.id === id ? { ...c, ...updates } : c)),
         };
         isCloudLoadedRef.current = true;
-        triggerImmediatePush();
+        triggerImmediatePush({ force: true });
     };
     const addSupplier = (sup: Omit<Supplier, 'id' | 'totalPurchased' | 'dueAmount'>): Supplier => {
         const newSup: Supplier = {
@@ -5074,9 +5074,7 @@ export const AppProvider: React.FC<{
             });
         }
         isCloudLoadedRef.current = true;
-        setTimeout(() => {
-            syncWithCloud();
-        }, 100);
+        triggerImmediatePush({ force: true });
     };
     const deleteSupplier = (id: string) => {
         const sup = suppliers.find((s) => s.id === id);
@@ -5106,9 +5104,7 @@ export const AppProvider: React.FC<{
             });
         }
         isCloudLoadedRef.current = true;
-        setTimeout(() => {
-            syncWithCloud();
-        }, 100);
+        triggerImmediatePush({ force: true });
     };
     const deleteInvoice = (id: string) => {
         const currentInvoices = latestStateRef.current.invoices || invoices;
@@ -5239,7 +5235,7 @@ export const AppProvider: React.FC<{
             severity: 'warning',
         });
         isCloudLoadedRef.current = true;
-        triggerImmediatePush();
+        triggerImmediatePush({ force: true });
     };
     const deleteQuotation = (id: string) => {
         const currentQuotes = latestStateRef.current.quotations || quotations;
@@ -5253,7 +5249,7 @@ export const AppProvider: React.FC<{
             quotations: next,
         };
         isCloudLoadedRef.current = true;
-        triggerImmediatePush();
+        triggerImmediatePush({ force: true });
     };
     const deletePurchaseOrder = (id: string, refundTargetAccount: string = 'ORIGINAL') => {
         const currentPOs = latestStateRef.current.purchaseOrders || purchaseOrders;
@@ -5664,7 +5660,7 @@ export const AppProvider: React.FC<{
             severity: 'info',
         });
         isCloudLoadedRef.current = true;
-        triggerImmediatePush();
+        triggerImmediatePush({ force: true });
     };
     // Product Categories
     const addProductCategory = (cat: Omit<ProductCategory, 'id'>): ProductCategory => {
@@ -5742,7 +5738,7 @@ export const AppProvider: React.FC<{
             severity: 'info',
         });
         isCloudLoadedRef.current = true;
-        triggerImmediatePush();
+        triggerImmediatePush({ force: true });
     };
     const deleteProductCategory = (id: string): {
         success: boolean;
@@ -5862,7 +5858,7 @@ export const AppProvider: React.FC<{
             severity: 'info',
         });
         isCloudLoadedRef.current = true;
-        triggerImmediatePush();
+        triggerImmediatePush({ force: true });
     };
     const deleteProductUnit = (id: string): {
         success: boolean;
@@ -5962,7 +5958,7 @@ export const AppProvider: React.FC<{
             severity: 'info',
         });
         isCloudLoadedRef.current = true;
-        triggerImmediatePush();
+        triggerImmediatePush({ force: true });
     };
 
     const deleteBom = (id: string) => {
@@ -5991,7 +5987,7 @@ export const AppProvider: React.FC<{
             });
         }
         isCloudLoadedRef.current = true;
-        triggerImmediatePush();
+        triggerImmediatePush({ force: true });
     };
 
     const produceBatch = (bomId: string, quantity: number, location: 'Factory' | 'Office' = 'Factory'): { success: boolean; message: string } => {
@@ -8811,7 +8807,7 @@ export const AppProvider: React.FC<{
         return { salesSynced, expensesSynced, totalAmount: totalPrjSales + totalPrjExpenses };
     };
     // Module Data Clean & Purge
-    const cleanModuleData = async (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS' | 'RESET_ALL_TRANSACTIONS') => {
+    const cleanModuleData = async (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS' | 'RESET_ALL_TRANSACTIONS' | 'RESET_OPERATIONS') => {
         if (moduleKey === 'SALES') {
             // 1. Reset Invoices
             setInvoices([]);
@@ -8943,13 +8939,15 @@ export const AppProvider: React.FC<{
             );
             setSuppliers(zeroDuesSuppliers);
             setPurchaseOrders([]);
+            setProcurementRequisitions([]);
             setJournalEntries(nextJournals);
             try {
                 localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(zeroDuesSuppliers));
                 localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_PROCUREMENT_REQUISITIONS`, JSON.stringify([]));
                 localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(nextJournals));
             } catch {}
-            latestStateRef.current = { ...latestStateRef.current, purchaseOrders: [], suppliers: zeroDuesSuppliers, journalEntries: nextJournals };
+            latestStateRef.current = { ...latestStateRef.current, purchaseOrders: [], procurementRequisitions: [], suppliers: zeroDuesSuppliers, journalEntries: nextJournals };
             addAuditLog({
                 staffId: activeStaff?.id || 'admin',
                 staffName: activeStaff?.name || 'Staff',
@@ -8957,8 +8955,8 @@ export const AppProvider: React.FC<{
                 location: 'All',
                 actionType: 'DATA_CLEANED',
                 entityType: 'System',
-                details: 'Purged/cleaned all purchase orders and vendor procurement records.',
-                detailsBn: 'সকল পারচেজ অর্ডার মুছে ফেলা হয়েছে।',
+                details: 'Purged/cleaned all purchase orders, procurement requisitions, and vendor procurement records.',
+                detailsBn: 'সকল পারচেজ অর্ডার ও প্রকিউরমেন্ট রিকুইজিশন মুছে ফেলা হয়েছে।',
                 severity: 'critical',
             });
         }
@@ -9153,6 +9151,7 @@ export const AppProvider: React.FC<{
             setInvoices([]);
             setQuotations([]);
             setPurchaseOrders([]);
+            setProcurementRequisitions([]);
             setTransactions([]);
             setStockMovements([]);
             setJournalEntries([]);
@@ -9166,6 +9165,7 @@ export const AppProvider: React.FC<{
                 localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify([]));
                 localStorage.setItem(`${STORAGE_KEY}_QUOTATIONS`, JSON.stringify([]));
                 localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_PROCUREMENT_REQUISITIONS`, JSON.stringify([]));
                 localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify([]));
                 localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify([]));
                 localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify([]));
@@ -9184,7 +9184,7 @@ export const AppProvider: React.FC<{
                 location: 'All',
                 actionType: 'DATA_CLEANED',
                 entityType: 'System',
-                details: 'Full transactional reset: Wiped all invoices, quotes, POs, accounting transactions, journal entries, projects, and stock movements. Reset customer dues and advances to 0, supplier dues to 0, product stock to 0, and account balances to 0.',
+                details: 'Full transactional reset: Wiped all invoices, quotes, POs, procurement requisitions, accounting transactions, journal entries, projects, and stock movements. Reset customer dues and advances to 0, supplier dues to 0, product stock to 0, and account balances to 0.',
                 detailsBn: 'সম্পূর্ণ ট্রানজ্যাকশনাল ডেটা রিসেট করা হয়েছে (বিক্রয়, ক্রয়, ক্যাশ লেনদেন, জার্নাল, প্রজেক্ট, স্টক, কাস্টমার বকেয়া ও অগ্রিম এবং ব্যালেন্স শূন্য)।',
                 severity: 'critical',
             });
@@ -9194,6 +9194,7 @@ export const AppProvider: React.FC<{
                 invoices: [],
                 quotations: [],
                 purchaseOrders: [],
+                procurementRequisitions: [],
                 transactions: [],
                 stockMovements: [],
                 journalEntries: [],
@@ -9202,6 +9203,94 @@ export const AppProvider: React.FC<{
                 suppliers: zeroDuesSuppliers,
                 products: zeroStockProducts,
                 chartOfAccounts: zeroBalCOA,
+            };
+        }
+        else if (moduleKey === 'RESET_OPERATIONS') {
+            const zeroDuesCustomers = (latestStateRef.current.customers || customers).map((c: Customer) => ({ ...c, totalPurchased: 0, dueAmount: 0, advanceBalance: 0 }));
+            const zeroDuesSuppliers = (latestStateRef.current.suppliers || suppliers).map((s: Supplier) => ({ ...s, totalPurchased: 0, balancePayable: 0, dueAmount: 0 }));
+
+            // 1. POS Counter & Sales & Orders
+            setInvoices([]);
+            setQuotations([]);
+            setCustomers(zeroDuesCustomers);
+
+            // 2. Supply & Purchase
+            setPurchaseOrders([]);
+            setProcurementRequisitions([]);
+            setSuppliers(zeroDuesSuppliers);
+
+            // 3. Inventory (Products, Categories, BOM formulas, Stock Movements)
+            setProducts([]);
+            setProductCategories([]);
+            setBomList([]);
+            setStockMovements([]);
+
+            // 4. Remove sales and purchase related transactions & journals
+            const currentTxs = latestStateRef.current.transactions || transactions;
+            const nextTxs = currentTxs.filter((t: AccountingTransaction) => {
+                const isSalesCategory = t.category === 'Sales Revenue' || t.category === 'Customer Payment' || t.category === 'Customer Advance Adjustment';
+                const isInvoiceRef = Boolean(t.refNo && (t.refNo.startsWith('DCC-INV-') || t.refNo.startsWith('inv-')));
+                const isPoRef = Boolean(t.refNo && (t.refNo.startsWith('DCC-PO-') || t.refNo.startsWith('po-') || t.refNo.startsWith('PO-')));
+                const isPosDesc = Boolean(t.description && (
+                    t.description.startsWith('POS Payment:') ||
+                    t.description.startsWith('Sales Invoice payment') ||
+                    t.description.startsWith('Invoice Due Payment:') ||
+                    t.description.startsWith('Purchase Order payment') ||
+                    t.description.includes('Customer Advance')
+                ));
+                return !(isSalesCategory || isInvoiceRef || isPoRef || isPosDesc);
+            });
+            setTransactions(nextTxs);
+
+            const currentJournals = latestStateRef.current.journalEntries || journalEntries;
+            const nextJournals = currentJournals.filter((je: JournalEntry) => {
+                const isSalesOrPo = je.source === 'SALES' || je.source === 'PURCHASE';
+                const isInvOrPo = Boolean(je.refNo && (je.refNo.startsWith('DCC-INV-') || je.refNo.startsWith('inv-') || je.refNo.startsWith('DCC-PO-') || je.refNo.startsWith('po-')));
+                return !(isSalesOrPo || isInvOrPo);
+            });
+            setJournalEntries(nextJournals);
+
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_QUOTATIONS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(zeroDuesCustomers));
+                localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_PROCUREMENT_REQUISITIONS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(zeroDuesSuppliers));
+                localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_CATEGORIES`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_BOM_LIST`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(nextTxs));
+                localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(nextJournals));
+            } catch {}
+
+            addAuditLog({
+                staffId: activeStaff?.id || 'admin',
+                staffName: activeStaff?.name || 'Staff',
+                staffRole: activeStaff?.role || 'Admin',
+                location: 'All',
+                actionType: 'DATA_CLEANED',
+                entityType: 'System',
+                details: 'Operational Reset: Cleared POS Counter sales, Sales & Orders (invoices, quotations, dues), Inventory (products, categories, BOM recipes, stock movements), and Supply & Purchase (purchase orders, procurement requisitions, supplier dues).',
+                detailsBn: 'অপারেশনাল ডেটা মুছে ফেলা হয়েছে (পিওএস, সেলস, ইনভেন্টরি প্রোডাক্টস ও বিওএম, পারচেজ অর্ডার ও রিকুইজিশন এবং সংশ্লিষ্ট রিপোর্ট রিসেট)।',
+                severity: 'critical',
+            });
+
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                invoices: [],
+                quotations: [],
+                customers: zeroDuesCustomers,
+                purchaseOrders: [],
+                procurementRequisitions: [],
+                suppliers: zeroDuesSuppliers,
+                products: [],
+                productCategories: [],
+                bomList: [],
+                stockMovements: [],
+                transactions: nextTxs,
+                journalEntries: nextJournals,
             };
         }
 
@@ -9468,7 +9557,7 @@ export const AppProvider: React.FC<{
             }
             const purgeTs = (!isRestore && data.lastPurgedAt) ? new Date(data.lastPurgedAt).getTime() : 0;
             const purgeMode = data.lastPurgeMode || '';
-            const isGlobalPurge = !purgeMode || purgeMode === 'RESET_ALL_TRANSACTIONS' || purgeMode === 'WIPE_ALL_EXCEPT_PRODUCTS' || purgeMode === 'ALL';
+            const isGlobalPurge = !purgeMode || purgeMode === 'RESET_ALL_TRANSACTIONS' || purgeMode === 'WIPE_ALL_EXCEPT_PRODUCTS' || purgeMode === 'ALL' || purgeMode === 'RESET_OPERATIONS';
             const isSalesPurge = isGlobalPurge || purgeMode === 'SALES' || purgeMode === 'SALES_RESET';
             const isQuotesPurge = isGlobalPurge || isSalesPurge || purgeMode === 'QUOTATIONS';
             const isPurchasesPurge = isGlobalPurge || purgeMode === 'PURCHASES';
@@ -9703,10 +9792,6 @@ export const AppProvider: React.FC<{
         if (!isCloudLoadedRef.current) return;
         if (!options?.force && !options?.isRestore && isSyncingRef.current) return;
         const currentPayload = latestStateRef.current;
-        if (!options?.force && !options?.isRestore && (!currentPayload?.products || currentPayload.products.length === 0)) {
-            console.warn('[PushToCloud Guard] Blocked auto-push of empty products state.');
-            return;
-        }
         try {
             isSyncingRef.current = true;
             setCloudSyncStatus('syncing');

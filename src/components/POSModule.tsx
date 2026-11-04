@@ -344,6 +344,43 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
         };
         setCart(updated);
     };
+
+    const setCartQtyDirect = (index: number, rawVal: number | string) => {
+        const updated = [...cart];
+        const item = updated[index];
+        if (!item) return;
+        const valStr = String(rawVal).trim();
+        if (valStr === '' || valStr === '0') {
+            updated[index] = { ...item, qty: 0 as any, totalPrice: 0 };
+            setCart(updated);
+            return;
+        }
+        const parsed = parseFloat(valStr);
+        if (isNaN(parsed)) return;
+        const newQty = Math.max(0, parsed);
+        const unitP = item.unitPrice;
+        let newTotal = 0;
+        if (item.totalSqft && item.width && item.height) {
+            const baseSqft = item.width * item.height;
+            newTotal = Math.round(baseSqft * unitP * newQty);
+        } else {
+            newTotal = Math.round(unitP * newQty);
+        }
+        updated[index] = {
+            ...item,
+            qty: newQty,
+            totalSqft: item.width && item.height ? Number((item.width * item.height * newQty).toFixed(2)) : undefined,
+            totalPrice: newTotal,
+        };
+        setCart(updated);
+    };
+
+    const handleQtyBlur = (index: number) => {
+        const item = cart[index];
+        if (!item || !item.qty || Number(item.qty) <= 0) {
+            setCartQtyDirect(index, 1);
+        }
+    };
     const removeFromCart = (index: number) => {
         setCart(cart.filter((_, i) => i !== index));
     };
@@ -1021,12 +1058,32 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <div className="flex items-center bg-white rounded-lg border border-slate-200 overflow-hidden">
-                    <button type="button" onClick={() => updateCartQty(idx, -1)} className="p-0.5 text-slate-600 hover:bg-slate-100">
+                  <div className="flex items-center bg-white rounded-lg border border-slate-200 overflow-hidden shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => updateCartQty(idx, -1)}
+                      className="px-1.5 py-1 text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer"
+                      title="Decrease"
+                    >
                       <Minus className="w-3 h-3"/>
                     </button>
-                    <span className="px-1.5 text-xs font-bold text-slate-900">{item.qty}</span>
-                    <button type="button" onClick={() => updateCartQty(idx, 1)} className="p-0.5 text-slate-600 hover:bg-slate-100">
+                    <input
+                      type="number"
+                      min="1"
+                      step="any"
+                      value={item.qty === 0 ? '' : item.qty}
+                      onChange={(e) => setCartQtyDirect(idx, e.target.value)}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={() => handleQtyBlur(idx)}
+                      className="w-11 py-0.5 text-center text-xs font-black text-slate-900 bg-transparent border-x border-slate-200 focus:outline-hidden focus:bg-amber-50 focus:border-amber-400 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text"
+                      title="Click or select to type quantity directly"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => updateCartQty(idx, 1)}
+                      className="px-1.5 py-1 text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer"
+                      title="Increase"
+                    >
                       <Plus className="w-3 h-3"/>
                     </button>
                   </div>

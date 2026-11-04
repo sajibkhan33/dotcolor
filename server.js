@@ -355,10 +355,52 @@ app.post("/api/purge-data", requireAuth, async (req, res) => {
     const nextRev = currentRev + 1;
     const data = { ...existing.data };
     const nowIso = (/* @__PURE__ */ new Date()).toISOString();
-    if (mode === "RESET_ALL_TRANSACTIONS" || mode === "WIPE_ALL_EXCEPT_PRODUCTS") {
+    if (mode === "RESET_OPERATIONS") {
       data.invoices = [];
       data.quotations = [];
       data.purchaseOrders = [];
+      data.procurementRequisitions = [];
+      data.products = [];
+      data.productCategories = [];
+      data.bomList = [];
+      data.stockMovements = [];
+      if (Array.isArray(data.customers)) {
+        data.customers = data.customers.map((c) => ({
+          ...c,
+          totalPurchased: 0,
+          dueAmount: 0,
+          advanceBalance: 0
+        }));
+      }
+      if (Array.isArray(data.suppliers)) {
+        data.suppliers = data.suppliers.map((s) => ({
+          ...s,
+          totalPurchased: 0,
+          balancePayable: 0,
+          dueAmount: 0
+        }));
+      }
+      if (Array.isArray(data.transactions)) {
+        data.transactions = data.transactions.filter((t) => {
+          const isSales = t.category === "Sales Revenue" || t.category === "Customer Payment" || t.category === "Customer Advance Adjustment";
+          const isInv = Boolean(t.refNo && (t.refNo.startsWith("DCC-INV-") || t.refNo.startsWith("inv-")));
+          const isPo = Boolean(t.refNo && (t.refNo.startsWith("DCC-PO-") || t.refNo.startsWith("po-") || t.refNo.startsWith("PO-")));
+          const isPos = Boolean(t.description && (t.description.startsWith("POS Payment:") || t.description.startsWith("Sales Invoice payment") || t.description.startsWith("Invoice Due Payment:") || t.description.startsWith("Purchase Order payment") || t.description.includes("Customer Advance")));
+          return !(isSales || isInv || isPo || isPos);
+        });
+      }
+      if (Array.isArray(data.journalEntries)) {
+        data.journalEntries = data.journalEntries.filter((je) => {
+          const isSalesOrPo = je.source === "SALES" || je.source === "PURCHASE";
+          const isInvOrPo = Boolean(je.refNo && (je.refNo.startsWith("DCC-INV-") || je.refNo.startsWith("inv-") || je.refNo.startsWith("DCC-PO-") || je.refNo.startsWith("po-")));
+          return !(isSalesOrPo || isInvOrPo);
+        });
+      }
+    } else if (mode === "RESET_ALL_TRANSACTIONS" || mode === "WIPE_ALL_EXCEPT_PRODUCTS") {
+      data.invoices = [];
+      data.quotations = [];
+      data.purchaseOrders = [];
+      data.procurementRequisitions = [];
       data.transactions = [];
       data.stockMovements = [];
       data.journalEntries = [];
@@ -428,6 +470,7 @@ app.post("/api/purge-data", requireAuth, async (req, res) => {
       }
     } else if (mode === "PURCHASES") {
       data.purchaseOrders = [];
+      data.procurementRequisitions = [];
       if (Array.isArray(data.suppliers)) {
         data.suppliers = data.suppliers.map((s) => ({
           ...s,
