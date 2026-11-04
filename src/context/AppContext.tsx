@@ -1907,6 +1907,46 @@ export const AppProvider: React.FC<{
         }
     }, [purchaseOrders, products]);
 
+    // Automatic reconciliation of Finished Products costPrice from active Bill of Materials (BOM)
+    useEffect(() => {
+        if (!products || products.length === 0 || !bomList || bomList.length === 0) return;
+
+        let prodsChanged = false;
+        const bomCostMap = new Map<string, number>();
+        (bomList || []).forEach(b => {
+            const cost = Number(b.totalCost) || 0;
+            if (cost > 0) {
+                if (b.finishedProductId) bomCostMap.set(b.finishedProductId, cost);
+                if (b.finishedProductCode) bomCostMap.set(b.finishedProductCode.trim().toLowerCase(), cost);
+                if (b.finishedProductName) bomCostMap.set(b.finishedProductName.trim().toLowerCase(), cost);
+            }
+        });
+
+        const updatedProds = products.map(p => {
+            if (p.isRawMaterial) return p;
+            const bomCost = bomCostMap.get(p.id) ??
+                            (p.code ? bomCostMap.get(p.code.trim().toLowerCase()) : undefined) ??
+                            (p.name ? bomCostMap.get(p.name.trim().toLowerCase()) : undefined);
+            if (bomCost !== undefined && Math.abs((Number(p.costPrice) || 0) - bomCost) > 0.001) {
+                prodsChanged = true;
+                return { ...p, costPrice: bomCost };
+            }
+            return p;
+        });
+
+        if (prodsChanged) {
+            setProducts(updatedProds);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(updatedProds));
+            } catch {}
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                products: updatedProds,
+            };
+            triggerImmediatePush({ force: true });
+        }
+    }, [bomList, products]);
+
     // Automatic real-time synchronization between Sales Invoices and Accounting Transactions
     useEffect(() => {
         if (!invoices || invoices.length === 0) return;
@@ -5916,9 +5956,25 @@ export const AppProvider: React.FC<{
         try {
             localStorage.setItem(`${STORAGE_KEY}_BOM_LIST`, JSON.stringify(next));
         } catch {}
+
+        // Auto-sync finished product costPrice if BOM formula has totalCost
+        const currentProducts = latestStateRef.current.products || products;
+        const bomCost = Number(newBom.totalCost) || 0;
+        const nextProducts = currentProducts.map((p: ProductItem) => {
+            if (p.id === newBom.finishedProductId || (newBom.finishedProductCode && p.code === newBom.finishedProductCode)) {
+                return { ...p, costPrice: bomCost };
+            }
+            return p;
+        });
+        setProducts(nextProducts);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(nextProducts));
+        } catch {}
+
         latestStateRef.current = {
             ...latestStateRef.current,
             bomList: next,
+            products: nextProducts,
         };
         addAuditLog({
             staffId: activeStaff.id,
@@ -5928,24 +5984,52 @@ export const AppProvider: React.FC<{
             actionType: 'BOM_CREATED' as any,
             entityType: 'Inventory',
             refNo: newBom.finishedProductCode,
-            details: `Created BOM for ${newBom.finishedProductName} with ${newBom.components.length} components`,
+            details: `Created BOM for ${newBom.finishedProductName} with ${newBom.components.length} components (Cost: ${bomCost})`,
             severity: 'info',
         });
         isCloudLoadedRef.current = true;
-        triggerImmediatePush();
+        triggerImmediatePush({ force: true });
         return newBom;
     };
 
     const updateBom = (id: string, updates: Partial<BillOfMaterial>) => {
         const currentBoms = latestStateRef.current.bomList || bomList;
-        const next = currentBoms.map(b => b.id === id ? { ...b, ...updates, updatedAt: new Date().toISOString() } : b);
+        let updatedBomRef: BillOfMaterial | null = null;
+        const next = currentBoms.map(b => {
+            if (b.id === id) {
+                const updated = { ...b, ...updates, updatedAt: new Date().toISOString() };
+                updatedBomRef = updated;
+                return updated;
+            }
+            return b;
+        });
         setBomList(next);
         try {
             localStorage.setItem(`${STORAGE_KEY}_BOM_LIST`, JSON.stringify(next));
         } catch {}
+
+        // Auto-sync finished product costPrice with updated BOM totalCost
+        const currentProducts = latestStateRef.current.products || products;
+        let nextProducts = currentProducts;
+        if (updatedBomRef) {
+            const bRef: BillOfMaterial = updatedBomRef;
+            const bomCost = Number(bRef.totalCost) || 0;
+            nextProducts = currentProducts.map((p: ProductItem) => {
+                if (p.id === bRef.finishedProductId || (bRef.finishedProductCode && p.code === bRef.finishedProductCode)) {
+                    return { ...p, costPrice: bomCost };
+                }
+                return p;
+            });
+            setProducts(nextProducts);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(nextProducts));
+            } catch {}
+        }
+
         latestStateRef.current = {
             ...latestStateRef.current,
             bomList: next,
+            products: nextProducts,
         };
         addAuditLog({
             staffId: activeStaff.id,

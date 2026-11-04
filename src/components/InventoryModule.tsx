@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { ProductItem, UnitType, ServiceCategory, ProductCategory } from '../types';
 import { Package, Boxes, ArrowRightLeft, AlertTriangle, Plus, Search, Filter, Layers, ArrowDownRight, ArrowUpRight, History, Factory, Building2, DollarSign, TrendingDown, Edit2, Trash2, UploadCloud, FileSpreadsheet, Tag, AlertCircle, } from 'lucide-react';
@@ -7,7 +7,7 @@ import { ProductCategoryManager } from './ProductCategoryManager';
 import { UnitManager } from './UnitManager';
 import { BomManager } from './BomManager';
 export const InventoryModule: React.FC = () => {
-    const { products, productCategories, productUnits, profile, language, activeLocation, addProduct, updateProduct, deleteProduct, adjustStock, addProductCategory, updateProductCategory, checkPermission, activeStaff, } = useApp();
+    const { products, productCategories, productUnits, bomList, profile, language, activeLocation, addProduct, updateProduct, deleteProduct, adjustStock, addProductCategory, updateProductCategory, checkPermission, activeStaff, } = useApp();
 
     const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
         (activeStaff?.role || '').toLowerCase() === 'superadmin' ||
@@ -173,6 +173,16 @@ export const InventoryModule: React.FC = () => {
         setCategoryQuickEditTarget(null);
     };
 
+    const activeBom = useMemo(() => {
+        if (!editingProduct || editingProduct.isRawMaterial) return null;
+        return (bomList || []).find(
+            (b) =>
+                b.finishedProductId === editingProduct.id ||
+                (editingProduct.code && b.finishedProductCode === editingProduct.code) ||
+                (b.finishedProductName && b.finishedProductName.trim().toLowerCase() === (editingProduct.name || '').trim().toLowerCase())
+        );
+    }, [editingProduct, bomList]);
+
     const handleOpenAdd = () => {
         setEditingProduct(null);
         const defaultCat = productCategories && productCategories.length > 0 ? productCategories[0] : null;
@@ -194,6 +204,13 @@ export const InventoryModule: React.FC = () => {
     };
     const handleOpenEdit = (p: ProductItem) => {
         setEditingProduct(p);
+        const pBom = !p.isRawMaterial ? (bomList || []).find(
+            (b) =>
+                b.finishedProductId === p.id ||
+                (p.code && b.finishedProductCode === p.code) ||
+                (b.finishedProductName && b.finishedProductName.trim().toLowerCase() === (p.name || '').trim().toLowerCase())
+        ) : null;
+        const resolvedCost = pBom ? Number(pBom.totalCost) : (Number(p.costPrice) || 0);
         setFormData({
             name: p.name,
             nameBn: p.nameBn || '',
@@ -201,7 +218,7 @@ export const InventoryModule: React.FC = () => {
             isRawMaterial: p.isRawMaterial,
             unit: p.unit,
             unitPrice: p.unitPrice,
-            costPrice: p.costPrice,
+            costPrice: resolvedCost,
             stockFactory: p.stockFactory,
             stockOffice: p.stockOffice,
             minStockAlert: p.minStockAlert,
@@ -220,11 +237,15 @@ export const InventoryModule: React.FC = () => {
             alert('Please select or create a unit first.');
             return;
         }
+        let finalCostPrice = Number(formData.costPrice) || 0;
+        if (activeBom) {
+            finalCostPrice = Number(activeBom.totalCost) || 0;
+        }
         if (editingProduct) {
-            updateProduct(editingProduct.id, formData);
+            updateProduct(editingProduct.id, { ...formData, costPrice: finalCostPrice });
         }
         else {
-            addProduct(formData);
+            addProduct({ ...formData, costPrice: finalCostPrice });
         }
         setShowAddModal(false);
     };
@@ -420,9 +441,32 @@ export const InventoryModule: React.FC = () => {
                           {profile.currencySymbol}
                           {(Number(p.isRawMaterial ? p.costPrice : (p.unitPrice ?? (p as any).sellingPrice ?? 0)) || 0).toLocaleString()}
                         </div>
-                        <div className="text-[10px] text-slate-400">:{profile.currencySymbol}
-                          {(Number(p.costPrice) || 0).toLocaleString()}
-                        </div>
+                        {(() => {
+                          const pBom = !p.isRawMaterial && (bomList || []).find(
+                            (b) =>
+                              b.finishedProductId === p.id ||
+                              (p.code && b.finishedProductCode === p.code) ||
+                              (b.finishedProductName && b.finishedProductName.trim().toLowerCase() === (p.name || '').trim().toLowerCase())
+                          );
+                          const displayCost = pBom ? Number(pBom.totalCost) : (Number(p.costPrice) || 0);
+
+                          if (pBom) {
+                            return (
+                              <div className="text-[10px] text-indigo-700 font-bold flex items-center justify-end gap-1 mt-0.5" title="Cost calculated dynamically from Bill of Materials (BOM)">
+                                <span className="text-[8px] tracking-wider px-1 py-0.2 rounded bg-indigo-50 border border-indigo-200 text-indigo-700 font-extrabold uppercase">
+                                  BOM
+                                </span>
+                                <span>{profile.currencySymbol}{displayCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="text-[10px] text-slate-400 mt-0.5">
+                              <span>:{profile.currencySymbol}</span>
+                              {displayCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       <td className="py-3 px-4 text-center">
@@ -850,10 +894,56 @@ export const InventoryModule: React.FC = () => {
                   <input type="number" step="any" min="0" value={formData.unitPrice} onChange={(e) => setFormData({ ...formData, unitPrice: Number(e.target.value) })} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold"/>
                 </div>
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">
-                    {'Cost / Production Price'}
-                  </label>
-                  <input type="number" step="any" min="0" value={formData.costPrice} onChange={(e) => setFormData({ ...formData, costPrice: Number(e.target.value) })} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold"/>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-slate-700 block text-xs">
+                      {'Cost / Production Price'}
+                    </label>
+                    {activeBom && (
+                      <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1" title="Estimated Raw Material Cost from Bill of Materials">
+                        ⚡ Auto from BOM
+                      </span>
+                    )}
+                  </div>
+                  {activeBom ? (
+                    <div className="space-y-1">
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="any"
+                          value={Number(activeBom.totalCost).toFixed(2)}
+                          readOnly
+                          disabled
+                          className="w-full px-3 py-2 bg-indigo-50/50 border border-indigo-200 rounded-xl font-bold text-indigo-900 cursor-not-allowed text-xs"
+                        />
+                        <span className="absolute right-3 top-2 text-[10px] font-bold text-indigo-500">
+                          {profile.currencySymbol} / {formData.unit || 'unit'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
+                        <span className="italic">Derived from BOM ({activeBom.components?.length || 0} materials)</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddModal(false);
+                            setActiveTab('bom');
+                          }}
+                          className="text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
+                        >
+                          View / Edit BOM ↗
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={formData.costPrice}
+                      onChange={(e) => setFormData({ ...formData, costPrice: Number(e.target.value) })}
+                      placeholder="0.00"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold text-xs"
+                    />
+                  )}
                 </div>
               </div>
 
