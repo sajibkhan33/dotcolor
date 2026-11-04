@@ -4142,7 +4142,62 @@ export const AppProvider: React.FC<{
     };
     const updateProduct = (id: string, updates: Partial<ProductItem>) => {
         const currentProducts = latestStateRef.current.products || products;
-        const next = currentProducts.map((p: ProductItem) => (p.id === id ? { ...p, ...updates } : p));
+        const currentBoms = latestStateRef.current.bomList || bomList || [];
+        const existing = currentProducts.find((p: ProductItem) => p.id === id);
+
+        // Check if finished good stock was increased in Edit modal
+        let rawDeductions: { [rmId: string]: number } = {};
+        if (existing && !existing.isRawMaterial) {
+            const newStockOffice = updates.stockOffice !== undefined ? Number(updates.stockOffice) : Number(existing.stockOffice || 0);
+            const newStockFactory = updates.stockFactory !== undefined ? Number(updates.stockFactory) : Number(existing.stockFactory || 0);
+            const oldTotal = (Number(existing.stockOffice) || 0) + (Number(existing.stockFactory) || 0);
+            const newTotal = newStockOffice + newStockFactory;
+            const addedQty = newTotal - oldTotal;
+
+            if (addedQty > 0) {
+                const activeBom = currentBoms.find(b =>
+                    b.finishedProductId === existing.id ||
+                    (existing.code && b.finishedProductCode === existing.code) ||
+                    (b.finishedProductName && b.finishedProductName.trim().toLowerCase() === existing.name.trim().toLowerCase())
+                );
+                if (activeBom && activeBom.components && activeBom.components.length > 0) {
+                    activeBom.components.forEach(comp => {
+                        const needed = (Number(comp.quantity) || 0) * addedQty;
+                        const rmId = comp.rawMaterialId || (comp as any).productId;
+                        if (needed > 0 && rmId) {
+                            rawDeductions[rmId] = (rawDeductions[rmId] || 0) + needed;
+                        }
+                    });
+                }
+            }
+        }
+
+        const next = currentProducts.map((p: ProductItem) => {
+            if (p.id === id) {
+                return { ...p, ...updates };
+            }
+            if (rawDeductions[p.id]) {
+                const toDeduct = rawDeductions[p.id];
+                let locStock = Number(p.stockOffice) || 0;
+                let otherStock = Number(p.stockFactory) || 0;
+                let take = Math.min(locStock, toDeduct);
+                locStock -= take;
+                let rem = toDeduct - take;
+                if (rem > 0) {
+                    let takeOther = Math.min(otherStock, rem);
+                    otherStock -= takeOther;
+                    rem -= takeOther;
+                    if (rem > 0) locStock = Math.max(0, locStock - rem);
+                }
+                return {
+                    ...p,
+                    stockOffice: locStock,
+                    stockFactory: otherStock,
+                    stock: locStock + otherStock,
+                };
+            }
+            return p;
+        });
         setProducts(next);
         try {
             localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(next));
@@ -4185,45 +4240,88 @@ export const AppProvider: React.FC<{
     };
     const adjustStock = (productId: string, type: 'IN' | 'OUT' | 'TRANSFER' | 'ADJUSTMENT', qty: number, location: 'Factory' | 'Office', targetLocation?: 'Factory' | 'Office', reason: string = 'Stock manual entry') => {
         const currentProducts = latestStateRef.current.products || products;
+        const currentBoms = latestStateRef.current.bomList || bomList || [];
         const prod = currentProducts.find((p: ProductItem) => p.id === productId);
         if (!prod)
             return;
+
+        // Auto-deduct raw materials if finished good stock is increased via Stock IN
+        let rawDeductions: { [rmId: string]: number } = {};
+        if (!prod.isRawMaterial && type === 'IN') {
+            const activeBom = currentBoms.find(b =>
+                b.finishedProductId === prod.id ||
+                (prod.code && b.finishedProductCode === prod.code) ||
+                (b.finishedProductName && b.finishedProductName.trim().toLowerCase() === prod.name.trim().toLowerCase())
+            );
+            if (activeBom && activeBom.components && activeBom.components.length > 0) {
+                activeBom.components.forEach((comp) => {
+                    const needed = (Number(comp.quantity) || 0) * qty;
+                    const rmId = comp.rawMaterialId || (comp as any).productId;
+                    if (needed > 0 && rmId) {
+                        rawDeductions[rmId] = (rawDeductions[rmId] || 0) + needed;
+                    }
+                });
+            }
+        }
+
         const nextProds = currentProducts.map((p: ProductItem) => {
-            if (p.id !== productId)
-                return p;
-            if (type === 'IN') {
-                const newFactory = location === 'Factory' ? (p.stockFactory || 0) + qty : (p.stockFactory || 0);
-                const newOffice = location === 'Office' ? (p.stockOffice || 0) + qty : (p.stockOffice || 0);
-                return {
-                    ...p,
-                    stockFactory: newFactory,
-                    stockOffice: newOffice,
-                    stock: newFactory + newOffice,
-                };
+            if (p.id === productId) {
+                if (type === 'IN') {
+                    const newFactory = location === 'Factory' ? (p.stockFactory || 0) + qty : (p.stockFactory || 0);
+                    const newOffice = location === 'Office' ? (p.stockOffice || 0) + qty : (p.stockOffice || 0);
+                    return {
+                        ...p,
+                        stockFactory: newFactory,
+                        stockOffice: newOffice,
+                        stock: newFactory + newOffice,
+                    };
+                }
+                else if (type === 'OUT' || type === 'ADJUSTMENT') {
+                    const newFactory = location === 'Factory' ? Math.max(0, (p.stockFactory || 0) - qty) : (p.stockFactory || 0);
+                    const newOffice = location === 'Office' ? Math.max(0, (p.stockOffice || 0) - qty) : (p.stockOffice || 0);
+                    return {
+                        ...p,
+                        stockFactory: newFactory,
+                        stockOffice: newOffice,
+                        stock: newFactory + newOffice,
+                    };
+                }
+                else if (type === 'TRANSFER' && targetLocation) {
+                    const fromKey = location === 'Factory' ? 'stockFactory' : 'stockOffice';
+                    const toKey = targetLocation === 'Factory' ? 'stockFactory' : 'stockOffice';
+                    const newFrom = Math.max(0, (p[fromKey] || 0) - qty);
+                    const newTo = (p[toKey] || 0) + qty;
+                    const updated = {
+                        ...p,
+                        [fromKey]: newFrom,
+                        [toKey]: newTo,
+                    };
+                    return {
+                        ...updated,
+                        stock: (updated.stockFactory || 0) + (updated.stockOffice || 0),
+                    };
+                }
             }
-            else if (type === 'OUT' || type === 'ADJUSTMENT') {
-                const newFactory = location === 'Factory' ? Math.max(0, (p.stockFactory || 0) - qty) : (p.stockFactory || 0);
-                const newOffice = location === 'Office' ? Math.max(0, (p.stockOffice || 0) - qty) : (p.stockOffice || 0);
+            if (rawDeductions[p.id]) {
+                const toDeduct = rawDeductions[p.id];
+                const locKey = location === 'Office' ? 'stockOffice' : 'stockFactory';
+                const otherLocKey = locKey === 'stockFactory' ? 'stockOffice' : 'stockFactory';
+                let locStock = Number(p[locKey]) || 0;
+                let otherStock = Number(p[otherLocKey]) || 0;
+                let take = Math.min(locStock, toDeduct);
+                locStock -= take;
+                let rem = toDeduct - take;
+                if (rem > 0) {
+                    let takeOther = Math.min(otherStock, rem);
+                    otherStock -= takeOther;
+                    rem -= takeOther;
+                    if (rem > 0) locStock = Math.max(0, locStock - rem);
+                }
                 return {
                     ...p,
-                    stockFactory: newFactory,
-                    stockOffice: newOffice,
-                    stock: newFactory + newOffice,
-                };
-            }
-            else if (type === 'TRANSFER' && targetLocation) {
-                const fromKey = location === 'Factory' ? 'stockFactory' : 'stockOffice';
-                const toKey = targetLocation === 'Factory' ? 'stockFactory' : 'stockOffice';
-                const newFrom = Math.max(0, (p[fromKey] || 0) - qty);
-                const newTo = (p[toKey] || 0) + qty;
-                const updated = {
-                    ...p,
-                    [fromKey]: newFrom,
-                    [toKey]: newTo,
-                };
-                return {
-                    ...updated,
-                    stock: (updated.stockFactory || 0) + (updated.stockOffice || 0),
+                    [locKey]: locStock,
+                    [otherLocKey]: otherStock,
+                    stock: locStock + otherStock,
                 };
             }
             return p;
@@ -5957,12 +6055,47 @@ export const AppProvider: React.FC<{
             localStorage.setItem(`${STORAGE_KEY}_BOM_LIST`, JSON.stringify(next));
         } catch {}
 
-        // Auto-sync finished product costPrice if BOM formula has totalCost
+        // Auto-sync finished product costPrice if BOM formula has totalCost and deduct raw materials for existing finished stock
         const currentProducts = latestStateRef.current.products || products;
         const bomCost = Number(newBom.totalCost) || 0;
+        const targetFinishedProd = currentProducts.find((p: ProductItem) =>
+            p.id === newBom.finishedProductId || (newBom.finishedProductCode && p.code === newBom.finishedProductCode) || (p.name && newBom.finishedProductName && p.name.trim().toLowerCase() === newBom.finishedProductName.trim().toLowerCase())
+        );
+        const existingStock = targetFinishedProd ? (Number(targetFinishedProd.stockFactory) || 0) + (Number(targetFinishedProd.stockOffice) || 0) : 0;
+        let initialRawDeductions: { [rmId: string]: number } = {};
+        if (existingStock > 0 && newBom.components && newBom.components.length > 0) {
+            newBom.components.forEach((comp) => {
+                const needed = (Number(comp.quantity) || 0) * existingStock;
+                const rmId = comp.rawMaterialId || (comp as any).productId;
+                if (needed > 0 && rmId) {
+                    initialRawDeductions[rmId] = (initialRawDeductions[rmId] || 0) + needed;
+                }
+            });
+        }
+
         const nextProducts = currentProducts.map((p: ProductItem) => {
             if (p.id === newBom.finishedProductId || (newBom.finishedProductCode && p.code === newBom.finishedProductCode)) {
                 return { ...p, costPrice: bomCost };
+            }
+            if (initialRawDeductions[p.id]) {
+                const toDeduct = initialRawDeductions[p.id];
+                let locStock = Number(p.stockOffice) || 0;
+                let otherStock = Number(p.stockFactory) || 0;
+                let take = Math.min(locStock, toDeduct);
+                locStock -= take;
+                let rem = toDeduct - take;
+                if (rem > 0) {
+                    let takeOther = Math.min(otherStock, rem);
+                    otherStock -= takeOther;
+                    rem -= takeOther;
+                    if (rem > 0) locStock = Math.max(0, locStock - rem);
+                }
+                return {
+                    ...p,
+                    stockOffice: locStock,
+                    stockFactory: otherStock,
+                    stock: locStock + otherStock,
+                };
             }
             return p;
         });

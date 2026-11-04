@@ -842,12 +842,16 @@ export const ProcurementRequisitionsTab: React.FC<ProcurementRequisitionsTabProp
                             onChange={(e) => handleItemProductChange(idx, e.target.value)}
                             className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800"
                           >
-                            <option value="">-- Select Material / Item --</option>
-                            {products.map(p => (
-                              <option key={p.id} value={p.id}>
-                                {p.name} ({p.unit}) - {p.isRawMaterial ? 'Raw Material' : 'Item'}
-                              </option>
-                            ))}
+                            <option value="">-- Select Raw Material --</option>
+                            {rawMaterials && rawMaterials.length > 0 ? (
+                              rawMaterials.map(p => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name} ({p.unit})
+                                </option>
+                              ))
+                            ) : (
+                              <option value="" disabled>-- No raw materials found (Add in Inventory) --</option>
+                            )}
                           </select>
                         </div>
 

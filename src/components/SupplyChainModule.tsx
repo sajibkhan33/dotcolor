@@ -29,6 +29,10 @@ export const SupplyChainModule: React.FC = () => {
     const pendingRequisitionsCount = useMemo(() => {
         return (procurementRequisitions || []).filter((pr) => pr.status === 'Pending').length;
     }, [procurementRequisitions]);
+
+    const rawMaterials = useMemo(() => {
+        return (products || []).filter((p) => p.isRawMaterial);
+    }, [products]);
     // Modals
     const [showNewPOModal, setShowNewPOModal] = useState(false);
     const [editingPO, setEditingPO] = useState<PurchaseOrder | null>(null);
@@ -69,14 +73,14 @@ export const SupplyChainModule: React.FC = () => {
         qty: number;
         unitCost: number;
     }[]>(() => {
-        const rawProd = (products || []).find((p) => p.isRawMaterial) || (products || [])[0];
+        const rawProd = (products || []).find((p) => p.isRawMaterial);
         return [
             {
                 productId: rawProd?.id || '',
                 name: rawProd?.name || '',
-                unit: rawProd?.unit || 'roll',
+                unit: rawProd?.unit || 'pcs',
                 qty: 10,
-                unitCost: rawProd?.costPrice || 500,
+                unitCost: rawProd?.costPrice || 0,
             },
         ];
     });
@@ -208,7 +212,7 @@ export const SupplyChainModule: React.FC = () => {
             ]);
         }
         else {
-            const defaultProd = (products || []).find((p) => p.isRawMaterial) || (products || [])[0];
+            const defaultProd = rawMaterials[0] || (products || []).find((p) => p.isRawMaterial);
             if (defaultProd) {
                 setPoItems([
                     ...poItems,
@@ -258,14 +262,14 @@ export const SupplyChainModule: React.FC = () => {
         setDestination('Factory');
         setPoPaidAmount(0);
         setPoNotes('');
-        const defaultProd = (products || []).find((p) => p.isRawMaterial) || (products || [])[0];
+        const defaultProd = rawMaterials[0] || (products || []).find((p) => p.isRawMaterial);
         setPoItems([
             {
-                productId: defaultProd?.id || 'raw-1',
+                productId: defaultProd?.id || '',
                 name: defaultProd?.name || 'Raw Material Item',
-                unit: defaultProd?.unit || 'roll',
+                unit: defaultProd?.unit || 'pcs',
                 qty: 10,
-                unitCost: defaultProd?.costPrice || 500,
+                unitCost: defaultProd?.costPrice || 0,
             },
         ]);
         setShowNewPOModal(true);
@@ -1168,18 +1172,18 @@ export const SupplyChainModule: React.FC = () => {
                   <label className="flex-1 flex items-center justify-center gap-2 py-1 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer font-bold transition-all text-slate-700 text-xs">
                     <input type="radio" name="poType" value="Sales" checked={poType === 'Sales'} onChange={() => {
                 setPoType('Sales');
-                const rawProd = (products || []).find((p) => p.isRawMaterial) || (products || [])[0];
+                const rawProd = rawMaterials[0] || (products || []).find((p) => p.isRawMaterial);
                 setPoItems([
                     {
                         productId: rawProd?.id || '',
                         name: rawProd?.name || '',
-                        unit: rawProd?.unit || 'roll',
+                        unit: rawProd?.unit || 'pcs',
                         qty: 10,
-                        unitCost: rawProd?.costPrice || 500,
+                        unitCost: rawProd?.costPrice || 0,
                     },
                 ]);
             }} className="accent-slate-900 cursor-pointer"/>
-                    <span>{'Sales & Service Items'}</span>
+                    <span>{'Raw Materials & Inventory Items'}</span>
                   </label>
                   <label className="flex-1 flex items-center justify-center gap-2 py-1 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer font-bold transition-all text-slate-700 text-xs">
                     <input type="radio" name="poType" value="Custom" checked={poType === 'Custom'} onChange={() => {
@@ -1214,9 +1218,15 @@ export const SupplyChainModule: React.FC = () => {
                 {poItems.map((item, idx) => (<div key={idx} className="grid grid-cols-12 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200 items-center">
                     <div className="col-span-5">
                       {poType === 'Custom' ? (<input type="text" value={item.name} onChange={(e) => handleUpdatePoItemRow(idx, 'name', e.target.value)} placeholder={'Enter item name...'} className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold focus:ring-1 focus:ring-slate-950/20"/>) : (<select value={item.productId} onChange={(e) => handleUpdatePoItemRow(idx, 'productId', e.target.value)} className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">
-                          {products.map((p) => (<option key={p.id} value={p.id}>
-                              {p.name} ({p.unit})
-                            </option>))}
+                          {rawMaterials && rawMaterials.length > 0 ? (
+                            rawMaterials.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} ({p.unit})
+                              </option>
+                            ))
+                          ) : (
+                            <option value="" disabled>-- No raw materials found (Add in Inventory) --</option>
+                          )}
                         </select>)}
                     </div>
 
