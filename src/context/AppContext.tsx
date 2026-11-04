@@ -3355,17 +3355,17 @@ export const AppProvider: React.FC<{
                 let otherStock = Number(p[otherLoc]) || 0;
                 let wasModified = false;
 
-                // 1. Direct item sale deduction
-                const item = data.items.find((i) => {
+                // 1. Direct item sale deduction (only for non-raw-material finished goods)
+                const item = !p.isRawMaterial ? data.items.find((i) => {
                     if (i.productId && i.productId === p.id) return true;
                     if (p.code && (i as any).code && p.code.toLowerCase().trim() === (i as any).code.toLowerCase().trim()) return true;
                     if (p.name && i.name) {
                         const n1 = p.name.toLowerCase().trim();
                         const n2 = i.name.toLowerCase().trim();
-                        if (n1 === n2 || n1.includes(n2) || n2.includes(n1)) return true;
+                        if (n1 === n2) return true;
                     }
                     return false;
-                });
+                }) : null;
                 if (item) {
                     let toDeduct = Number(item.qty) || 0;
                     const takePref = Math.min(prefStock, toDeduct);
@@ -5316,16 +5316,16 @@ export const AppProvider: React.FC<{
         let nextMovementsForDelete = latestStateRef.current?.stockMovements || stockMovements || [];
         if (inv.items && inv.items.length > 0) {
             nextProductsForDelete = nextProductsForDelete.map((p: ProductItem) => {
-                const item = inv.items.find((i) => {
+                const item = !p.isRawMaterial ? inv.items.find((i) => {
                     if (i.productId && i.productId === p.id) return true;
                     if (p.code && (i as any).code && p.code.toLowerCase().trim() === (i as any).code.toLowerCase().trim()) return true;
                     if (p.name && i.name) {
                         const n1 = p.name.toLowerCase().trim();
                         const n2 = i.name.toLowerCase().trim();
-                        if (n1 === n2 || n1.includes(n2) || n2.includes(n1)) return true;
+                        if (n1 === n2) return true;
                     }
                     return false;
-                });
+                }) : null;
                 if (item) {
                     const locKey = inv.warehouseLocation === 'Office' ? 'stockOffice' : 'stockFactory';
                     const newLocStock = (p[locKey] || 0) + (Number(item.qty) || 0);

@@ -47,7 +47,7 @@ export const InventoryReports: React.FC<InventoryReportsProps> = ({ reportId, pr
                 if (itemName && prod.name) {
                     const n1 = itemName.toLowerCase().trim();
                     const n2 = prod.name.toLowerCase().trim();
-                    if (n1 === n2 || n1.includes(n2) || n2.includes(n1)) return true;
+                    if (n1 === n2) return true;
                 }
                 return false;
             };
@@ -61,17 +61,17 @@ export const InventoryReports: React.FC<InventoryReportsProps> = ({ reportId, pr
                 .filter((sm) => sm.type === 'OUT' && isMatch(sm.productId, sm.productName))
                 .reduce((sum, sm) => sum + sm.qty, 0);
             // In case stockMovements were empty or partial, fallback to aggregating from invoices & received POs
-            const poIn = purchaseOrders
+            const poIn = prod.isRawMaterial ? purchaseOrders
                 .filter((po) => po.status === 'Received')
                 .flatMap((po) => po.items)
                 .filter((it) => isMatch(it.productId, it.name))
-                .reduce((s, it) => s + (it.receivedQty !== undefined ? it.receivedQty : it.qty), 0);
-            const invOut = invoices
+                .reduce((s, it) => s + (it.receivedQty !== undefined ? it.receivedQty : it.qty), 0) : 0;
+            const invOut = !prod.isRawMaterial ? invoices
                 .flatMap((inv) => inv.items)
                 .filter((it) => isMatch(it.productId, it.name))
-                .reduce((s, it) => s + (Number(it.qty) || 0), 0);
+                .reduce((s, it) => s + (Number(it.qty) || 0), 0) : 0;
             const totalIn = Math.max(inMovements, poIn);
-            const totalOut = Math.max(outMovements, invOut);
+            const totalOut = prod.isRawMaterial ? outMovements : Math.max(outMovements, invOut);
             const currentClosing = (prod.stockOffice || 0) + (prod.stockFactory || 0);
             // Compute Opening Stock as: Closing + Out - In
             // (ensuring non-negative logical opening)
